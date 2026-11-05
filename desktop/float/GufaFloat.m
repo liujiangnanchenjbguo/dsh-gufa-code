@@ -203,6 +203,8 @@
     [menu addItemWithTitle:@"关闭悬浮层" action:@selector(quitApp:) keyEquivalent:@""].target = self;
     self.mainMenu = menu;
     self.statusItem.menu = menu;
+    /* buildWindow 先于 buildStatusItem 执行，这里补挂右键菜单 */
+    self.dragStrip.menu = menu;
 }
 
 - (void)loadWebContent {
