@@ -46,6 +46,30 @@ G.portal = (function createPortalHelper() {
 })()
 G.hooks = { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect }
 
+/* ── 悬浮层状态：helper 通过 URL 参数 ?gufa-state=<base64url(JSON)> 传主窗口快照 ── */
+G.floatState = (function readFloatState() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return null
+  try {
+    const raw = new URLSearchParams(window.location.search).get('gufa-state')
+    if (raw === null || raw === '') {
+      try {
+        const stored = localStorage.getItem('gufa-code:float-state')
+        return stored === null ? null : JSON.parse(stored)
+      } catch {
+        return null
+      }
+    }
+    const base64 = raw.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const binary = atob(padded)
+    const bytes = Uint8Array.from(binary, (chunk) => chunk.charCodeAt(0))
+    const text = new TextDecoder().decode(bytes)
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+})()
+
 /* ── 事件总线（零件之间解耦：SSH → 终端 发送命令等） ───────────────────── */
 G.bus = (function createBus() {
   const listeners = new Map()
@@ -9670,7 +9694,9 @@ G.GufaApp = function GufaApp(props) {
     bootedRef.current = true
     let cancelled = false
     void (async () => {
-      const saved = readJson(GUFA_LS.project)
+      const saved = floatState !== null && floatState !== undefined && typeof floatState.projectRoot === 'string' && floatState.projectRoot !== ''
+        ? floatState.projectRoot
+        : readJson(GUFA_LS.project)
       if (typeof saved === 'string' && saved !== '') {
         try {
           const value = await G.api('project.open', { path: saved })
@@ -9680,6 +9706,7 @@ G.GufaApp = function GufaApp(props) {
           writeJson(GUFA_LS.project, null)
         }
       }
+      if (G.floatState !== null && G.floatState !== undefined) return
       if (typeof sessionCwd === 'string' && sessionCwd !== '') {
         try {
           const value = await G.api('project.open', { path: sessionCwd })
@@ -10288,12 +10315,23 @@ G.GufaApp = function GufaApp(props) {
     if (floatBusy || target === null || target === undefined) return
     setFloatBusy(true)
     try {
+      const floatState = {
+        projectRoot: project !== null && typeof project.root === 'string' ? project.root : null,
+        activePath: typeof activePath === 'string' ? activePath : null,
+        tabs: tabs
+          .filter((tab) => tab !== null && tab !== undefined && typeof tab.path === 'string' && tab.kind !== 'diff' && tab.kind !== 'graph')
+          .map((tab) => tab.path)
+          .slice(0, 10),
+        ui: readJson(GUFA_LS.ui) ?? {},
+        sessionId: typeof currentSessionId === 'string' ? currentSessionId : null,
+      }
       const value = await G.api('float.start', {
         follow: {
           pid: Number(target.pid) || 0,
           bundleId: typeof target.bundleId === 'string' ? target.bundleId : '',
           title: '',
         },
+        state: floatState,
       })
       setFloatRunning(value?.running === true)
       setFloatPicker(null)
@@ -10333,6 +10371,7 @@ G.GufaApp = function GufaApp(props) {
   const dockSyncRef = useRef('')
   useEffect(() => {
     if (sessionPinnedRef.current === true) return undefined
+    if (G.floatState !== null && G.floatState !== undefined) return undefined
     if (project === null || typeof project.root !== 'string' || project.root === '') return undefined
     if (dockSyncRef.current === project.root) return undefined
     if (typeof sessionCwd === 'string' && sessionCwd !== '' && sessionCwd === project.root) {
@@ -10377,6 +10416,11 @@ G.GufaApp = function GufaApp(props) {
   const entryWorkspaceSyncedRef = useRef(false)
   useEffect(() => {
     if (entryWorkspaceSyncedRef.current) return
+    /* 悬浮层：项目/会话由主窗口状态注入，不做「入口工作区」同步，避免被会话 cwd 覆盖 */
+    if (G.floatState !== null && G.floatState !== undefined) {
+      entryWorkspaceSyncedRef.current = true
+      return
+    }
     if (project === null) return
     const pending = G.pendingEntryWorkspace
     if (pending === null || pending === undefined || typeof pending.key !== 'string') {
@@ -10695,6 +10739,11 @@ G.GufaApp = function GufaApp(props) {
   const lastSessionCwdRef = useRef(null)
   useEffect(() => {
     if (sessionPinnedRef.current === true) return
+    /* 悬浮层里项目由主窗口状态注入，不跟随（Web 版客户端自己的）会话 cwd 切换 */
+    if (G.floatState !== null && G.floatState !== undefined) {
+      lastSessionCwdRef.current = sessionCwd
+      return
+    }
     if (typeof sessionCwd !== 'string' || sessionCwd === '') return
     const previous = lastSessionCwdRef.current
     lastSessionCwdRef.current = sessionCwd
@@ -10888,6 +10937,38 @@ G.GufaApp = function GufaApp(props) {
       }
     })()
   }, [project])
+
+  /* 悬浮窗：恢复主窗口带过来的打开的标签页（只恢复普通文件，diff/graph 跳过） */
+  const floatTabsRestoredRef = useRef(false)
+  useEffect(() => {
+    if (floatTabsRestoredRef.current) return
+    if (project === null) return
+    let state = null
+    state = G.floatState
+    if (state === null || typeof state !== 'object') return
+    floatTabsRestoredRef.current = true
+    const paths = Array.isArray(state.tabs) ? state.tabs.filter((path) => typeof path === 'string' && path !== '') : []
+    const ordered = paths.filter((path) => path !== state.activePath).concat(
+      typeof state.activePath === 'string' && state.activePath !== '' ? [state.activePath] : [],
+    )
+    void (async () => {
+      for (const path of ordered.slice(0, 10)) {
+        try {
+          await openFile(path)
+        } catch {
+          /* 文件可能已被删除，忽略 */
+        }
+      }
+    })()
+  }, [project, openFile])
+
+  /* 悬浮层恢复入口：主窗口把状态带过来后，由 99-main 显式调用（不依赖 App 自己的启动时序） */
+  useEffect(() => {
+    G.floatRestoreRef = { applyProject, openFile }
+    return () => {
+      if (G.floatRestoreRef !== undefined && G.floatRestoreRef !== null && G.floatRestoreRef.applyProject === applyProject) G.floatRestoreRef = null
+    }
+  }, [applyProject, openFile])
 
   const activeFileForChat = useMemo(() => {
     if (activeTab === null || activeTab.kind === 'diff' || activeTab.kind === 'graph') return null
@@ -12247,6 +12328,67 @@ const GUFA_PLUGIN = {
           if (document.querySelector('.gufa-overlay-root') !== null || attempts > 40) {
             document.documentElement.removeAttribute('data-gufa-booting')
             window.clearInterval(timer)
+            /* 显式恢复主窗口状态（项目 → 标签页 → 会话），避免依赖 Web 版 App 的启动时序 */
+            try {
+              if (window.__gufaFloatRestored !== true && G.floatState !== null && G.floatState !== undefined) {
+                window.__gufaFloatRestored = true
+                void (async () => {
+                  const state = G.floatState
+                  let projectValue = null
+                  if (typeof state.projectRoot === 'string' && state.projectRoot !== '') {
+                    try {
+                      projectValue = await G.api('project.open', { path: state.projectRoot })
+                    } catch {
+                      projectValue = null
+                    }
+                  }
+                  const restore = G.floatRestoreRef
+                  if (projectValue !== null && restore !== null && restore !== undefined && typeof restore.applyProject === 'function') {
+                    restore.applyProject(projectValue)
+                  }
+                  await new Promise((resolve) => setTimeout(resolve, 350))
+                  const paths = Array.isArray(state.tabs) ? state.tabs.filter((path) => typeof path === 'string' && path !== '') : []
+                  const ordered = typeof state.activePath === 'string' && state.activePath !== ''
+                    ? paths.filter((path) => path !== state.activePath).concat([state.activePath])
+                    : paths
+                  const openFile = restore !== null && restore !== undefined && typeof restore.openFile === 'function' ? restore.openFile : null
+                  if (openFile !== null) {
+                    for (const path of ordered.slice(0, 10)) {
+                      try {
+                        await openFile(path)
+                      } catch {
+                        /* ignore */
+                      }
+                    }
+                  }
+                  if (typeof state.sessionId === 'string' && state.sessionId !== '') {
+                    try {
+                      const workspace = G.ctx === null || G.ctx === undefined ? undefined : G.ctx.get('uiWorkspace')
+                      if (workspace !== undefined && workspace !== null && typeof workspace.openSession === 'function') workspace.openSession(state.sessionId)
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                })()
+              }
+            } catch {
+              /* ignore */
+            }
+            /* 恢复主窗口带过来的当前会话（悬浮窗是独立客户端实例，需要主动选中同一会话） */
+            try {
+              const parsedState = G.floatState
+              const sessionId = parsedState !== null && typeof parsedState.sessionId === 'string' ? parsedState.sessionId : ''
+              if (sessionId !== '') {
+                const workspace = G.ctx === null || G.ctx === undefined ? undefined : G.ctx.get('uiWorkspace')
+                if (workspace !== undefined && workspace !== null && typeof workspace.openSession === 'function') {
+                  window.setTimeout(() => {
+                    try { workspace.openSession(sessionId) } catch { /* ignore */ }
+                  }, 600)
+                }
+              }
+            } catch {
+              /* ignore */
+            }
           }
         }, 250)
         ctx.effect(() => () => {

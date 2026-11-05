@@ -253,7 +253,9 @@ G.GufaApp = function GufaApp(props) {
     bootedRef.current = true
     let cancelled = false
     void (async () => {
-      const saved = readJson(GUFA_LS.project)
+      const saved = floatState !== null && floatState !== undefined && typeof floatState.projectRoot === 'string' && floatState.projectRoot !== ''
+        ? floatState.projectRoot
+        : readJson(GUFA_LS.project)
       if (typeof saved === 'string' && saved !== '') {
         try {
           const value = await G.api('project.open', { path: saved })
@@ -263,6 +265,7 @@ G.GufaApp = function GufaApp(props) {
           writeJson(GUFA_LS.project, null)
         }
       }
+      if (G.floatState !== null && G.floatState !== undefined) return
       if (typeof sessionCwd === 'string' && sessionCwd !== '') {
         try {
           const value = await G.api('project.open', { path: sessionCwd })
@@ -871,12 +874,23 @@ G.GufaApp = function GufaApp(props) {
     if (floatBusy || target === null || target === undefined) return
     setFloatBusy(true)
     try {
+      const floatState = {
+        projectRoot: project !== null && typeof project.root === 'string' ? project.root : null,
+        activePath: typeof activePath === 'string' ? activePath : null,
+        tabs: tabs
+          .filter((tab) => tab !== null && tab !== undefined && typeof tab.path === 'string' && tab.kind !== 'diff' && tab.kind !== 'graph')
+          .map((tab) => tab.path)
+          .slice(0, 10),
+        ui: readJson(GUFA_LS.ui) ?? {},
+        sessionId: typeof currentSessionId === 'string' ? currentSessionId : null,
+      }
       const value = await G.api('float.start', {
         follow: {
           pid: Number(target.pid) || 0,
           bundleId: typeof target.bundleId === 'string' ? target.bundleId : '',
           title: '',
         },
+        state: floatState,
       })
       setFloatRunning(value?.running === true)
       setFloatPicker(null)
@@ -916,6 +930,7 @@ G.GufaApp = function GufaApp(props) {
   const dockSyncRef = useRef('')
   useEffect(() => {
     if (sessionPinnedRef.current === true) return undefined
+    if (G.floatState !== null && G.floatState !== undefined) return undefined
     if (project === null || typeof project.root !== 'string' || project.root === '') return undefined
     if (dockSyncRef.current === project.root) return undefined
     if (typeof sessionCwd === 'string' && sessionCwd !== '' && sessionCwd === project.root) {
@@ -960,6 +975,11 @@ G.GufaApp = function GufaApp(props) {
   const entryWorkspaceSyncedRef = useRef(false)
   useEffect(() => {
     if (entryWorkspaceSyncedRef.current) return
+    /* 悬浮层：项目/会话由主窗口状态注入，不做「入口工作区」同步，避免被会话 cwd 覆盖 */
+    if (G.floatState !== null && G.floatState !== undefined) {
+      entryWorkspaceSyncedRef.current = true
+      return
+    }
     if (project === null) return
     const pending = G.pendingEntryWorkspace
     if (pending === null || pending === undefined || typeof pending.key !== 'string') {
@@ -1278,6 +1298,11 @@ G.GufaApp = function GufaApp(props) {
   const lastSessionCwdRef = useRef(null)
   useEffect(() => {
     if (sessionPinnedRef.current === true) return
+    /* 悬浮层里项目由主窗口状态注入，不跟随（Web 版客户端自己的）会话 cwd 切换 */
+    if (G.floatState !== null && G.floatState !== undefined) {
+      lastSessionCwdRef.current = sessionCwd
+      return
+    }
     if (typeof sessionCwd !== 'string' || sessionCwd === '') return
     const previous = lastSessionCwdRef.current
     lastSessionCwdRef.current = sessionCwd
@@ -1471,6 +1496,38 @@ G.GufaApp = function GufaApp(props) {
       }
     })()
   }, [project])
+
+  /* 悬浮窗：恢复主窗口带过来的打开的标签页（只恢复普通文件，diff/graph 跳过） */
+  const floatTabsRestoredRef = useRef(false)
+  useEffect(() => {
+    if (floatTabsRestoredRef.current) return
+    if (project === null) return
+    let state = null
+    state = G.floatState
+    if (state === null || typeof state !== 'object') return
+    floatTabsRestoredRef.current = true
+    const paths = Array.isArray(state.tabs) ? state.tabs.filter((path) => typeof path === 'string' && path !== '') : []
+    const ordered = paths.filter((path) => path !== state.activePath).concat(
+      typeof state.activePath === 'string' && state.activePath !== '' ? [state.activePath] : [],
+    )
+    void (async () => {
+      for (const path of ordered.slice(0, 10)) {
+        try {
+          await openFile(path)
+        } catch {
+          /* 文件可能已被删除，忽略 */
+        }
+      }
+    })()
+  }, [project, openFile])
+
+  /* 悬浮层恢复入口：主窗口把状态带过来后，由 99-main 显式调用（不依赖 App 自己的启动时序） */
+  useEffect(() => {
+    G.floatRestoreRef = { applyProject, openFile }
+    return () => {
+      if (G.floatRestoreRef !== undefined && G.floatRestoreRef !== null && G.floatRestoreRef.applyProject === applyProject) G.floatRestoreRef = null
+    }
+  }, [applyProject, openFile])
 
   const activeFileForChat = useMemo(() => {
     if (activeTab === null || activeTab.kind === 'diff' || activeTab.kind === 'graph') return null

@@ -38,6 +38,30 @@ G.portal = (function createPortalHelper() {
 })()
 G.hooks = { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect }
 
+/* ── 悬浮层状态：helper 通过 URL 参数 ?gufa-state=<base64url(JSON)> 传主窗口快照 ── */
+G.floatState = (function readFloatState() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return null
+  try {
+    const raw = new URLSearchParams(window.location.search).get('gufa-state')
+    if (raw === null || raw === '') {
+      try {
+        const stored = localStorage.getItem('gufa-code:float-state')
+        return stored === null ? null : JSON.parse(stored)
+      } catch {
+        return null
+      }
+    }
+    const base64 = raw.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const binary = atob(padded)
+    const bytes = Uint8Array.from(binary, (chunk) => chunk.charCodeAt(0))
+    const text = new TextDecoder().decode(bytes)
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+})()
+
 /* ── 事件总线（零件之间解耦：SSH → 终端 发送命令等） ───────────────────── */
 G.bus = (function createBus() {
   const listeners = new Map()

@@ -244,10 +244,12 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.window.opaque = NO;
     self.window.backgroundColor = NSColor.clearColor;
     self.window.hasShadow = YES;
-    self.window.level = NSFloatingWindowLevel + 1;
+    /* 高于普通浮动窗口（歌词、置顶小工具等），确保真正盖住被跟随的 App */
+    self.window.level = NSStatusWindowLevel;
     self.window.collectionBehavior = (NSWindowCollectionBehaviorCanJoinAllSpaces
                                       | NSWindowCollectionBehaviorFullScreenAuxiliary
-                                      | NSWindowCollectionBehaviorStationary);
+                                      | NSWindowCollectionBehaviorStationary
+                                      | NSWindowCollectionBehaviorIgnoresCycle);
     self.window.minSize = NSMakeSize(520, 360);
     self.window.title = @"古法编程悬浮层";
 
@@ -257,8 +259,39 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
-    /* URL query 可能被 DSH 的浏览器端路由吞掉，这里在文档开始前写一个标记，客户端据此进入悬浮模式 */
-    WKUserScript *floatMarker = [[WKUserScript alloc] initWithSource:@"try{localStorage.setItem('gufa-code:float','1')}catch(e){}"
+    /* 文档开始前注入：悬浮模式标记 + 主窗口状态（项目/UI 布局/打开的标签页/会话），
+       让悬浮窗里的古法编程「接着主窗口继续干活」，而不是一个空白的新实例。 */
+    NSMutableString *bootstrap = [NSMutableString stringWithString:@"try{localStorage.setItem('gufa-code:float','1');"];
+    NSDictionary *state = [self.options[@"state"] isKindOfClass:[NSDictionary class]] ? self.options[@"state"] : nil;
+    if (state != nil) {
+        NSData *stateJson = [NSJSONSerialization dataWithJSONObject:state options:0 error:NULL];
+        if (stateJson != nil) {
+            NSString *stateText = [[NSString alloc] initWithData:stateJson encoding:NSUTF8StringEncoding];
+            NSString *escaped = [stateText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+            escaped = [escaped stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+            escaped = [escaped stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+            escaped = [escaped stringByReplacingOccurrencesOfString:@"\r" withString:@""];
+            [bootstrap appendFormat:@"localStorage.setItem('gufa-code:float-state','%@');", escaped];
+            NSString *projectRoot = [state[@"projectRoot"] isKindOfClass:[NSString class]] ? state[@"projectRoot"] : @"";
+            if (projectRoot.length > 0) {
+                NSString *projectEscaped = [projectRoot stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+                projectEscaped = [projectEscaped stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+                [bootstrap appendFormat:@"localStorage.setItem('gufa-code:project','\"%@\"');", projectEscaped];
+            }
+            NSDictionary *ui = [state[@"ui"] isKindOfClass:[NSDictionary class]] ? state[@"ui"] : nil;
+            if (ui != nil) {
+                NSData *uiJson = [NSJSONSerialization dataWithJSONObject:ui options:0 error:NULL];
+                if (uiJson != nil) {
+                    NSString *uiText = [[NSString alloc] initWithData:uiJson encoding:NSUTF8StringEncoding];
+                    NSString *uiEscaped = [uiText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+                    uiEscaped = [uiEscaped stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+                    [bootstrap appendFormat:@"localStorage.setItem('gufa-code:ui:v1','%@');", uiEscaped];
+                }
+            }
+        }
+    }
+    [bootstrap appendString:@"}catch(e){}"];
+    WKUserScript *floatMarker = [[WKUserScript alloc] initWithSource:bootstrap
                                                        injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                     forMainFrameOnly:YES];
     [config.userContentController addUserScript:floatMarker];
@@ -317,14 +350,28 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.navigation.pendingLoad = ^{
         __strong typeof(weakSelf) self = weakSelf;
         if (self == nil) return;
-        NSURLComponents *components = [NSURLComponents componentsWithString:appUrl];
-        components.queryItems = @[[NSURLQueryItem queryItemWithName:@"gufa-float" value:@"1"]];
-        NSURL *clean = components.URL;
-        if (clean != nil && ![clean.absoluteString isEqualToString:self.webView.URL.absoluteString]) {
-            [self.webView loadRequest:[NSURLRequest requestWithURL:clean]];
+        /* 鉴权 cookie 已在 token URL 重定向时写入；这里用 JS 写 localStorage（避开 URL 长度/转义问题），
+           再跳到带 gufa-float 标记的干净地址，客户端据此自动进入摸鱼模式并恢复状态。 */
+        NSMutableString *js = [NSMutableString stringWithString:@"try{"];
+        NSDictionary *state = [self.options[@"state"] isKindOfClass:[NSDictionary class]] ? self.options[@"state"] : nil;
+        if (state != nil) {
+            NSData *stateJson = [NSJSONSerialization dataWithJSONObject:state options:0 error:NULL];
+            NSString *stateText = stateJson != nil ? [[NSString alloc] initWithData:stateJson encoding:NSUTF8StringEncoding] : @"";
+            if (stateText.length > 0) {
+                NSData *quoted = [NSJSONSerialization dataWithJSONObject:@[stateText] options:0 error:NULL];
+                NSString *arrayLiteral = quoted != nil ? [[NSString alloc] initWithData:quoted encoding:NSUTF8StringEncoding] : @"[]";
+                /* arrayLiteral = ["{\"projectRoot\":...}"] */
+                if (arrayLiteral.length >= 2) {
+                    NSString *stateLiteral = [arrayLiteral substringWithRange:NSMakeRange(1, arrayLiteral.length - 2)];
+                    [js appendFormat:@"localStorage.setItem('gufa-code:float-state', %@);", stateLiteral];
+                }
+            }
         }
+        [js appendString:@"localStorage.setItem('gufa-code:float','1');location.href='/?gufa-float=1';}catch(e){}"];
+        [self.webView evaluateJavaScript:js completionHandler:nil];
     };
     [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:authUrl]]];
+
 }
 
 - (void)saveFrame {
@@ -386,8 +433,12 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.statusItem.button.title = self.clickThrough ? @"古法·穿透" : @"古法";
 }
 
+/* 只重启定时器，不动 following/窗口引用（stopFollowTimer 会清状态，不能在这里调） */
 - (void)startFollowTimer {
-    [self stopFollowTimer];
+    if (self.followTimer != nil) {
+        [self.followTimer invalidate];
+        self.followTimer = nil;
+    }
     __weak typeof(self) weakSelf = self;
     self.followTimer = [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *timer) {
         __strong typeof(weakSelf) self = weakSelf;
@@ -427,7 +478,18 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     }
     CGFloat screenHeight = NSScreen.mainScreen.frame.size.height;
     NSRect frame = NSMakeRect(target.origin.x, screenHeight - target.origin.y - target.size.height, target.size.width, target.size.height);
+    static int applyLogCount = 0;
+    if (applyLogCount < 6) {
+        applyLogCount += 1;
+        GufaLog(@"follow-apply target=%.0f,%.0f %.0fx%.0f -> frame=%.0f,%.0f %.0fx%.0f", target.origin.x, target.origin.y, target.size.width, target.size.height, frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
+    }
     [self.window setFrame:frame display:YES animate:NO];
+    static int verifyLogCount = 0;
+    if (verifyLogCount < 3) {
+        verifyLogCount += 1;
+        NSRect actual = self.window.frame;
+        GufaLog(@"follow-applied actual=%.0f,%.0f %.0fx%.0f", actual.origin.x, actual.origin.y, actual.size.width, actual.size.height);
+    }
 }
 
 /* 全局快捷键 ⌃⌥⌘G（四键，避免冲突）：穿透后窗口收不到鼠标事件，靠它切回来（Carbon 热键不需要辅助功能权限） */

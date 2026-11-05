@@ -45,6 +45,7 @@ export function register(router, env) {
   const startedAt = new Date().toISOString()
   const ctx = env?.ctx ?? router.ctx
 
+
   /* ── 桌面悬浮层 / 摸鱼模式（macOS） ────────────────────────────────
    * 通过 .app bundle 启动 helper：TCC（屏幕录制）按 bundle 身份授权，
    * 用户在「系统设置 → 隐私与安全性 → 屏幕录制」里添加「古法编程悬浮层.app」即可。
@@ -212,7 +213,13 @@ export function register(router, env) {
     }
     const base = `${webServer.protocol}//127.0.0.1:${String(webServer.port)}`
     const authUrl = connection.authenticatedUrl(`${base}/`)
-    const payload = JSON.stringify({ authUrl, appUrl: `${base}/`, follow: follow !== null && follow.pid > 0 ? follow : undefined })
+    const state = body !== null && typeof body === 'object' && body.state !== null && typeof body.state === 'object' ? body.state : null
+    const payload = JSON.stringify({
+      authUrl,
+      appUrl: `${base}/`,
+      follow: follow !== null && follow.pid > 0 ? follow : undefined,
+      state: state ?? undefined,
+    })
     const binary = floatBinaryPath()
     if (binary === null) throw new ApiError('missing-helper', '悬浮层程序未构建', 500)
     const child = spawn(binary, [payload], { detached: true, stdio: 'ignore' })
