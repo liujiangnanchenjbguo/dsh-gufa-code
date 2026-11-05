@@ -12,6 +12,13 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <Carbon/Carbon.h>
+
+static const EventHotKeyID GufaToggleHotKey = {'gufa', 1};
+
+@class GufaAppDelegate;
+
+static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef event, void *userData);
 
 @interface GufaDragStrip : NSView
 @property (nonatomic, weak) id doubleClickTarget;
@@ -29,7 +36,7 @@
         NSFontAttributeName: [NSFont systemFontOfSize:10 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:1.0 alpha:0.6],
     };
-    NSString *label = @"古法编程 · 悬浮层（拖动移动 · 双击穿透 · 右键菜单）";
+    NSString *label = @"古法编程 · 悬浮层（拖动移动 · 双击穿透 · 右键菜单 · ⌥⌘G 切穿透）";
     NSSize size = [label sizeWithAttributes:attrs];
     NSPoint origin = NSMakePoint(floor((self.bounds.size.width - size.width) / 2.0), floor((self.bounds.size.height - size.height) / 2.0));
     [label drawAtPoint:origin withAttributes:attrs];
@@ -77,12 +84,14 @@
 @property (nonatomic, strong) NSString *frameKey;
 @property (nonatomic, strong) GufaNavigationDelegate *navigation;
 @property (nonatomic, strong) NSDictionary *options;
+@property (nonatomic, assign) EventHotKeyRef hotKeyRef;
 @property (nonatomic, assign) BOOL following;
 @property (nonatomic, assign) int followWindowNumber;
 @property (nonatomic, assign) pid_t followOwnerPID;
 @property (nonatomic, strong) NSTimer *followTimer;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *windowCandidates;
 - (void)loadWebContent;
+- (void)registerToggleHotKey;
 - (void)toggleClickThrough:(id)sender;
 - (void)resetFrame:(id)sender;
 - (void)quitApp:(id)sender;
@@ -110,6 +119,7 @@
     [self parseOptions];
     [self buildWindow];
     [self buildStatusItem];
+    [self registerToggleHotKey];
     [self loadWebContent];
 }
 
@@ -197,7 +207,7 @@
     [menu addItemWithTitle:@"跟随 App 窗口…（需屏幕录制权限）" action:@selector(chooseFollowWindow:) keyEquivalent:@""].target = self;
     [menu addItemWithTitle:@"停止跟随" action:@selector(stopFollow:) keyEquivalent:@""].target = self;
     [menu addItem:[NSMenuItem separatorItem]];
-    [menu addItemWithTitle:@"切换点击穿透（穿透后鼠标可操作下层 App）" action:@selector(toggleClickThrough:) keyEquivalent:@""].target = self;
+    [menu addItemWithTitle:@"切换点击穿透（⌥⌘G）" action:@selector(toggleClickThrough:) keyEquivalent:@""].target = self;
     [menu addItemWithTitle:@"重置窗口位置和大小" action:@selector(resetFrame:) keyEquivalent:@""].target = self;
     [menu addItem:[NSMenuItem separatorItem]];
     [menu addItemWithTitle:@"关闭悬浮层" action:@selector(quitApp:) keyEquivalent:@""].target = self;
@@ -379,6 +389,13 @@
     [self saveFrame];
 }
 
+/* 全局快捷键 ⌥⌘G：穿透后窗口收不到鼠标事件，靠它切回来（Carbon 热键不需要辅助功能权限） */
+- (void)registerToggleHotKey {
+    EventTypeSpec spec = {kEventClassKeyboard, kEventHotKeyPressed};
+    InstallApplicationEventHandler(NewEventHandlerUPP(GufaHotKeyHandler), 1, &spec, (__bridge void *)self, NULL);
+    RegisterEventHotKey(kVK_ANSI_G, cmdKey | optionKey, GufaToggleHotKey, GetApplicationEventTarget(), 0, &_hotKeyRef);
+}
+
 - (void)toggleClickThrough:(id)sender {
     self.clickThrough = !self.clickThrough;
     self.window.ignoresMouseEvents = self.clickThrough;
@@ -405,6 +422,14 @@
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
 
 @end
+
+static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef event, void *userData) {
+    (void)nextHandler;
+    (void)event;
+    GufaAppDelegate *self = (__bridge GufaAppDelegate *)userData;
+    [self toggleClickThrough:nil];
+    return noErr;
+}
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {

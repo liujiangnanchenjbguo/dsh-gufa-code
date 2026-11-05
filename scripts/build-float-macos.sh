@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 mkdir -p desktop/float/bin
 ARCH="$(uname -m)"
 OUT="desktop/float/bin/gufa-float-macos-${ARCH}"
-clang -fobjc-arc -O2 -framework AppKit -framework WebKit -o "$OUT" desktop/float/GufaFloat.m
+clang -fobjc-arc -O2 -framework AppKit -framework WebKit -framework Carbon -o "$OUT" desktop/float/GufaFloat.m
 chmod +x "$OUT"
 codesign --force --sign - "$OUT" >/dev/null 2>&1 || true
 echo "built: $OUT"
