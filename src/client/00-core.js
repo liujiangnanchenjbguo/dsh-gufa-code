@@ -1078,6 +1078,19 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+.gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
+  color:var(--gufa-text-dim);border-radius:7px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer;max-width:260px}
+.gufa-session-workspace-btn:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-session-workspace-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-session-workspace-picker{display:flex;flex-direction:column;gap:2px;padding:6px 10px;max-height:220px;overflow:auto;
+  border-top:1px solid var(--gufa-border);border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer)}
+.gufa-session-workspace-option{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;
+  background:transparent;color:var(--gufa-text);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.gufa-session-workspace-option:hover{background:var(--gufa-hover)}
+.gufa-session-workspace-option[data-current]{background:var(--gufa-active)}
+.gufa-session-workspace-option-title{flex:0 0 auto;font-weight:550}
+.gufa-session-workspace-option-path{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--gufa-text-dim);font-size:10.5px;text-align:right}
 .gufa-session-workspace{font-size:11px;color:var(--gufa-text-dim);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-session-row-title{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
 .gufa-session-row-when{flex:0 0 auto;font-size:10.5px;color:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary));font-variant-numeric:tabular-nums}
@@ -1121,6 +1134,19 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+.gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
+  color:var(--gufa-text-dim);border-radius:7px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer;max-width:260px}
+.gufa-session-workspace-btn:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-session-workspace-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-session-workspace-picker{display:flex;flex-direction:column;gap:2px;padding:6px 10px;max-height:220px;overflow:auto;
+  border-top:1px solid var(--gufa-border);border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer)}
+.gufa-session-workspace-option{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;
+  background:transparent;color:var(--gufa-text);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.gufa-session-workspace-option:hover{background:var(--gufa-hover)}
+.gufa-session-workspace-option[data-current]{background:var(--gufa-active)}
+.gufa-session-workspace-option-title{flex:0 0 auto;font-weight:550}
+.gufa-session-workspace-option-path{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--gufa-text-dim);font-size:10.5px;text-align:right}
 .gufa-session-workspace{font-size:11px;color:var(--gufa-text-dim);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-session-row-title{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
 .gufa-session-row-when{flex:0 0 auto;font-size:10.5px;color:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary));font-variant-numeric:tabular-nums}
@@ -1164,6 +1190,19 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+.gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
+  color:var(--gufa-text-dim);border-radius:7px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer;max-width:260px}
+.gufa-session-workspace-btn:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-session-workspace-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-session-workspace-picker{display:flex;flex-direction:column;gap:2px;padding:6px 10px;max-height:220px;overflow:auto;
+  border-top:1px solid var(--gufa-border);border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer)}
+.gufa-session-workspace-option{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;
+  background:transparent;color:var(--gufa-text);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.gufa-session-workspace-option:hover{background:var(--gufa-hover)}
+.gufa-session-workspace-option[data-current]{background:var(--gufa-active)}
+.gufa-session-workspace-option-title{flex:0 0 auto;font-weight:550}
+.gufa-session-workspace-option-path{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--gufa-text-dim);font-size:10.5px;text-align:right}
 .gufa-session-workspace{font-size:11px;color:var(--gufa-text-dim);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-session-row-title{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
 .gufa-session-row-when{flex:0 0 auto;font-size:10.5px;color:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary));font-variant-numeric:tabular-nums}
@@ -1207,6 +1246,19 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+.gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
+  color:var(--gufa-text-dim);border-radius:7px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer;max-width:260px}
+.gufa-session-workspace-btn:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-session-workspace-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-session-workspace-picker{display:flex;flex-direction:column;gap:2px;padding:6px 10px;max-height:220px;overflow:auto;
+  border-top:1px solid var(--gufa-border);border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer)}
+.gufa-session-workspace-option{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;
+  background:transparent;color:var(--gufa-text);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.gufa-session-workspace-option:hover{background:var(--gufa-hover)}
+.gufa-session-workspace-option[data-current]{background:var(--gufa-active)}
+.gufa-session-workspace-option-title{flex:0 0 auto;font-weight:550}
+.gufa-session-workspace-option-path{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--gufa-text-dim);font-size:10.5px;text-align:right}
 .gufa-session-workspace{font-size:11px;color:var(--gufa-text-dim);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-session-row-title{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
 .gufa-session-row-when{flex:0 0 auto;font-size:10.5px;color:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary));font-variant-numeric:tabular-nums}

@@ -1086,6 +1086,19 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+.gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
+  color:var(--gufa-text-dim);border-radius:7px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer;max-width:260px}
+.gufa-session-workspace-btn:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-session-workspace-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-session-workspace-picker{display:flex;flex-direction:column;gap:2px;padding:6px 10px;max-height:220px;overflow:auto;
+  border-top:1px solid var(--gufa-border);border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer)}
+.gufa-session-workspace-option{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;
+  background:transparent;color:var(--gufa-text);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.gufa-session-workspace-option:hover{background:var(--gufa-hover)}
+.gufa-session-workspace-option[data-current]{background:var(--gufa-active)}
+.gufa-session-workspace-option-title{flex:0 0 auto;font-weight:550}
+.gufa-session-workspace-option-path{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--gufa-text-dim);font-size:10.5px;text-align:right}
 .gufa-session-workspace{font-size:11px;color:var(--gufa-text-dim);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-session-row-title{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
 .gufa-session-row-when{flex:0 0 auto;font-size:10.5px;color:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary));font-variant-numeric:tabular-nums}
@@ -1129,6 +1142,19 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+.gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
+  color:var(--gufa-text-dim);border-radius:7px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer;max-width:260px}
+.gufa-session-workspace-btn:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-session-workspace-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-session-workspace-picker{display:flex;flex-direction:column;gap:2px;padding:6px 10px;max-height:220px;overflow:auto;
+  border-top:1px solid var(--gufa-border);border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer)}
+.gufa-session-workspace-option{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;
+  background:transparent;color:var(--gufa-text);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.gufa-session-workspace-option:hover{background:var(--gufa-hover)}
+.gufa-session-workspace-option[data-current]{background:var(--gufa-active)}
+.gufa-session-workspace-option-title{flex:0 0 auto;font-weight:550}
+.gufa-session-workspace-option-path{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--gufa-text-dim);font-size:10.5px;text-align:right}
 .gufa-session-workspace{font-size:11px;color:var(--gufa-text-dim);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-session-row-title{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
 .gufa-session-row-when{flex:0 0 auto;font-size:10.5px;color:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary));font-variant-numeric:tabular-nums}
@@ -1172,6 +1198,19 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+.gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
+  color:var(--gufa-text-dim);border-radius:7px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer;max-width:260px}
+.gufa-session-workspace-btn:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-session-workspace-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-session-workspace-picker{display:flex;flex-direction:column;gap:2px;padding:6px 10px;max-height:220px;overflow:auto;
+  border-top:1px solid var(--gufa-border);border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer)}
+.gufa-session-workspace-option{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;
+  background:transparent;color:var(--gufa-text);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.gufa-session-workspace-option:hover{background:var(--gufa-hover)}
+.gufa-session-workspace-option[data-current]{background:var(--gufa-active)}
+.gufa-session-workspace-option-title{flex:0 0 auto;font-weight:550}
+.gufa-session-workspace-option-path{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--gufa-text-dim);font-size:10.5px;text-align:right}
 .gufa-session-workspace{font-size:11px;color:var(--gufa-text-dim);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-session-row-title{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
 .gufa-session-row-when{flex:0 0 auto;font-size:10.5px;color:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary));font-variant-numeric:tabular-nums}
@@ -1215,6 +1254,19 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+.gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
+  color:var(--gufa-text-dim);border-radius:7px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer;max-width:260px}
+.gufa-session-workspace-btn:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-session-workspace-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-session-workspace-picker{display:flex;flex-direction:column;gap:2px;padding:6px 10px;max-height:220px;overflow:auto;
+  border-top:1px solid var(--gufa-border);border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer)}
+.gufa-session-workspace-option{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:7px;
+  background:transparent;color:var(--gufa-text);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.gufa-session-workspace-option:hover{background:var(--gufa-hover)}
+.gufa-session-workspace-option[data-current]{background:var(--gufa-active)}
+.gufa-session-workspace-option-title{flex:0 0 auto;font-weight:550}
+.gufa-session-workspace-option-path{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--gufa-text-dim);font-size:10.5px;text-align:right}
 .gufa-session-workspace{font-size:11px;color:var(--gufa-text-dim);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-session-row-title{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
 .gufa-session-row-when{flex:0 0 auto;font-size:10.5px;color:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary));font-variant-numeric:tabular-nums}
@@ -9281,6 +9333,9 @@ G.GufaApp = function GufaApp(props) {
   const sessionTitle = useSessions !== undefined ? useSessions(selectSessionTitle) : null
   const currentSessionId = useSessions !== undefined ? useSessions(selectMainSessionId) : null
   const [sessionsOpen, setSessionsOpen] = useState(false)
+  /* 会话弹窗里选中的工作区（null = 跟随当前 IDE 项目） */
+  const [sessionWorkspacePath, setSessionWorkspacePath] = useState(null)
+  const [sessionWorkspacePicker, setSessionWorkspacePicker] = useState(false)
   const recentSessionsJson = useSessions !== undefined ? useSessions(selectRecentSessionsJson) : '[]'
   const recentSessionsRaw = useMemo(() => {
     let parsed
@@ -10308,7 +10363,14 @@ G.GufaApp = function GufaApp(props) {
     setRecentCurrentIds((current) => (current.includes(currentSessionId) ? current : [currentSessionId, ...current].slice(0, 12)))
   }, [currentSessionId])
 
-  /* 切换会话弹窗：打开时向 Host 拉取「当前工作区的会话」（经典侧边栏同源数据） */
+  useEffect(() => {
+    if (sessionsOpen === true) return undefined
+    setSessionWorkspacePath(null)
+    setSessionWorkspacePicker(false)
+    return undefined
+  }, [sessionsOpen])
+
+  /* 切换会话弹窗：打开时向 Host 拉取「弹窗里选中工作区的会话」（经典侧边栏同源数据） */
   useEffect(() => {
     if (sessionsOpen !== true) return undefined
     if (project === null || typeof project.root !== 'string' || project.root === '') {
@@ -10316,10 +10378,11 @@ G.GufaApp = function GufaApp(props) {
       return undefined
     }
     let cancelled = false
+    const dialogPath = sessionWorkspacePath !== null && sessionWorkspacePath !== '' ? sessionWorkspacePath : project.root
     setWorkspaceSessions({ status: 'loading', sessions: [], groups: [] })
     void Promise.all([
       G.api('workspaces.list', {}).catch(() => ({ workspaces: [] })),
-      G.api('workspaces.sessions', { path: project.root, currentSessionId: currentSessionId ?? '' }).catch(() => ({ groups: [] })),
+      G.api('workspaces.sessions', { path: dialogPath, currentSessionId: currentSessionId ?? '' }).catch(() => ({ groups: [] })),
     ])
       .then(([listValue, sessionsValue]) => {
         if (cancelled) return
@@ -10333,7 +10396,7 @@ G.GufaApp = function GufaApp(props) {
         } catch {
           /* ignore */
         }
-        const firstGroup = groups.find((group) => group.path === project.root) ?? groups[0]
+        const firstGroup = groups.find((group) => group.path === dialogPath) ?? groups[0]
         setWorkspaceSessions((previous) => {
           const nextSessions = Array.isArray(sessionsValue?.sessions)
             ? sessionsValue.sessions
@@ -10360,7 +10423,7 @@ G.GufaApp = function GufaApp(props) {
     return () => {
       cancelled = true
     }
-  }, [sessionsOpen, project?.root, currentSessionId])
+  }, [sessionsOpen, project?.root, currentSessionId, sessionWorkspacePath])
 
   /* ── 退出（关闭覆盖层，回到 DSH 界面） ─────────────────────────────── */
   const exitMode = useCallback(() => {
@@ -10433,6 +10496,60 @@ G.GufaApp = function GufaApp(props) {
       setBanner(G.errorText(error))
     }
   }, [])
+
+  /* 从会话弹窗打开会话：可同时切换到该会话所属工作区的项目 */
+  const openSessionInWorkspace = useCallback((sessionId, workspacePath) => {
+    projectPinnedRef.current = false
+    const service = workspaceService()
+    const path = typeof workspacePath === 'string' ? workspacePath : ''
+    void (async () => {
+      try {
+        if (service !== undefined && service !== null && typeof service.openSession === 'function') service.openSession(sessionId)
+        else setBanner('当前界面不支持切换会话')
+      } catch (error) {
+        setBanner(G.errorText(error))
+      }
+      if (path !== '' && project !== null && project.root !== path) {
+        try {
+          await openProjectPath(path)
+          setBanner('')
+        } catch (error) {
+          setBanner(G.errorText(error))
+        }
+      }
+    })()
+  }, [project, openProjectPath])
+
+  /* 从会话弹窗新建会话：在弹窗选中的工作区里新建，并切换 IDE 项目 */
+  const startNewSessionInWorkspace = useCallback((workspacePath) => {
+    projectPinnedRef.current = false
+    const service = workspaceService()
+    const path = typeof workspacePath === 'string' ? workspacePath : ''
+    void (async () => {
+      let workspaceId = null
+      try {
+        const value = await G.api('workspaces.list', {})
+        const list = Array.isArray(value?.workspaces) ? value.workspaces : []
+        const matched = list.find((item) => item !== null && item.path === path)
+        if (matched !== undefined && typeof matched.id === 'string') workspaceId = matched.id
+      } catch {
+        workspaceId = null
+      }
+      try {
+        if (service !== undefined && service !== null && typeof service.startSession === 'function') {
+          if (workspaceId !== null) service.startSession(workspaceId)
+          else service.startSession()
+        } else {
+          setBanner('当前界面不支持新建会话')
+          return
+        }
+        if (path !== '' && project !== null && project.root !== path) await openProjectPath(path)
+        setBanner('')
+      } catch (error) {
+        setBanner(G.errorText(error))
+      }
+    })()
+  }, [project, openProjectPath])
 
   const activeFileForChat = useMemo(() => {
     if (activeTab === null || activeTab.kind === 'diff' || activeTab.kind === 'graph') return null
@@ -11177,7 +11294,13 @@ G.GufaApp = function GufaApp(props) {
     const currentRoot = project !== null && typeof project.root === 'string' ? project.root : ''
     const currentWorkspace = workspaceIndex.find((item) => item !== null && item.path === currentRoot)
     const currentWorkspaceId = currentWorkspace !== undefined && typeof currentWorkspace.id === 'string' ? currentWorkspace.id : ''
-    const hostGroup = hostGroups.find((group) => (currentWorkspaceId !== '' ? group.workspaceId === currentWorkspaceId : group.path === currentRoot))
+    const dialogPath = sessionWorkspacePath !== null && sessionWorkspacePath !== '' ? sessionWorkspacePath : currentRoot
+    const dialogWorkspace = workspaceIndex.find((item) => item !== null && item.path === dialogPath)
+    const dialogWorkspaceId = dialogWorkspace !== undefined && typeof dialogWorkspace.id === 'string' ? dialogWorkspace.id : ''
+    const dialogWorkspaceTitle = dialogWorkspace !== undefined && typeof dialogWorkspace.title === 'string' && dialogWorkspace.title !== ''
+      ? dialogWorkspace.title
+      : dialogPath !== '' ? G.basename(dialogPath) : ''
+    const hostGroup = hostGroups.find((group) => (dialogWorkspaceId !== '' ? group.workspaceId === dialogWorkspaceId : group.path === dialogPath))
     const localTitleById = new Map(
       recentSessionsRaw.filter((row) => row !== null && typeof row === 'object' && typeof row.id === 'string').map((row) => [row.id, row.title]),
     )
@@ -11239,7 +11362,7 @@ G.GufaApp = function GufaApp(props) {
       if (fromStore !== undefined && fromStore.blank === true) continue
       // 只保留属于当前工作区的会话（切换工作区后不要带出旧工作区的会话）
       if (fromStore !== undefined && typeof fromStore.workspaceId === 'string' && fromStore.workspaceId !== '' && workspaceSessions.workspaceId !== undefined && workspaceSessions.workspaceId !== '' && fromStore.workspaceId !== workspaceSessions.workspaceId) continue
-      if (fromStore !== undefined && typeof fromStore.cwd === 'string' && fromStore.cwd !== '' && project !== null && typeof project.root === 'string' && fromStore.cwd !== project.root) continue
+      if (fromStore !== undefined && typeof fromStore.cwd === 'string' && fromStore.cwd !== '' && dialogPath !== '' && fromStore.cwd !== dialogPath) continue
       const title = localTitleById.get(id) ?? (fromStore !== undefined ? fromStore.title : '')
       if (typeof title !== 'string' || title === '') continue
       retained.push({ id, title, when: localWhenById.get(id) ?? (fromStore !== undefined ? fromStore.when : Date.now()) })
@@ -11270,7 +11393,7 @@ G.GufaApp = function GufaApp(props) {
           title: session.title,
           onClick: () => {
             close()
-            openSession(session.id)
+            openSessionInWorkspace(session.id, dialogPath)
           },
         },
         h(G.Icon, { name: 'message', size: 14 }),
@@ -11300,9 +11423,49 @@ G.GufaApp = function GufaApp(props) {
           { className: 'gufa-modal-head' },
           h(G.Icon, { name: 'history', size: 14 }),
           h('span', { style: { flex: '1 1 auto' } }, t('dock.sessionsTitle')),
-          project !== null ? h('span', { className: 'gufa-session-workspace' }, project.name) : null,
+          project !== null
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gufa-session-workspace gufa-session-workspace-btn',
+                  title: '选择工作区（下方会话列表随之切换）',
+                  onClick: () => setSessionWorkspacePicker((value) => !value),
+                },
+                h(G.Icon, { name: 'folder-open', size: 12 }),
+                h('span', null, dialogWorkspaceTitle !== '' ? dialogWorkspaceTitle : project.name),
+                h(G.Icon, { name: sessionWorkspacePicker ? 'chevron-up' : 'chevron-down', size: 12 }),
+              )
+            : null,
           h(G.IconButton, { className: 'gufa-modal-close', title: t('common.close'), onClick: close }, h(G.Icon, { name: 'close', size: 14 })),
         ),
+        sessionWorkspacePicker
+          ? h(
+              'div',
+              { className: 'gufa-session-workspace-picker gufa-scroll' },
+              workspaceIndex.length === 0
+                ? h('div', { className: 'gufa-hint', style: { padding: '8px 12px' } }, t('workspace.empty'))
+                : workspaceIndex.map((workspace) =>
+                    h(
+                      'button',
+                      {
+                        key: workspace.id,
+                        type: 'button',
+                        className: 'gufa-session-workspace-option',
+                        'data-current': dialogPath === workspace.path ? '' : undefined,
+                        title: workspace.path,
+                        onClick: () => {
+                          setSessionWorkspacePath(workspace.path)
+                          setSessionWorkspacePicker(false)
+                        },
+                      },
+                      h(G.Icon, { name: 'folder-open', size: 13 }),
+                      h('span', { className: 'gufa-session-workspace-option-title' }, workspace.title !== '' ? workspace.title : G.basename(workspace.path)),
+                      h('span', { className: 'gufa-session-workspace-option-path' }, workspace.path),
+                    ),
+                  ),
+            )
+          : null,
         h(
           'div',
           { className: 'gufa-modal-body' },
@@ -11315,7 +11478,7 @@ G.GufaApp = function GufaApp(props) {
         h(
           'div',
           { className: 'gufa-modal-foot' },
-          h(G.Button, { icon: 'plus', onClick: () => { close(); startNewSession() } }, t('dock.newSession')),
+          h(G.Button, { icon: 'plus', onClick: () => { close(); startNewSessionInWorkspace(dialogPath) } }, t('dock.newSession')),
           h(G.Button, { onClick: close }, t('common.close')),
         ),
       ),
