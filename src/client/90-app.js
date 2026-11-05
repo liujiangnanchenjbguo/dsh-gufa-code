@@ -789,13 +789,15 @@ G.GufaApp = function GufaApp(props) {
 
   /* 「仅切换 IDE 项目」：项目固定为用户手动打开的目录，不跟随 DSH 会话/工作区 */
   const projectPinnedRef = useRef(false)
+  /* 会话弹窗里选了别的工作区的会话：右侧会话保持不动，不再自动把 IDE 项目切过去 */
+  const sessionPinnedRef = useRef(false)
 
   /* ── 右侧 AI 面板与当前工作区保持一致 ─────────────────────────────────
    * ChatDock 停靠的是 DSH「主视图会话」，但主视图会话可能属于别的工作区
    * （重启恢复、手动切换会话后常见）。项目根变化时自动切到当前工作区的会话。 */
   const dockSyncRef = useRef('')
   useEffect(() => {
-    if (projectPinnedRef.current === true) return undefined
+    if (projectPinnedRef.current === true || sessionPinnedRef.current === true) return undefined
     if (project === null || typeof project.root !== 'string' || project.root === '') return undefined
     if (dockSyncRef.current === project.root) return undefined
     if (typeof sessionCwd === 'string' && sessionCwd !== '' && sessionCwd === project.root) {
@@ -1048,6 +1050,7 @@ G.GufaApp = function GufaApp(props) {
   const switchWorkspace = useCallback(async (workspace) => {
     if (workspace === null || workspace === undefined) return
     projectPinnedRef.current = false
+    sessionPinnedRef.current = false
     const service = workspaceService()
     try {
       if (service !== undefined && service !== null && typeof service.openWorkspace === 'function' && typeof workspace.id === 'string') {
@@ -1088,6 +1091,7 @@ G.GufaApp = function GufaApp(props) {
     if (workspace === null || workspace === undefined || typeof workspace.path !== 'string' || workspace.path === '') return
     try {
       projectPinnedRef.current = true
+      sessionPinnedRef.current = false
       await openProjectPath(workspace.path)
       closeWorkspaceDialog()
       showBanner('已切换 IDE 项目（当前会话保持不变）', 'success')
@@ -1171,6 +1175,7 @@ G.GufaApp = function GufaApp(props) {
   /* 经典界面里切换工作区时：当前主视图会话的 cwd 变化 → 跟随打开对应项目 */
   const lastSessionCwdRef = useRef(null)
   useEffect(() => {
+    if (sessionPinnedRef.current === true) return
     if (typeof sessionCwd !== 'string' || sessionCwd === '') return
     const previous = lastSessionCwdRef.current
     lastSessionCwdRef.current = sessionCwd
@@ -1321,30 +1326,22 @@ G.GufaApp = function GufaApp(props) {
 
   /* 从会话弹窗打开会话：可同时切换到该会话所属工作区的项目 */
   const openSessionInWorkspace = useCallback((sessionId, workspacePath) => {
-    projectPinnedRef.current = false
     const service = workspaceService()
     const path = typeof workspacePath === 'string' ? workspacePath : ''
-    void (async () => {
-      try {
-        if (service !== undefined && service !== null && typeof service.openSession === 'function') service.openSession(sessionId)
-        else setBanner('当前界面不支持切换会话')
-      } catch (error) {
-        setBanner(G.errorText(error))
-      }
-      if (path !== '' && project !== null && project.root !== path) {
-        try {
-          await openProjectPath(path)
-          setBanner('')
-        } catch (error) {
-          setBanner(G.errorText(error))
-        }
-      }
-    })()
-  }, [project, openProjectPath])
+    /* 只切右侧会话：选了别的工作区的会话时，左侧项目/工作区保持不动 */
+    sessionPinnedRef.current = path !== '' && project !== null && path !== project.root
+    lastSessionCwdRef.current = null
+    try {
+      if (service !== undefined && service !== null && typeof service.openSession === 'function') service.openSession(sessionId)
+      else setBanner('当前界面不支持切换会话')
+      setBanner('')
+    } catch (error) {
+      setBanner(G.errorText(error))
+    }
+  }, [project])
 
   /* 从会话弹窗新建会话：在弹窗选中的工作区里新建，并切换 IDE 项目 */
   const startNewSessionInWorkspace = useCallback((workspacePath) => {
-    projectPinnedRef.current = false
     const service = workspaceService()
     const path = typeof workspacePath === 'string' ? workspacePath : ''
     void (async () => {
@@ -1359,19 +1356,19 @@ G.GufaApp = function GufaApp(props) {
       }
       try {
         if (service !== undefined && service !== null && typeof service.startSession === 'function') {
+          /* 只新建会话，不切左侧项目；跨工作区时 pin 住避免自动同步 */
+          sessionPinnedRef.current = path !== '' && project !== null && path !== project.root
           if (workspaceId !== null) service.startSession(workspaceId)
           else service.startSession()
+          setBanner('')
         } else {
           setBanner('当前界面不支持新建会话')
-          return
         }
-        if (path !== '' && project !== null && project.root !== path) await openProjectPath(path)
-        setBanner('')
       } catch (error) {
         setBanner(G.errorText(error))
       }
     })()
-  }, [project, openProjectPath])
+  }, [project])
 
   const activeFileForChat = useMemo(() => {
     if (activeTab === null || activeTab.kind === 'diff' || activeTab.kind === 'graph') return null
