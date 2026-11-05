@@ -371,6 +371,20 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         [self.webView evaluateJavaScript:js completionHandler:nil];
     };
     [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:authUrl]]];
+    /* 内部 QA：payload.selftest 是一段 JS，页面打开后在悬浮窗里跑一遍并写回诊断日志（仅开发用，不影响 UI） */
+    NSString *selftest = [self.options[@"selftest"] isKindOfClass:[NSString class]] ? self.options[@"selftest"] : nil;
+    if (selftest.length > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self.webView evaluateJavaScript:selftest completionHandler:^(id result, NSError *error) {
+                if (error != nil) GufaLog(@"selftest-script-error %@", error.localizedDescription ?: @"?");
+            }];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self.webView evaluateJavaScript:@"JSON.stringify(window.__gufaSelftest||{step:'none'})" completionHandler:^(id result, NSError *error) {
+                    GufaLog(@"selftest %@", result ?: @"nil");
+                }];
+            });
+        });
+    }
 
 }
 

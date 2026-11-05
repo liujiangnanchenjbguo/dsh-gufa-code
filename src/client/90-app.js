@@ -919,6 +919,9 @@ G.GufaApp = function GufaApp(props) {
     }
   }, [floatBusy])
 
+  /* 内部 QA：允许自动化脚本在悬浮窗里打开摸鱼列表（仅供自测，不影响正常交互） */
+  G.debugOpenFloatPicker = openFloatPicker
+
   const toggleFloatWindow = useCallback(() => {
     if (floatRequested === true || floatRunning) void stopFloatWindow()
     else void openFloatPicker()

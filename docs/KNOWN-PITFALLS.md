@@ -26,7 +26,11 @@
    `html[data-gufa-external-modal]` 把停靠会话降到 2、`#gufa-portal-root` 降到 1，保证官方弹窗永远在最上面。
 4. **禁止**：抬高 `.gufa-overlay-root` 或它的祖先来做层级修正（历史补丁，已删除，最容易造成“弹窗层级混乱”）。
 
-**验收方式**：改完浮层后，在有右侧会话、且 IDE 里有打开文件的情况下，逐一点一遍：
+**自动化验收**：悬浮层 helper 支持 payload 里的 `selftest`（一段 JS，页面加载 5s 后在悬浮窗内执行，结果写 `/tmp/gufa-float-debug.log`）；
+`G.debugOpenFloatPicker` 可在脚本里打开摸鱼列表。用它跑过一轮 DOM 命中测试（`document.elementsFromPoint` 验证弹层是否在最上层、
+是否盖住右侧会话区域），比人眼截图可靠，后续改层级务必先跑一遍。
+
+**人工验收方式**：改完浮层后，在有右侧会话、且 IDE 里有打开文件的情况下，逐一点一遍：
 资源管理器右键菜单 / Git 菜单 / 摸鱼列表 / 切换会话 / 工作区切换 / 设置弹窗，确认都能完整显示、能点、能关。
 
 ## 2. macOS 屏幕录制权限 + 悬浮层 helper

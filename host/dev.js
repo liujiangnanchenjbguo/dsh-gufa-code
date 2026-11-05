@@ -46,6 +46,7 @@ export function register(router, env) {
   const ctx = env?.ctx ?? router.ctx
 
 
+
   /* ── 桌面悬浮层 / 摸鱼模式（macOS） ────────────────────────────────
    * 通过 .app bundle 启动 helper：TCC（屏幕录制）按 bundle 身份授权，
    * 用户在「系统设置 → 隐私与安全性 → 屏幕录制」里添加「古法编程悬浮层.app」即可。
