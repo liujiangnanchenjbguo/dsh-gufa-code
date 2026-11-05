@@ -256,6 +256,16 @@ const GUFA_PLUGIN = {
     window.setTimeout(cleanStaleSidebarLayouts, 1500)
     window.setTimeout(cleanStaleSidebarLayouts, 5000)
 
+    // 外部弹窗（设置等）打开时降低停靠层，避免遮挡弹窗导致关不掉
+    try {
+      if (typeof G.installDialogLayerWatch === 'function') {
+        const disposeDialogWatch = G.installDialogLayerWatch(ctx)
+        if (typeof disposeDialogWatch === 'function') ctx.effect(() => disposeDialogWatch, 'gufa-code: dialog layer watch')
+      }
+    } catch (error) {
+      console.error('[gufa-code] 安装外部弹窗层级监听失败', error)
+    }
+
     // 聊天框：粘贴系统文件 → 自动插入 @文件引用（内容匹配项目内文件后插入）
     try {
       if (typeof G.installChatFilePaste === 'function') {

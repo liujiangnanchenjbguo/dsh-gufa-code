@@ -1021,6 +1021,10 @@ G.CSS = `
 .gufa-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483400!important}
+/* 外部弹窗（DSH 设置等）打开时：停靠会话与桌宠降到弹窗之下，保证弹窗完整可点可关 */
+html[data-gufa-external-modal] [data-gufa-dock]{z-index:2!important}
+html[data-gufa-external-modal] .dsh-pet-root{z-index:2!important}
+html[data-gufa-external-modal] div[data-dsh-pet-root]{z-index:2!important}
 /* 桌宠（@linxin666/dsh-pet）在 IDE 模式提到覆盖层之上，避免被古法编程面板遮住 */
 html[data-gufa-ide] div[data-dsh-pet-root]{position:fixed;inset:0;z-index:2147483400;pointer-events:none}
 html[data-gufa-ide] div[data-dsh-pet-root] *{pointer-events:auto}

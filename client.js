@@ -1029,6 +1029,10 @@ G.CSS = `
 .gufa-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483400!important}
+/* 外部弹窗（DSH 设置等）打开时：停靠会话与桌宠降到弹窗之下，保证弹窗完整可点可关 */
+html[data-gufa-external-modal] [data-gufa-dock]{z-index:2!important}
+html[data-gufa-external-modal] .dsh-pet-root{z-index:2!important}
+html[data-gufa-external-modal] div[data-dsh-pet-root]{z-index:2!important}
 /* 桌宠（@linxin666/dsh-pet）在 IDE 模式提到覆盖层之上，避免被古法编程面板遮住 */
 html[data-gufa-ide] div[data-dsh-pet-root]{position:fixed;inset:0;z-index:2147483400;pointer-events:none}
 html[data-gufa-ide] div[data-dsh-pet-root] *{pointer-events:auto}
@@ -7994,6 +7998,66 @@ G.installChatFilePaste = function installChatFilePaste(ctx) {
 }
 
 
+/* ─────────────────────── 59-dialog-layer.js ─────────────────────── */
+/**
+ * 59-dialog-layer：外部门户弹窗（DSH 官方设置等）打开时，把古法编程的会话停靠层降到弹窗之下。
+ *
+ * 背景：官方 dialog 通过 createPortal 挂到 document.body（`role="dialog" aria-modal="true"`），
+ * 而停靠的官方会话根节点被 inline 设了 z-index 2147483040，会盖住弹窗右侧、导致关闭按钮点不到。
+ * 这里只观察「外部 dialog」，不是我们自己的弹窗（在 `.gufa-root` 内），开关 html 属性给 CSS 用。
+ */
+
+G.installDialogLayerWatch = function installDialogLayerWatch(ctx) {
+  if (typeof document === 'undefined') return () => {}
+  const ATTR = 'data-gufa-external-modal'
+
+  const isExternalDialog = (el) => {
+    if (!(el instanceof Element) || typeof el.closest !== 'function') return false
+    if (el.getAttribute('role') !== 'dialog' || el.getAttribute('aria-modal') !== 'true') return false
+    return el.closest('.gufa-root') === null
+  }
+
+  const sync = () => {
+    try {
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      let open = false
+      for (const dialog of dialogs) {
+        if (isExternalDialog(dialog)) {
+          open = true
+          break
+        }
+      }
+      if (document.documentElement.getAttribute(ATTR) === (open ? '1' : null)) return
+      if (open) document.documentElement.setAttribute(ATTR, '1')
+      else document.documentElement.removeAttribute(ATTR)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  let observer = null
+  try {
+    observer = new MutationObserver(sync)
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['role', 'aria-modal'],
+    })
+  } catch {
+    observer = null
+  }
+  sync()
+  /* 兜底：某些弹窗只是切换 display（不触发 mutation attributes），低频轮询成本很低 */
+  const timer = window.setInterval(sync, 500)
+  return () => {
+    if (observer !== null) observer.disconnect()
+    window.clearInterval(timer)
+    document.documentElement.removeAttribute(ATTR)
+  }
+}
+
+
 /* ─────────────────────── 60-dock.js ─────────────────────── */
 /**
  * 60-dock：把官方 DSH 会话面板「停靠」进古法编程右侧的 AI 栏。
@@ -11821,6 +11885,16 @@ const GUFA_PLUGIN = {
     cleanStaleSidebarLayouts()
     window.setTimeout(cleanStaleSidebarLayouts, 1500)
     window.setTimeout(cleanStaleSidebarLayouts, 5000)
+
+    // 外部弹窗（设置等）打开时降低停靠层，避免遮挡弹窗导致关不掉
+    try {
+      if (typeof G.installDialogLayerWatch === 'function') {
+        const disposeDialogWatch = G.installDialogLayerWatch(ctx)
+        if (typeof disposeDialogWatch === 'function') ctx.effect(() => disposeDialogWatch, 'gufa-code: dialog layer watch')
+      }
+    } catch (error) {
+      console.error('[gufa-code] 安装外部弹窗层级监听失败', error)
+    }
 
     // 聊天框：粘贴系统文件 → 自动插入 @文件引用（内容匹配项目内文件后插入）
     try {
