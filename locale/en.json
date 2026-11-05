@@ -1,0 +1,121 @@
+{
+  "meta": {
+    "title": "Gufa Code · AI Copilot",
+    "description": "One-click VS Code-style IDE inside DSH: Monaco editor, file tree, create/open projects, Git, SSH, real terminal, and an AI chat panel that assists hand-written code."
+  },
+  "panel": {
+    "label": "Gufa Code"
+  },
+  "app": {
+    "title": "Gufa Code",
+    "subtitle": "CLASSIC CODING",
+    "newProject": "New project",
+    "openProject": "Open project",
+    "refresh": "Refresh",
+    "exit": "Leave Gufa Code",
+    "exitHint": "Back to DSH conversation",
+    "openFolder": "Open folder",
+    "noProject": "No project opened",
+    "noProjectHint": "Open a folder or create a project to start classic coding.",
+    "projectName": "Project name",
+    "parentFolder": "Parent folder",
+    "cancel": "Cancel",
+    "confirm": "OK",
+    "create": "Create",
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "hostStale": "Plugin upgraded: the Host is still an older build. The editor and AI chat already work; quit and reopen DeepSeek Harness to enable the real terminal."
+  },
+  "activity": {
+    "explorer": "Explorer",
+    "git": "Source control",
+    "ssh": "SSH",
+    "terminal": "Terminal",
+    "chat": "Gufa AI",
+    "collapseChat": "Collapse AI panel",
+    "expandChat": "Expand AI panel",
+    "settings": "Settings"
+  },
+  "explorer": {
+    "empty": "Folder is empty",
+    "newFile": "New file",
+    "newFolder": "New folder",
+    "rename": "Rename",
+    "delete": "Delete",
+    "fileName": "File name",
+    "folderName": "Folder name",
+    "deleteConfirm": "Delete this file/folder?",
+    "gitClean": "Clean",
+    "modified": "Modified"
+  },
+  "git": {
+    "branch": "Branch",
+    "changes": "Changes",
+    "noRepo": "This project is not a Git repository",
+    "noChanges": "Working tree clean",
+    "stage": "Stage",
+    "unstage": "Unstage",
+    "stageAll": "Stage all",
+    "commitPlaceholder": "Commit message (Ctrl+Enter to commit)",
+    "commit": "Commit",
+    "committed": "Committed",
+    "refresh": "Refresh"
+  },
+  "ssh": {
+    "hosts": "SSH hosts",
+    "noHosts": "No hosts in ~/.ssh/config",
+    "connect": "Connect",
+    "connectHint": "Click a host to run ssh in the terminal",
+    "configHint": "Add Host entries in ~/.ssh/config, then refresh"
+  },
+  "terminal": {
+    "new": "New terminal",
+    "close": "Close terminal",
+    "clear": "Clear",
+    "exited": "Process exited",
+    "session": "Terminal"
+  },
+  "editor": {
+    "noFile": "Open or create a file to start editing",
+    "noFileHint": "Pick a file in the explorer on the left",
+    "saved": "Saved",
+    "unsaved": "Unsaved",
+    "saveConflict": "File changed on disk; reopen before saving",
+    "binary": "Binary file cannot be edited as text",
+    "tooLarge": "File too large to open"
+  },
+  "chat": {
+    "title": "Gufa AI",
+    "newChat": "New chat",
+    "history": "History",
+    "noHistory": "No history yet",
+    "deleteChat": "Delete chat",
+    "inputPlaceholder": "Ask the AI, or have it explain the code on the left… (Enter to send, Shift+Enter for newline)",
+    "send": "Send",
+    "stop": "Stop",
+    "you": "You",
+    "assistant": "Gufa AI",
+    "thinking": "Thinking…",
+    "emptyTitle": "Gufa AI assistant",
+    "emptyHint": "I help you write code by hand: explain, spot bugs, add comments, suggest ideas.",
+    "attachFile": "Attach current file",
+    "insert": "Insert into editor",
+    "copy": "Copy",
+    "copied": "Copied",
+    "error": "Request failed",
+    "quickExplain": "Explain this code",
+    "quickBug": "Find issues",
+    "quickComment": "Add comments",
+    "quickRefactor": "Refactor ideas",
+    "contextLabel": "Context"
+  },
+  "status": {
+    "lines": "lines",
+    "col": "col",
+    "ln": "Ln",
+    "saved": "Saved",
+    "dirty": "Unsaved",
+    "noGit": "No Git repo"
+  }
+}

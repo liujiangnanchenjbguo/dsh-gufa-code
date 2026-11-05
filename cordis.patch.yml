@@ -1,0 +1,8 @@
+# dsh-gufa-code bundle patch：标准 bundle 自挂载。
+#
+# 行 name 必须是包名原样（Host 半的 Node 导入说明符，也是 dsh-client-modules 扫描
+# 浏览器半的键，经 exports["./client"] 解析到 client.js），Host/Client 两个半共享这一行。
+# id 是稳定身份：profile 用户层可用该 id 做定向 config 覆盖。
+- insert:
+    - id: dsh-gufa-code
+      name: 'dsh-gufa-code'

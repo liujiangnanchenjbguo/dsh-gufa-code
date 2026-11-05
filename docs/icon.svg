@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="古法编程 Gufa Code">
+  <defs>
+    <linearGradient id="gufaSeal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d0573f"/>
+      <stop offset="0.55" stop-color="#b33a2c"/>
+      <stop offset="1" stop-color="#8c211b"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#gufaSeal)"/>
+  <rect x="15" y="15" width="98" height="98" rx="21" fill="none" stroke="#f7e9d8" stroke-opacity="0.78" stroke-width="3.5"/>
+  <g fill="#fbeee0">
+    <rect x="32" y="32" width="64" height="9.5" rx="2.5"/>
+    <rect x="58.5" y="32" width="11" height="30" rx="2"/>
+    <path fill-rule="evenodd" d="M40 62 h48 a4 4 0 0 1 4 4 v27 a4 4 0 0 1 -4 4 h-48 a4 4 0 0 1 -4 -4 v-27 a4 4 0 0 1 4 -4 z m8 10 h32 v19 h-32 z"/>
+  </g>
+  <path d="M27 101 l-7 -6 7 -6" fill="none" stroke="#f7e9d8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+  <path d="M101 101 l7 -6 -7 -6" fill="none" stroke="#f7e9d8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+</svg>

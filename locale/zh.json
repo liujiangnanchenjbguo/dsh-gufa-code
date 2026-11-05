@@ -1,0 +1,121 @@
+{
+  "meta": {
+    "title": "古法编程 · AI 辅助",
+    "description": "一键进入 VS Code 风格 IDE：Monaco 编辑器、文件树、新建/打开项目、Git、SSH、真实终端，右侧 AI 聊天辅助手写代码。"
+  },
+  "panel": {
+    "label": "古法编程"
+  },
+  "app": {
+    "title": "古法编程",
+    "subtitle": "GUFA CODE",
+    "newProject": "新建项目",
+    "openProject": "打开项目",
+    "refresh": "刷新",
+    "exit": "退出古法编程",
+    "exitHint": "返回 DSH 对话",
+    "openFolder": "打开文件夹",
+    "noProject": "尚未打开项目",
+    "noProjectHint": "打开一个文件夹，或新建一个项目，开始古法编程。",
+    "projectName": "项目名",
+    "parentFolder": "父目录",
+    "cancel": "取消",
+    "confirm": "确定",
+    "create": "创建",
+    "loading": "加载中…",
+    "error": "出错了",
+    "retry": "重试",
+    "hostStale": "插件已升级：当前 Host 仍是旧版本。AI 对话与编辑器已可用；请退出并重新打开 DeepSeek Harness 以启用真实终端。"
+  },
+  "activity": {
+    "explorer": "资源管理器",
+    "git": "源代码管理",
+    "ssh": "SSH 远程",
+    "terminal": "终端",
+    "chat": "古法 AI 助手",
+    "collapseChat": "收起 AI 面板",
+    "expandChat": "展开 AI 面板",
+    "settings": "设置"
+  },
+  "explorer": {
+    "empty": "目录为空",
+    "newFile": "新建文件",
+    "newFolder": "新建文件夹",
+    "rename": "重命名",
+    "delete": "删除",
+    "fileName": "文件名",
+    "folderName": "文件夹名",
+    "deleteConfirm": "确定删除该文件/目录？",
+    "gitClean": "无改动",
+    "modified": "已修改"
+  },
+  "git": {
+    "branch": "分支",
+    "changes": "更改",
+    "noRepo": "当前项目不是 Git 仓库",
+    "noChanges": "工作区干净",
+    "stage": "暂存",
+    "unstage": "取消暂存",
+    "stageAll": "全部暂存",
+    "commitPlaceholder": "提交信息（Ctrl+Enter 提交）",
+    "commit": "提交",
+    "committed": "已提交",
+    "refresh": "刷新"
+  },
+  "ssh": {
+    "hosts": "SSH 主机",
+    "noHosts": "~/.ssh/config 中没有主机配置",
+    "connect": "连接",
+    "connectHint": "点击主机将在终端中执行 ssh 连接",
+    "configHint": "在 ~/.ssh/config 中添加 Host 配置后刷新"
+  },
+  "terminal": {
+    "new": "新建终端",
+    "close": "关闭终端",
+    "clear": "清空",
+    "exited": "进程已退出",
+    "session": "终端"
+  },
+  "editor": {
+    "noFile": "选择或新建一个文件开始编辑",
+    "noFileHint": "左侧资源管理器中打开文件",
+    "saved": "已保存",
+    "unsaved": "未保存",
+    "saveConflict": "文件已在磁盘上被修改，请重新打开后再保存",
+    "binary": "二进制文件，无法以文本编辑",
+    "tooLarge": "文件过大，无法打开"
+  },
+  "chat": {
+    "title": "古法 AI",
+    "newChat": "新建对话",
+    "history": "历史对话",
+    "noHistory": "暂无历史对话",
+    "deleteChat": "删除对话",
+    "inputPlaceholder": "问问 AI，或让它解释左侧代码…（Enter 发送，Shift+Enter 换行）",
+    "send": "发送",
+    "stop": "停止",
+    "you": "你",
+    "assistant": "古法 AI",
+    "thinking": "思考中…",
+    "emptyTitle": "古法 AI 助手",
+    "emptyHint": "我在这里辅助你手写代码：解释、找错、补注释、给思路。",
+    "attachFile": "附带当前文件",
+    "insert": "插入到编辑器",
+    "copy": "复制",
+    "copied": "已复制",
+    "error": "请求失败",
+    "quickExplain": "解释当前代码",
+    "quickBug": "查找潜在问题",
+    "quickComment": "补充注释",
+    "quickRefactor": "重构建议",
+    "contextLabel": "上下文"
+  },
+  "status": {
+    "lines": "行",
+    "col": "列",
+    "ln": "行",
+    "saved": "已保存",
+    "dirty": "未保存",
+    "noGit": "非 Git 仓库"
+  }
+}
