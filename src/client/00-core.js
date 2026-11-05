@@ -39,6 +39,16 @@ G.portal = (function createPortalHelper() {
 G.hooks = { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect }
 
 /* ── 悬浮层状态：helper 通过 URL 参数 ?gufa-state=<base64url(JSON)> 传主窗口快照 ── */
+/** 三种界面状态：classic（无标记）/ gufa（data-gufa-ide）/ moyu（data-gufa-float）。
+ *  判断一律用 DOM 标记，不要用 localStorage 或状态对象，避免主窗口被摸鱼状态污染。 */
+G.isFloatMode = function isFloatMode() {
+  try {
+    return typeof document !== 'undefined' && document.documentElement.hasAttribute('data-gufa-float')
+  } catch {
+    return false
+  }
+}
+
 G.floatState = (function readFloatState() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return null
   try {

@@ -253,6 +253,22 @@ G.GufaApp = function GufaApp(props) {
     bootedRef.current = true
     let cancelled = false
     void (async () => {
+      /* 从工作区菜单点进来的：跳过「恢复上次项目」，直接按入口工作区打开 */
+      const pendingEntry = G.pendingEntryWorkspace
+      if (pendingEntry !== null && pendingEntry !== undefined && typeof pendingEntry.key === 'string') {
+        try {
+          const listValue = await G.api('workspaces.list', {})
+          const list = Array.isArray(listValue?.workspaces) ? listValue.workspaces : []
+          const matched = list.find((item) => item !== null && item.id === pendingEntry.key)
+          if (matched !== undefined && typeof matched.path === 'string' && matched.path !== '') {
+            const value = await G.api('project.open', { path: matched.path })
+            if (!cancelled) applyProject(value)
+            return
+          }
+        } catch {
+          /* 回落到恢复上次项目 */
+        }
+      }
       const saved = floatState !== null && floatState !== undefined && typeof floatState.projectRoot === 'string' && floatState.projectRoot !== ''
         ? floatState.projectRoot
         : readJson(GUFA_LS.project)
@@ -265,7 +281,7 @@ G.GufaApp = function GufaApp(props) {
           writeJson(GUFA_LS.project, null)
         }
       }
-      if (G.floatState !== null && G.floatState !== undefined) return
+      if (G.isFloatMode()) return
       if (typeof sessionCwd === 'string' && sessionCwd !== '') {
         try {
           const value = await G.api('project.open', { path: sessionCwd })
@@ -933,7 +949,7 @@ G.GufaApp = function GufaApp(props) {
   const dockSyncRef = useRef('')
   useEffect(() => {
     if (sessionPinnedRef.current === true) return undefined
-    if (G.floatState !== null && G.floatState !== undefined) return undefined
+    if (G.isFloatMode()) return undefined
     if (project === null || typeof project.root !== 'string' || project.root === '') return undefined
     if (dockSyncRef.current === project.root) return undefined
     if (typeof sessionCwd === 'string' && sessionCwd !== '' && sessionCwd === project.root) {
@@ -978,12 +994,12 @@ G.GufaApp = function GufaApp(props) {
   const entryWorkspaceSyncedRef = useRef(false)
   useEffect(() => {
     if (entryWorkspaceSyncedRef.current) return
-    /* 悬浮层：项目/会话由主窗口状态注入，不做「入口工作区」同步，避免被会话 cwd 覆盖 */
-    if (G.floatState !== null && G.floatState !== undefined) {
+    /* 悬浮层（摸鱼）：项目/会话由主窗口状态注入，不做「入口工作区」同步 */
+    if (G.isFloatMode()) {
       entryWorkspaceSyncedRef.current = true
       return
     }
-    if (project === null) return
+    if (project === null && (G.pendingEntryWorkspace === null || G.pendingEntryWorkspace === undefined)) return
     const pending = G.pendingEntryWorkspace
     if (pending === null || pending === undefined || typeof pending.key !== 'string') {
       if (typeof sessionCwd !== 'string' || sessionCwd === '') return
@@ -992,6 +1008,7 @@ G.GufaApp = function GufaApp(props) {
       return
     }
     entryWorkspaceSyncedRef.current = true
+    void G.api('dev.log', { message: `entry-sync pending=${String(pending.key)} project=${project !== null ? project.root : 'null'} sessionCwd=${typeof sessionCwd === 'string' ? sessionCwd : ''}` }).catch(() => {})
     void (async () => {
       try {
         let targetPath = ''
@@ -1025,7 +1042,7 @@ G.GufaApp = function GufaApp(props) {
         setBanner(G.errorText(error))
       }
     })()
-  }, [project, sessionCwd, openProjectPath, setBanner])
+  }, [project, sessionCwd, openProjectPath, setBanner, gufaModeVisible])
 
   /* ── 已删除文件的标签自动关闭 ──────────────────────────────────────── */
   const pruneMissingTabs = useCallback(async () => {
@@ -1302,7 +1319,7 @@ G.GufaApp = function GufaApp(props) {
   useEffect(() => {
     if (sessionPinnedRef.current === true) return
     /* 悬浮层里项目由主窗口状态注入，不跟随（Web 版客户端自己的）会话 cwd 切换 */
-    if (G.floatState !== null && G.floatState !== undefined) {
+    if (G.isFloatMode()) {
       lastSessionCwdRef.current = sessionCwd
       return
     }
