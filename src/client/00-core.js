@@ -1241,6 +1241,8 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-project{appearance:none;border:0;background:transparent;font:inherit;color:inherit;cursor:pointer}
 .gufa-project:hover{background:var(--gufa-hover)}
 .gufa-workspace-row{height:auto;min-height:38px;padding:5px 8px}
+.gufa-workspace-row-wrap{display:flex;align-items:center;gap:4px}
+.gufa-workspace-row-wrap .gufa-workspace-row{flex:1 1 auto;min-width:0}
 .gufa-workspace-title{display:block;font-size:12px;line-height:1.3}
 .gufa-workspace-path{display:block;font-size:10.5px;color:var(--gufa-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-project{display:flex;align-items:center;gap:6px;min-width:0;margin-left:6px;padding:3px 9px;border-radius:7px;
@@ -1319,6 +1321,9 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-tree-row[data-selected]{background:var(--gufa-active)}
 .gufa-tree-row[data-kind="dir"]{color:var(--gufa-text)}
 .gufa-tree-name{overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0}
+.gufa-explorer-notice{margin:4px 10px 0;padding:3px 8px;border-radius:6px;font-size:11px;line-height:1.5;color:var(--gufa-text);
+  background:color-mix(in srgb, var(--gufa-accent) 14%, transparent);border:0.5px solid color-mix(in srgb, var(--gufa-accent) 40%, transparent);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-tree-chevron{width:14px;flex:0 0 auto;opacity:.7;display:flex;align-items:center;justify-content:center}
 .gufa-tree-icon{width:15px;flex:0 0 auto;opacity:.85;display:flex;align-items:center;justify-content:center}
 .gufa-tree-badge{font-size:10px;color:var(--gufa-accent);flex:0 0 auto;font-weight:600}

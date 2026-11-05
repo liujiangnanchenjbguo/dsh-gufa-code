@@ -240,6 +240,101 @@ export function register(router, env) {
     return { copied }
   })
 
+  /** 把系统剪贴板里的文件匹配回项目内已有文件（供聊天框「粘贴文件→@引用」使用）。 */
+  router.method('fs.matchFiles', async (body) => {
+    const root = await projectOf(env, body)
+    const wanted = Array.isArray(body.files)
+      ? body.files.filter((file) => file !== null && typeof file === 'object'
+        && typeof file.name === 'string' && file.name !== ''
+        && Number.isFinite(file.size) && typeof file.sha256 === 'string' && file.sha256 !== '')
+      : []
+    if (wanted.length === 0) return { matches: [] }
+    const EXCLUDED = new Set(['node_modules', '.git', 'dist', 'build', 'out', '.next', 'vendor', 'target', '.venv', 'venv', '__pycache__', '.idea', '.cache'])
+    const byName = new Map()
+    const stack = ['']
+    let scanned = 0
+    while (stack.length > 0 && scanned < 40000) {
+      const dirRel = stack.pop()
+      let entries
+      try {
+        entries = await readdir(join(root, dirRel), { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const entry of entries) {
+        const childRel = dirRel === '' ? entry.name : `${dirRel}/${entry.name}`
+        if (entry.isDirectory()) {
+          if (!EXCLUDED.has(entry.name)) stack.push(childRel)
+          continue
+        }
+        if (!entry.isFile()) continue
+        scanned += 1
+        const list = byName.get(entry.name) ?? []
+        if (list.length < 200) list.push(childRel)
+        byName.set(entry.name, list)
+      }
+    }
+    const hashFile = (absolute) => new Promise((resolve) => {
+      try {
+        const hash = createHash('sha256')
+        const stream = createReadStream(absolute)
+        stream.on('data', (chunk) => hash.update(chunk))
+        stream.on('error', () => resolve(''))
+        stream.on('end', () => resolve(hash.digest('hex')))
+      } catch {
+        resolve('')
+      }
+    })
+    const matches = []
+    for (const want of wanted) {
+      let hit = null
+      for (const rel of byName.get(want.name) ?? []) {
+        const absolute = join(root, rel)
+        const info = await stat(absolute).catch(() => undefined)
+        if (info === undefined || !info.isFile() || info.size !== want.size) continue
+        const digest = await hashFile(absolute)
+        if (digest === want.sha256) {
+          hit = rel
+          break
+        }
+      }
+      matches.push({ name: want.name, path: hit })
+    }
+    return { matches }
+  })
+
+  /** 上传文件到项目目录（系统剪贴板粘贴 / 从 Finder 拖入资源管理器）。 */
+  router.method('fs.upload', async (body) => {
+    const root = await projectOf(env, body)
+    const dirRel = typeof body.dir === 'string' ? body.dir : ''
+    const dir = await resolveProjectPath(root, dirRel)
+    const dirInfo = await stat(dir).catch(() => undefined)
+    if (dirInfo === undefined || !dirInfo.isDirectory()) throw new ApiError('not-dir', '目标不是目录', 400)
+    if (!Array.isArray(body.files) || body.files.length === 0) throw badRequest('files is required')
+    const written = []
+    for (const file of body.files) {
+      if (file === null || typeof file !== 'object') continue
+      const rawName = typeof file.name === 'string' ? file.name : ''
+      const base = rawName.split(/[/\\]/).filter(Boolean).pop() || 'file'
+      const safeBase = base.replace(/[\u0000-\u001f\u007f]/g, '').trim() || 'file'
+      const data = Buffer.from(typeof file.data === 'string' ? file.data : '', 'base64')
+      if (data.length > 300 * 1024 * 1024) throw new ApiError('too-large', `文件过大：${safeBase}`, 400)
+      let target = join(dir, safeBase)
+      let suffix = 1
+      while (await stat(target).then(() => true, () => false)) {
+        const dot = safeBase.lastIndexOf('.')
+        const stem = dot > 0 ? safeBase.slice(0, dot) : safeBase
+        const ext = dot > 0 ? safeBase.slice(dot) : ''
+        target = join(dir, `${stem} 副本${suffix > 1 ? ` ${suffix}` : ''}${ext}`)
+        suffix += 1
+        if (suffix > 500) throw new ApiError('upload-name-failed', '无法生成目标文件名', 500)
+      }
+      await writeFile(target, data, { flag: 'wx' })
+      written.push({ path: relativePath(root, target), size: data.length })
+    }
+    return { written }
+  })
+
   /** 软删除：移动到系统临时目录，返回可撤销的 id（资源管理器删除后用 ⌘Z 恢复）。 */
   router.method('fs.trash', async (body) => {
     const root = await projectOf(env, body)

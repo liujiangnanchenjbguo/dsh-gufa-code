@@ -1249,6 +1249,8 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-project{appearance:none;border:0;background:transparent;font:inherit;color:inherit;cursor:pointer}
 .gufa-project:hover{background:var(--gufa-hover)}
 .gufa-workspace-row{height:auto;min-height:38px;padding:5px 8px}
+.gufa-workspace-row-wrap{display:flex;align-items:center;gap:4px}
+.gufa-workspace-row-wrap .gufa-workspace-row{flex:1 1 auto;min-width:0}
 .gufa-workspace-title{display:block;font-size:12px;line-height:1.3}
 .gufa-workspace-path{display:block;font-size:10.5px;color:var(--gufa-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-project{display:flex;align-items:center;gap:6px;min-width:0;margin-left:6px;padding:3px 9px;border-radius:7px;
@@ -1327,6 +1329,9 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-tree-row[data-selected]{background:var(--gufa-active)}
 .gufa-tree-row[data-kind="dir"]{color:var(--gufa-text)}
 .gufa-tree-name{overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0}
+.gufa-explorer-notice{margin:4px 10px 0;padding:3px 8px;border-radius:6px;font-size:11px;line-height:1.5;color:var(--gufa-text);
+  background:color-mix(in srgb, var(--gufa-accent) 14%, transparent);border:0.5px solid color-mix(in srgb, var(--gufa-accent) 40%, transparent);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-tree-chevron{width:14px;flex:0 0 auto;opacity:.7;display:flex;align-items:center;justify-content:center}
 .gufa-tree-icon{width:15px;flex:0 0 auto;opacity:.85;display:flex;align-items:center;justify-content:center}
 .gufa-tree-badge{font-size:10px;color:var(--gufa-accent);flex:0 0 auto;font-weight:600}
@@ -2139,7 +2144,14 @@ G.FooterAction = function FooterAction(props) {
     ) {
       return
     }
-    const getWorker = (moduleId, label) => gufaCreateMonacoWorker(G.asset('monaco'), label)
+    const workerBase = (() => {
+      try {
+        return new URL(G.asset('monaco'), G.serverBase()).href
+      } catch {
+        return G.asset('monaco')
+      }
+    })()
+    const getWorker = (moduleId, label) => gufaCreateMonacoWorker(workerBase, label)
     if (existing !== undefined && existing !== null && typeof existing === 'object') {
       existing.getWorker = getWorker
       return
@@ -2158,13 +2170,35 @@ G.FooterAction = function FooterAction(props) {
   }
 
   function gufaCreateMonacoWorker(base, label) {
-    const blob = new Blob([gufaWorkerScript(base)], { type: 'text/javascript' })
-    const url = URL.createObjectURL(blob)
+    const name = typeof label === 'string' && label !== '' ? label : 'gufa-monaco-worker'
+    const watch = (worker, sourceUrl) => {
+      try {
+        worker.addEventListener('error', (event) => {
+          void G.api('dev.log', {
+            message: `monaco-worker-error src=${sourceUrl} message=${String(event && event.message)} file=${String(event && event.filename)} line=${String(event && event.lineno)}`,
+          }).catch(() => {})
+        })
+        worker.addEventListener('messageerror', () => {
+          void G.api('dev.log', { message: `monaco-worker-messageerror src=${sourceUrl}` }).catch(() => {})
+        })
+        void G.api('dev.log', { message: `monaco-worker-created src=${sourceUrl}` }).catch(() => {})
+      } catch {
+        /* ignore */
+      }
+      return worker
+    }
     try {
-      return new Worker(url, { name: typeof label === 'string' && label !== '' ? label : 'gufa-monaco-worker' })
-    } finally {
-      /* Worker 已取到脚本；延迟 revoke，避免个别浏览器创建阶段就失效。 */
-      window.setTimeout(() => URL.revokeObjectURL(url), 10000)
+      const url = `${G.asset('monaco')}/worker-bootstrap.js?v=3`
+      return watch(new Worker(url, { name }), url)
+    } catch (error) {
+      const blob = new Blob([gufaWorkerScript(base)], { type: 'text/javascript' })
+      const url = URL.createObjectURL(blob)
+      void G.api('dev.log', { message: `monaco-worker-construct-failed ${String(error && error.message)} fallback=blob` }).catch(() => {})
+      try {
+        return watch(new Worker(url, { name }), url)
+      } finally {
+        window.setTimeout(() => URL.revokeObjectURL(url), 10000)
+      }
     }
   }
 
@@ -2397,6 +2431,8 @@ G.FooterAction = function FooterAction(props) {
     const diffEditorRef = useRef(null)
     const diffModelsRef = useRef([])
     const diffSignatureRef = useRef(null)
+    const diffAnchorsRef = useRef([])
+    const diffZoneIdsRef = useRef([])
     const monacoRef = useRef(null)
     const modelsRef = useRef(new Map()) /* path -> ITextModel */
     const viewStatesRef = useRef(new Map()) /* path -> editor view state（滚动/光标） */
@@ -2861,6 +2897,8 @@ G.FooterAction = function FooterAction(props) {
         }
         diffModelsRef.current = []
         diffSignatureRef.current = null
+        diffAnchorsRef.current = []
+        diffZoneIdsRef.current = []
       }
       if (status !== 'ready' || activeIsDiff !== true) {
         disposeDiff()
@@ -2884,7 +2922,7 @@ G.FooterAction = function FooterAction(props) {
       const language = typeof tab.language === 'string' && tab.language !== '' ? tab.language : 'plaintext'
       const key = encodeURIComponent(String(tab.path))
       const suffix = String(Date.now())
-      const leftText = tab.diff.compare === true && typeof tab.compareLeft === 'string' ? tab.compareLeft : tab.diff.left
+      const leftText = tab.diff.compare === true && typeof tab.compareLeft === 'string' ? tab.compareLeft : String(tab.diff.left ?? '')
       const originalModel = monaco.editor.createModel(String(leftText ?? ''), language, monaco.Uri.parse(`gufa-diff://original/${key}/${suffix}`))
       const modifiedModel = monaco.editor.createModel(String(tab.content ?? ''), language, monaco.Uri.parse(`gufa-diff://modified/${key}/${suffix}`))
       let instance
@@ -2971,6 +3009,17 @@ G.FooterAction = function FooterAction(props) {
       } catch {
         /* ignore */
       }
+      /* 诊断：2 秒后如果差异仍然是 null，说明 Monaco worker 没起来（dsh-app:// 下的 worker 限制） */
+      window.setTimeout(() => {
+        try {
+          const changes = typeof instance.getLineChanges === 'function' ? instance.getLineChanges() : null
+          void G.api('dev.log', {
+            message: `diff-open path=${tab.path} leftLen=${String(leftText ?? '').length} rightLen=${String(tab.content ?? '').length} hostW=${host !== null ? host.clientWidth : -1} changes=${Array.isArray(changes) ? changes.length : String(changes)}`,
+          }).catch(() => {})
+        } catch {
+          /* ignore */
+        }
+      }, 2000)
       return () => {
         try {
           sub.dispose()
@@ -3093,7 +3142,8 @@ G.FooterAction = function FooterAction(props) {
         const changes = typeof instance.getLineChanges === 'function' ? instance.getLineChanges() : null
         if (changes === null || changes === undefined || changes.length === 0) return
         const editor = instance.getModifiedEditor()
-        const line = editor.getPosition() === null ? 0 : editor.getPosition().lineNumber
+        const position = editor.getPosition()
+        const line = position === null ? 0 : position.lineNumber
         let target = direction > 0 ? changes.find((item) => item.modifiedStartLineNumber > line) : [...changes].reverse().find((item) => item.modifiedEndLineNumber < line)
         if (target === undefined) target = direction > 0 ? changes[0] : changes[changes.length - 1]
         if (target === undefined) return
@@ -6221,6 +6271,8 @@ G.Explorer = function Explorer(props) {
   const [clipboard, setClipboard] = useState(null)
   const [menu, setMenu] = useState(null)
   const [menuError, setMenuError] = useState('')
+  const [notice, setNotice] = useState('')
+  const containerRef = useRef(null)
   const flatRows = []
   const kindByPathRef = useRef(new Map())
   const problems = G.useProblems()
@@ -6327,6 +6379,69 @@ G.Explorer = function Explorer(props) {
     }
   }
 
+  const noticeRef = useRef(0)
+  const showNotice = (text) => {
+    setNotice(text)
+    noticeRef.current += 1
+    const token = noticeRef.current
+    window.setTimeout(() => {
+      if (noticeRef.current === token) setNotice('')
+    }, 3200)
+  }
+
+  const readFileBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result ?? '')
+      const comma = text.indexOf(',')
+      resolve(comma >= 0 ? text.slice(comma + 1) : '')
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'))
+    reader.readAsDataURL(file)
+  })
+
+  /** 把系统剪贴板 / Finder 拖入的文件写入目标目录。@returns 是否接管了这次事件 */
+  const uploadFiles = async (fileList, dir) => {
+    const files = Array.from(fileList ?? []).filter((file) => file !== null && typeof file === 'object' && typeof file.size === 'number')
+    if (files.length === 0) return false
+    const total = files.reduce((sum, file) => sum + (file.size || 0), 0)
+    if (total <= 0) {
+      showNotice('这个剪贴板项没有可读取的文件内容（文件夹暂不支持，请拖入文件）')
+      return true
+    }
+    if (total > 300 * 1024 * 1024) {
+      showNotice(`文件太大（${Math.round(total / 1024 / 1024)}MB），超过 300MB 上限`)
+      return true
+    }
+    const targetDir = typeof dir === 'string' ? dir : ''
+    showNotice(`正在写入 ${files.length} 个文件…`)
+    try {
+      const payload = []
+      for (const file of files) {
+        payload.push({ name: file.name !== '' ? file.name : 'file', data: await readFileBase64(file) })
+      }
+      const result = await G.api('fs.upload', { root, dir: targetDir, files: payload })
+      const written = Array.isArray(result?.written) ? result.written : []
+      await loadDir(targetDir)
+      await loadDir('')
+      props.onChanged?.()
+      showNotice(`已粘贴 ${written.length} 个文件到 ${targetDir === '' ? '项目根目录' : targetDir}`)
+    } catch (error) {
+      showNotice(`粘贴失败：${G.errorText(error)}`)
+    }
+    return true
+  }
+
+  /** 拖放目标所在的目录（拖到文件行 → 其父目录；拖到文件夹行 → 该文件夹）。 */
+  const dropTargetDir = (target) => {
+    const element = target instanceof Element ? target.closest('[data-edrv-path]') : null
+    if (element === null) return selectedDir()
+    const path = element.getAttribute('data-edrv-path') ?? ''
+    if (path === '') return ''
+    const kind = element.getAttribute('data-kind')
+    return kind === 'dir' ? path : projectDirOf(path)
+  }
+
   const revealPath = (path) => {
     void G.api('fs.reveal', { root, path }).catch((error) => setMenuError(G.errorText(error)))
   }
@@ -6415,9 +6530,12 @@ G.Explorer = function Explorer(props) {
             'data-selected': multi.length > 0 ? (multi.includes(entry.path) ? '' : undefined) : selected !== null && selected.path === entry.path ? '' : undefined,
             'data-kind': entry.kind,
             'data-git-status': status !== undefined ? status : undefined,
+            /* 给 dsh-drag-ref 用：把资源管理器行变成可拖拽的 @ 引用来源 */
+            'data-edrv-path': entry.path,
             style: { paddingLeft: 8 + depth * 14 },
             title: entry.path,
             onClick: (event) => {
+              containerRef.current?.focus?.()
               rememberKind(entry)
               if (event.metaKey || event.ctrlKey) {
                 event.preventDefault()
@@ -6441,6 +6559,8 @@ G.Explorer = function Explorer(props) {
             { className: 'gufa-tree-chevron' },
             isDir ? h(G.Icon, { name: isExpanded ? 'chevron-down' : 'chevron-right', size: 12 }) : null,
           ),
+          /* dsh-drag-ref 用非空的 .edrv-tree-chev 文本判断「这是文件夹」 */
+          isDir ? h('span', { className: 'edrv-tree-chev', style: { display: 'none' } }, '▸') : null,
           h('span', { className: 'gufa-tree-icon' }, h(G.Icon, { name: isDir ? (isExpanded ? 'folder-open' : 'folder') : 'file', size: 14 })),
           h('span', { className: 'gufa-tree-name' }, entry.name),
           isDir && changedDirs.has(entry.path) ? h('span', { className: 'gufa-tree-problem', 'data-level': 'dir', title: t('explorer.changedDir') }) : null,
@@ -6462,8 +6582,31 @@ G.Explorer = function Explorer(props) {
   return h(
     'div',
     {
+      ref: containerRef,
       style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, outline: 'none' },
       tabIndex: 0,
+      onPaste: (event) => {
+        const files = event.clipboardData?.files
+        if (files !== undefined && files !== null && files.length > 0) {
+          event.preventDefault()
+          event.stopPropagation()
+          void uploadFiles(files, selectedDir())
+        }
+      },
+      onDragOver: (event) => {
+        const types = event.dataTransfer?.types
+        if (types === undefined || types === null || !Array.from(types).includes('Files')) return
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'copy'
+      },
+      onDrop: (event) => {
+        const files = event.dataTransfer?.files
+        if (files === undefined || files === null || files.length === 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        void uploadFiles(files, dropTargetDir(event.target))
+      },
       onKeyDown: (event) => {
         if (event.key === 'Enter') {
           if (selected === null) return
@@ -6501,6 +6644,9 @@ G.Explorer = function Explorer(props) {
       h(G.IconButton, { title: t('explorer.newFolder'), onClick: () => props.onNewFolder?.(selectedDir()) }, h(G.Icon, { name: 'folder', size: 14 })),
       h(G.IconButton, { title: t('explorer.refresh'), onClick: () => void loadDir('') }, h(G.Icon, { name: 'refresh', size: 13 })),
     ),
+    notice !== ''
+      ? h('div', { className: 'gufa-explorer-notice', title: notice }, notice)
+      : null,
     h(
       'div',
       { className: 'gufa-panel-body gufa-scroll' },
@@ -7632,6 +7778,165 @@ G.BackdropStrengthSlider = function BackdropStrengthSlider(props) {
 
 /** 纯函数暴露（测试/控制台排查）。 */
 G.__backdrop = { read: G.readSkinBackdropMeta }
+
+
+/* ─────────────────────── 58-insert-ref.js ─────────────────────── */
+/**
+ * 58-insert-ref：把系统剪贴板里的文件粘贴进对话输入框时，插入 `@相对路径` 引用。
+ *
+ * 浏览器/Electron 的剪贴板只给 File 内容、不给磁盘路径，所以流程是：
+ * File → 名称/size/sha256 → Host(fs.matchFiles) 在项目内匹配同名同内容文件 → 插入 @引用。
+ * 图片保持 DSH 默认的附件行为（不拦截）。
+ */
+
+/** 轻量提示条（复用 drag-ref 的观感）。 */
+G.refToast = function refToast(text, kind) {
+  try {
+    let host = document.getElementById('gufa-ref-toast')
+    if (host === null) {
+      host = document.createElement('div')
+      host.id = 'gufa-ref-toast'
+      host.style.cssText = 'position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:2147483000;max-width:70vw;padding:7px 14px;border-radius:999px;font:12px/1.5 system-ui,sans-serif;box-shadow:0 6px 20px rgba(16,24,40,.18);pointer-events:none;white-space:pre-wrap'
+      document.body.appendChild(host)
+    }
+    host.textContent = String(text)
+    host.style.background = kind === 'err' ? 'rgba(180,35,24,.92)' : kind === 'ok' ? 'rgba(6,118,71,.92)' : 'rgba(28,30,38,.92)'
+    host.style.color = '#fff'
+    clearTimeout(G.refToast.timer)
+    G.refToast.timer = window.setTimeout(() => {
+      if (host.parentNode !== null) host.parentNode.removeChild(host)
+    }, 3200)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 把相对路径变成 @ 引用文本（含空格的路径加引号）。 */
+G.mentionOfPath = function mentionOfPath(path) {
+  const rel = String(path ?? '').replace(/\\/g, '/')
+  if (rel === '') return ''
+  return /\s/u.test(rel) ? `@"${rel}"` : `@${rel}`
+}
+
+/** 取文件 sha256（hex）。 */
+G.sha256OfFile = async function sha256OfFile(file) {
+  const buffer = await file.arrayBuffer()
+  const digest = await crypto.subtle.digest('SHA-256', buffer)
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+/** 把文本插入当前对话输入框：优先官方 input 服务，失败退回 contenteditable 插入。 */
+G.insertIntoComposer = function insertIntoComposer(text) {
+  if (typeof text !== 'string' || text === '') return false
+  try {
+    const sessionEl = document.querySelector('[data-conversation-session]')
+    const sessionId = sessionEl === null ? '' : String(sessionEl.getAttribute('data-conversation-session') ?? '')
+    const sessions = G.ctx === null || G.ctx === undefined ? undefined : G.ctx.get('sessions')
+    const conversation = G.ctx === null || G.ctx === undefined ? undefined : G.ctx.get('conversation')
+    if (sessionId !== '' && sessions !== undefined && conversation !== undefined && typeof sessions.scope === 'function') {
+      const actx = sessions.scope(sessionId)
+      if (actx !== undefined) {
+        const input = conversation.input.for(actx)
+        const snapshot = input?.state?.getSnapshot?.()
+        if (snapshot !== undefined && input !== null && input !== undefined) {
+          const offset = String(snapshot.draft ?? '').length
+          const span = { start: offset, end: offset, draftRev: snapshot.draftRev }
+          if (typeof input.insertText === 'function' && input.insertText(text, span) === true) return true
+          if (typeof input.insertReference === 'function') {
+            const mention = G.mentionOfPath(text.replace(/^@/, ''))
+            if (mention !== '' && input.insertReference({ source: 'reference', ref: mention, label: text.replace(/^@/, ''), appearance: 'file', clipboardText: mention }, span) === true) return true
+          }
+        }
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const editor = document.querySelector('[data-conversation-region="composer"] [contenteditable="true"]') || document.querySelector('[data-conversation-region="composer"]')
+    if (editor === null) return false
+    editor.focus()
+    if (document.execCommand('insertText', false, text)) return true
+  } catch {
+    /* ignore */
+  }
+  return false
+}
+
+/**
+ * 安装「粘贴文件 → @引用」监听。
+ * @param {object} ctx client 根 context
+ * @returns {() => void} 卸载器
+ */
+G.installChatFilePaste = function installChatFilePaste(ctx) {
+  if (typeof document === 'undefined') return () => {}
+  let disposed = false
+
+  const handleFiles = async (files) => {
+    const list = Array.from(files)
+    if (list.length === 0) return
+    const root = typeof G.projectRoot === 'string' ? G.projectRoot : ''
+    if (root === '') {
+      G.refToast('还没有打开项目，无法把文件转成 @ 引用', 'err')
+      return
+    }
+    const payloads = []
+    for (const file of list) {
+      try {
+        payloads.push({ name: file.name !== '' ? file.name : 'file', size: file.size, sha256: await G.sha256OfFile(file) })
+      } catch {
+        /* 读取失败的文件跳过 */
+      }
+    }
+    if (payloads.length === 0) {
+      G.refToast('粘贴的文件读取失败', 'err')
+      return
+    }
+    let matches = []
+    try {
+      const result = await G.api('fs.matchFiles', { root, files: payloads })
+      matches = Array.isArray(result?.matches) ? result.matches : []
+    } catch (error) {
+      G.refToast(`匹配项目文件失败：${G.errorText(error)}`, 'err')
+      return
+    }
+    if (disposed) return
+    const refs = []
+    const missing = []
+    for (const match of matches) {
+      if (typeof match?.path === 'string' && match.path !== '') refs.push(G.mentionOfPath(match.path))
+      else missing.push(String(match?.name ?? ''))
+    }
+    if (refs.length > 0) {
+      const inserted = G.insertIntoComposer(refs.join(' ') + ' ')
+      if (inserted) G.refToast(`已插入 ${refs.length} 个文件引用`, 'ok')
+      else G.refToast('插入引用失败：输入框不可用', 'err')
+    }
+    if (missing.length > 0) {
+      G.refToast(`${missing.join('、')} 不在当前项目里，未插入引用（可先粘贴到资源管理器导入项目）`, 'err')
+    }
+  }
+
+  const onPaste = (event) => {
+    const files = event.clipboardData === null || event.clipboardData === undefined ? undefined : event.clipboardData.files
+    if (files === undefined || files === null || files.length === 0) return
+    const target = event.target
+    const inConversation = target instanceof Element && (target.closest('[data-conversation-region="composer"]') !== null || target.closest('[data-conversation-content]') !== null)
+    if (!inConversation) return
+    const list = Array.from(files)
+    /* 图片保留 DSH 默认的附件粘贴行为 */
+    if (list.every((file) => typeof file.type === 'string' && file.type.startsWith('image/'))) return
+    event.preventDefault()
+    event.stopPropagation()
+    void handleFiles(list)
+  }
+
+  document.addEventListener('paste', onPaste, true)
+  return () => {
+    disposed = true
+    document.removeEventListener('paste', onPaste, true)
+  }
+}
 
 
 /* ─────────────────────── 60-dock.js ─────────────────────── */
@@ -9042,6 +9347,7 @@ G.GufaApp = function GufaApp(props) {
 
   /* ── 项目打开 ──────────────────────────────────────────────────────── */
   const applyProject = useCallback((value) => {
+    G.projectRoot = typeof value?.root === 'string' ? value.root : null
     setProject(value)
     writeJson(GUFA_LS.project, value?.root ?? null)
     setTabs([])
@@ -9604,11 +9910,15 @@ G.GufaApp = function GufaApp(props) {
     }))
   }, [])
 
+  /* 「仅切换 IDE 项目」：项目固定为用户手动打开的目录，不跟随 DSH 会话/工作区 */
+  const projectPinnedRef = useRef(false)
+
   /* ── 右侧 AI 面板与当前工作区保持一致 ─────────────────────────────────
    * ChatDock 停靠的是 DSH「主视图会话」，但主视图会话可能属于别的工作区
    * （重启恢复、手动切换会话后常见）。项目根变化时自动切到当前工作区的会话。 */
   const dockSyncRef = useRef('')
   useEffect(() => {
+    if (projectPinnedRef.current === true) return undefined
     if (project === null || typeof project.root !== 'string' || project.root === '') return undefined
     if (dockSyncRef.current === project.root) return undefined
     if (typeof sessionCwd === 'string' && sessionCwd !== '' && sessionCwd === project.root) {
@@ -9860,6 +10170,7 @@ G.GufaApp = function GufaApp(props) {
   /* 点击左侧工作区名 → 切换已有工作区（与经典模式同一份 workspace 列表） */
   const switchWorkspace = useCallback(async (workspace) => {
     if (workspace === null || workspace === undefined) return
+    projectPinnedRef.current = false
     const service = workspaceService()
     try {
       if (service !== undefined && service !== null && typeof service.openWorkspace === 'function' && typeof workspace.id === 'string') {
@@ -9895,6 +10206,20 @@ G.GufaApp = function GufaApp(props) {
   }, [openProjectPath, closeWorkspaceDialog, showBanner])
 
   /* 新建工作区：走经典模式同样的「选目录 → 创建 workspace → 打开并新建会话」 */
+  /* 只切换 IDE 项目目录，不切换 DSH 会话/工作区（方便在同一个会话里边看别的项目边聊） */
+  const pinProjectOnly = useCallback(async (workspace) => {
+    if (workspace === null || workspace === undefined || typeof workspace.path !== 'string' || workspace.path === '') return
+    try {
+      projectPinnedRef.current = true
+      await openProjectPath(workspace.path)
+      closeWorkspaceDialog()
+      showBanner('已切换 IDE 项目（当前会话保持不变）', 'success')
+    } catch (error) {
+      projectPinnedRef.current = false
+      setBanner(G.errorText(error))
+    }
+  }, [openProjectPath, closeWorkspaceDialog, showBanner])
+
   const createWorkspace = useCallback(async () => {
     const ui = workspaceService()
     const registry = workspacesService()
@@ -10677,25 +11002,36 @@ G.GufaApp = function GufaApp(props) {
                       ? h('div', { className: 'gufa-hint', style: { padding: '10px 8px' } }, t('workspace.empty'))
                       : workspaceDialog.workspaces.map((workspace) =>
                           h(
-                            'button',
-                            {
-                              key: workspace.id,
-                              type: 'button',
-                              className: 'gufa-branch-row gufa-workspace-row',
-                              'data-current': project !== null && project.root === workspace.path ? '' : undefined,
-                              title: workspace.path,
-                              onClick: () => void switchWorkspace(workspace),
-                            },
-                            h(G.Icon, { name: 'folder-open', size: 13 }),
+                            'div',
+                            { key: workspace.id, className: 'gufa-workspace-row-wrap' },
                             h(
-                              'span',
-                              { className: 'gufa-branch-name' },
-                              h('span', { className: 'gufa-workspace-title' }, workspace.title !== '' ? workspace.title : G.basename(workspace.path)),
-                              h('span', { className: 'gufa-workspace-path' }, workspace.path),
+                              'button',
+                              {
+                                type: 'button',
+                                className: 'gufa-branch-row gufa-workspace-row',
+                                'data-current': project !== null && project.root === workspace.path ? '' : undefined,
+                                title: `切换工作区 + 会话：${workspace.path}`,
+                                onClick: () => void switchWorkspace(workspace),
+                              },
+                              h(G.Icon, { name: 'folder-open', size: 13 }),
+                              h(
+                                'span',
+                                { className: 'gufa-branch-name' },
+                                h('span', { className: 'gufa-workspace-title' }, workspace.title !== '' ? workspace.title : G.basename(workspace.path)),
+                                h('span', { className: 'gufa-workspace-path' }, workspace.path),
+                              ),
+                              project !== null && project.root === workspace.path
+                                ? h('span', { className: 'gufa-branch-tag' }, t('workspace.current'))
+                                : null,
                             ),
-                            project !== null && project.root === workspace.path
-                              ? h('span', { className: 'gufa-branch-tag' }, t('workspace.current'))
-                              : null,
+                            h(G.IconButton, {
+                              title: '只切换 IDE 项目（保持当前会话）',
+                              onClick: (event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                void pinProjectOnly(workspace)
+                              },
+                            }, h(G.Icon, { name: 'panel-left', size: 13 })),
                           ),
                         ),
                 ),
@@ -11319,6 +11655,47 @@ const GUFA_PLUGIN = {
       if (typeof G.mode?.get === 'function' && G.mode.get() === true) document.documentElement.setAttribute('data-gufa-ide', '')
     } catch {
       /* ignore */
+    }
+
+    /* ── 清理「每会话右侧面板布局」里由 dsh-vscode-mode 留下的『文件编辑』标签 ──
+     * 官方右侧栏会把每个会话的布局持久化到 localStorage（键 dsh.sidebar-right.v1.<sessionId>），
+     * 切换会话时恢复该布局 → 历史上被 vscode-mode 写过标签的会话会「自动展开右侧栏」。
+     * 这里在页面加载后清理这些残留键，让会话恢复成默认（收起）状态。 */
+    const cleanStaleSidebarLayouts = () => {
+      try {
+        const keys = []
+        for (let index = 0; index < window.localStorage.length; index += 1) {
+          const key = window.localStorage.key(index)
+          if (key !== null && key.startsWith('dsh.sidebar-right.v1.')) keys.push(key)
+        }
+        let removed = 0
+        for (const key of keys) {
+          const raw = window.localStorage.getItem(key)
+          if (raw === null) continue
+          if (raw.includes('edrvEditor') || raw.includes('vscode-mode')) {
+            window.localStorage.removeItem(key)
+            removed += 1
+          }
+        }
+        if (removed > 0) {
+          void G.api('dev.log', { message: `sidebar-layout-cleanup removed=${removed}/${keys.length}` }).catch(() => {})
+        }
+      } catch {
+        /* localStorage 不可用时忽略 */
+      }
+    }
+    cleanStaleSidebarLayouts()
+    window.setTimeout(cleanStaleSidebarLayouts, 1500)
+    window.setTimeout(cleanStaleSidebarLayouts, 5000)
+
+    // 聊天框：粘贴系统文件 → 自动插入 @文件引用（内容匹配项目内文件后插入）
+    try {
+      if (typeof G.installChatFilePaste === 'function') {
+        const disposeChatPaste = G.installChatFilePaste(ctx)
+        if (typeof disposeChatPaste === 'function') ctx.effect(() => disposeChatPaste, 'gufa-code: chat file paste')
+      }
+    } catch (error) {
+      console.error('[gufa-code] 安装聊天框文件粘贴失败', error)
     }
 
     // 样式（随插件 context 卸载自动移除）

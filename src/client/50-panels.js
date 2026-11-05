@@ -14,6 +14,8 @@ G.Explorer = function Explorer(props) {
   const [clipboard, setClipboard] = useState(null)
   const [menu, setMenu] = useState(null)
   const [menuError, setMenuError] = useState('')
+  const [notice, setNotice] = useState('')
+  const containerRef = useRef(null)
   const flatRows = []
   const kindByPathRef = useRef(new Map())
   const problems = G.useProblems()
@@ -120,6 +122,69 @@ G.Explorer = function Explorer(props) {
     }
   }
 
+  const noticeRef = useRef(0)
+  const showNotice = (text) => {
+    setNotice(text)
+    noticeRef.current += 1
+    const token = noticeRef.current
+    window.setTimeout(() => {
+      if (noticeRef.current === token) setNotice('')
+    }, 3200)
+  }
+
+  const readFileBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result ?? '')
+      const comma = text.indexOf(',')
+      resolve(comma >= 0 ? text.slice(comma + 1) : '')
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'))
+    reader.readAsDataURL(file)
+  })
+
+  /** 把系统剪贴板 / Finder 拖入的文件写入目标目录。@returns 是否接管了这次事件 */
+  const uploadFiles = async (fileList, dir) => {
+    const files = Array.from(fileList ?? []).filter((file) => file !== null && typeof file === 'object' && typeof file.size === 'number')
+    if (files.length === 0) return false
+    const total = files.reduce((sum, file) => sum + (file.size || 0), 0)
+    if (total <= 0) {
+      showNotice('这个剪贴板项没有可读取的文件内容（文件夹暂不支持，请拖入文件）')
+      return true
+    }
+    if (total > 300 * 1024 * 1024) {
+      showNotice(`文件太大（${Math.round(total / 1024 / 1024)}MB），超过 300MB 上限`)
+      return true
+    }
+    const targetDir = typeof dir === 'string' ? dir : ''
+    showNotice(`正在写入 ${files.length} 个文件…`)
+    try {
+      const payload = []
+      for (const file of files) {
+        payload.push({ name: file.name !== '' ? file.name : 'file', data: await readFileBase64(file) })
+      }
+      const result = await G.api('fs.upload', { root, dir: targetDir, files: payload })
+      const written = Array.isArray(result?.written) ? result.written : []
+      await loadDir(targetDir)
+      await loadDir('')
+      props.onChanged?.()
+      showNotice(`已粘贴 ${written.length} 个文件到 ${targetDir === '' ? '项目根目录' : targetDir}`)
+    } catch (error) {
+      showNotice(`粘贴失败：${G.errorText(error)}`)
+    }
+    return true
+  }
+
+  /** 拖放目标所在的目录（拖到文件行 → 其父目录；拖到文件夹行 → 该文件夹）。 */
+  const dropTargetDir = (target) => {
+    const element = target instanceof Element ? target.closest('[data-edrv-path]') : null
+    if (element === null) return selectedDir()
+    const path = element.getAttribute('data-edrv-path') ?? ''
+    if (path === '') return ''
+    const kind = element.getAttribute('data-kind')
+    return kind === 'dir' ? path : projectDirOf(path)
+  }
+
   const revealPath = (path) => {
     void G.api('fs.reveal', { root, path }).catch((error) => setMenuError(G.errorText(error)))
   }
@@ -208,9 +273,12 @@ G.Explorer = function Explorer(props) {
             'data-selected': multi.length > 0 ? (multi.includes(entry.path) ? '' : undefined) : selected !== null && selected.path === entry.path ? '' : undefined,
             'data-kind': entry.kind,
             'data-git-status': status !== undefined ? status : undefined,
+            /* 给 dsh-drag-ref 用：把资源管理器行变成可拖拽的 @ 引用来源 */
+            'data-edrv-path': entry.path,
             style: { paddingLeft: 8 + depth * 14 },
             title: entry.path,
             onClick: (event) => {
+              containerRef.current?.focus?.()
               rememberKind(entry)
               if (event.metaKey || event.ctrlKey) {
                 event.preventDefault()
@@ -234,6 +302,8 @@ G.Explorer = function Explorer(props) {
             { className: 'gufa-tree-chevron' },
             isDir ? h(G.Icon, { name: isExpanded ? 'chevron-down' : 'chevron-right', size: 12 }) : null,
           ),
+          /* dsh-drag-ref 用非空的 .edrv-tree-chev 文本判断「这是文件夹」 */
+          isDir ? h('span', { className: 'edrv-tree-chev', style: { display: 'none' } }, '▸') : null,
           h('span', { className: 'gufa-tree-icon' }, h(G.Icon, { name: isDir ? (isExpanded ? 'folder-open' : 'folder') : 'file', size: 14 })),
           h('span', { className: 'gufa-tree-name' }, entry.name),
           isDir && changedDirs.has(entry.path) ? h('span', { className: 'gufa-tree-problem', 'data-level': 'dir', title: t('explorer.changedDir') }) : null,
@@ -255,8 +325,31 @@ G.Explorer = function Explorer(props) {
   return h(
     'div',
     {
+      ref: containerRef,
       style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, outline: 'none' },
       tabIndex: 0,
+      onPaste: (event) => {
+        const files = event.clipboardData?.files
+        if (files !== undefined && files !== null && files.length > 0) {
+          event.preventDefault()
+          event.stopPropagation()
+          void uploadFiles(files, selectedDir())
+        }
+      },
+      onDragOver: (event) => {
+        const types = event.dataTransfer?.types
+        if (types === undefined || types === null || !Array.from(types).includes('Files')) return
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'copy'
+      },
+      onDrop: (event) => {
+        const files = event.dataTransfer?.files
+        if (files === undefined || files === null || files.length === 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        void uploadFiles(files, dropTargetDir(event.target))
+      },
       onKeyDown: (event) => {
         if (event.key === 'Enter') {
           if (selected === null) return
@@ -294,6 +387,9 @@ G.Explorer = function Explorer(props) {
       h(G.IconButton, { title: t('explorer.newFolder'), onClick: () => props.onNewFolder?.(selectedDir()) }, h(G.Icon, { name: 'folder', size: 14 })),
       h(G.IconButton, { title: t('explorer.refresh'), onClick: () => void loadDir('') }, h(G.Icon, { name: 'refresh', size: 13 })),
     ),
+    notice !== ''
+      ? h('div', { className: 'gufa-explorer-notice', title: notice }, notice)
+      : null,
     h(
       'div',
       { className: 'gufa-panel-body gufa-scroll' },

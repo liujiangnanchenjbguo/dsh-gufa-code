@@ -225,6 +225,47 @@ const GUFA_PLUGIN = {
       /* ignore */
     }
 
+    /* ── 清理「每会话右侧面板布局」里由 dsh-vscode-mode 留下的『文件编辑』标签 ──
+     * 官方右侧栏会把每个会话的布局持久化到 localStorage（键 dsh.sidebar-right.v1.<sessionId>），
+     * 切换会话时恢复该布局 → 历史上被 vscode-mode 写过标签的会话会「自动展开右侧栏」。
+     * 这里在页面加载后清理这些残留键，让会话恢复成默认（收起）状态。 */
+    const cleanStaleSidebarLayouts = () => {
+      try {
+        const keys = []
+        for (let index = 0; index < window.localStorage.length; index += 1) {
+          const key = window.localStorage.key(index)
+          if (key !== null && key.startsWith('dsh.sidebar-right.v1.')) keys.push(key)
+        }
+        let removed = 0
+        for (const key of keys) {
+          const raw = window.localStorage.getItem(key)
+          if (raw === null) continue
+          if (raw.includes('edrvEditor') || raw.includes('vscode-mode')) {
+            window.localStorage.removeItem(key)
+            removed += 1
+          }
+        }
+        if (removed > 0) {
+          void G.api('dev.log', { message: `sidebar-layout-cleanup removed=${removed}/${keys.length}` }).catch(() => {})
+        }
+      } catch {
+        /* localStorage 不可用时忽略 */
+      }
+    }
+    cleanStaleSidebarLayouts()
+    window.setTimeout(cleanStaleSidebarLayouts, 1500)
+    window.setTimeout(cleanStaleSidebarLayouts, 5000)
+
+    // 聊天框：粘贴系统文件 → 自动插入 @文件引用（内容匹配项目内文件后插入）
+    try {
+      if (typeof G.installChatFilePaste === 'function') {
+        const disposeChatPaste = G.installChatFilePaste(ctx)
+        if (typeof disposeChatPaste === 'function') ctx.effect(() => disposeChatPaste, 'gufa-code: chat file paste')
+      }
+    } catch (error) {
+      console.error('[gufa-code] 安装聊天框文件粘贴失败', error)
+    }
+
     // 样式（随插件 context 卸载自动移除）
     ctx.effect(() => G.injectStyles(), 'gufa-code: styles')
 

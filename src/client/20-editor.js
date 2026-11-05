@@ -234,7 +234,14 @@
     ) {
       return
     }
-    const getWorker = (moduleId, label) => gufaCreateMonacoWorker(G.asset('monaco'), label)
+    const workerBase = (() => {
+      try {
+        return new URL(G.asset('monaco'), G.serverBase()).href
+      } catch {
+        return G.asset('monaco')
+      }
+    })()
+    const getWorker = (moduleId, label) => gufaCreateMonacoWorker(workerBase, label)
     if (existing !== undefined && existing !== null && typeof existing === 'object') {
       existing.getWorker = getWorker
       return
@@ -253,13 +260,35 @@
   }
 
   function gufaCreateMonacoWorker(base, label) {
-    const blob = new Blob([gufaWorkerScript(base)], { type: 'text/javascript' })
-    const url = URL.createObjectURL(blob)
+    const name = typeof label === 'string' && label !== '' ? label : 'gufa-monaco-worker'
+    const watch = (worker, sourceUrl) => {
+      try {
+        worker.addEventListener('error', (event) => {
+          void G.api('dev.log', {
+            message: `monaco-worker-error src=${sourceUrl} message=${String(event && event.message)} file=${String(event && event.filename)} line=${String(event && event.lineno)}`,
+          }).catch(() => {})
+        })
+        worker.addEventListener('messageerror', () => {
+          void G.api('dev.log', { message: `monaco-worker-messageerror src=${sourceUrl}` }).catch(() => {})
+        })
+        void G.api('dev.log', { message: `monaco-worker-created src=${sourceUrl}` }).catch(() => {})
+      } catch {
+        /* ignore */
+      }
+      return worker
+    }
     try {
-      return new Worker(url, { name: typeof label === 'string' && label !== '' ? label : 'gufa-monaco-worker' })
-    } finally {
-      /* Worker 已取到脚本；延迟 revoke，避免个别浏览器创建阶段就失效。 */
-      window.setTimeout(() => URL.revokeObjectURL(url), 10000)
+      const url = `${G.asset('monaco')}/worker-bootstrap.js?v=3`
+      return watch(new Worker(url, { name }), url)
+    } catch (error) {
+      const blob = new Blob([gufaWorkerScript(base)], { type: 'text/javascript' })
+      const url = URL.createObjectURL(blob)
+      void G.api('dev.log', { message: `monaco-worker-construct-failed ${String(error && error.message)} fallback=blob` }).catch(() => {})
+      try {
+        return watch(new Worker(url, { name }), url)
+      } finally {
+        window.setTimeout(() => URL.revokeObjectURL(url), 10000)
+      }
     }
   }
 
@@ -492,6 +521,8 @@
     const diffEditorRef = useRef(null)
     const diffModelsRef = useRef([])
     const diffSignatureRef = useRef(null)
+    const diffAnchorsRef = useRef([])
+    const diffZoneIdsRef = useRef([])
     const monacoRef = useRef(null)
     const modelsRef = useRef(new Map()) /* path -> ITextModel */
     const viewStatesRef = useRef(new Map()) /* path -> editor view state（滚动/光标） */
@@ -956,6 +987,8 @@
         }
         diffModelsRef.current = []
         diffSignatureRef.current = null
+        diffAnchorsRef.current = []
+        diffZoneIdsRef.current = []
       }
       if (status !== 'ready' || activeIsDiff !== true) {
         disposeDiff()
@@ -979,7 +1012,7 @@
       const language = typeof tab.language === 'string' && tab.language !== '' ? tab.language : 'plaintext'
       const key = encodeURIComponent(String(tab.path))
       const suffix = String(Date.now())
-      const leftText = tab.diff.compare === true && typeof tab.compareLeft === 'string' ? tab.compareLeft : tab.diff.left
+      const leftText = tab.diff.compare === true && typeof tab.compareLeft === 'string' ? tab.compareLeft : String(tab.diff.left ?? '')
       const originalModel = monaco.editor.createModel(String(leftText ?? ''), language, monaco.Uri.parse(`gufa-diff://original/${key}/${suffix}`))
       const modifiedModel = monaco.editor.createModel(String(tab.content ?? ''), language, monaco.Uri.parse(`gufa-diff://modified/${key}/${suffix}`))
       let instance
@@ -1066,6 +1099,17 @@
       } catch {
         /* ignore */
       }
+      /* 诊断：2 秒后如果差异仍然是 null，说明 Monaco worker 没起来（dsh-app:// 下的 worker 限制） */
+      window.setTimeout(() => {
+        try {
+          const changes = typeof instance.getLineChanges === 'function' ? instance.getLineChanges() : null
+          void G.api('dev.log', {
+            message: `diff-open path=${tab.path} leftLen=${String(leftText ?? '').length} rightLen=${String(tab.content ?? '').length} hostW=${host !== null ? host.clientWidth : -1} changes=${Array.isArray(changes) ? changes.length : String(changes)}`,
+          }).catch(() => {})
+        } catch {
+          /* ignore */
+        }
+      }, 2000)
       return () => {
         try {
           sub.dispose()
@@ -1188,7 +1232,8 @@
         const changes = typeof instance.getLineChanges === 'function' ? instance.getLineChanges() : null
         if (changes === null || changes === undefined || changes.length === 0) return
         const editor = instance.getModifiedEditor()
-        const line = editor.getPosition() === null ? 0 : editor.getPosition().lineNumber
+        const position = editor.getPosition()
+        const line = position === null ? 0 : position.lineNumber
         let target = direction > 0 ? changes.find((item) => item.modifiedStartLineNumber > line) : [...changes].reverse().find((item) => item.modifiedEndLineNumber < line)
         if (target === undefined) target = direction > 0 ? changes[0] : changes[changes.length - 1]
         if (target === undefined) return
