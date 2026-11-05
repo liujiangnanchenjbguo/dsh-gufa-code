@@ -34,7 +34,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         NSFontAttributeName: [NSFont systemFontOfSize:10 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:1.0 alpha:0.6],
     };
-    NSString *label = @"古法编程 · 悬浮层（拖动移动 · 右键菜单 · ⌥⌘G 切穿透）";
+    NSString *label = @"古法编程 · 悬浮层（拖动移动 · 右键菜单 · ⌃⌥⌘G 切穿透）";
     NSSize size = [label sizeWithAttributes:attrs];
     NSPoint origin = NSMakePoint(floor((self.bounds.size.width - size.width) / 2.0), floor((self.bounds.size.height - size.height) / 2.0));
     [label drawAtPoint:origin withAttributes:attrs];
@@ -199,7 +199,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [menu addItemWithTitle:@"跟随 App 窗口…（需屏幕录制权限）" action:@selector(chooseFollowWindow:) keyEquivalent:@""].target = self;
     [menu addItemWithTitle:@"停止跟随" action:@selector(stopFollow:) keyEquivalent:@""].target = self;
     [menu addItem:[NSMenuItem separatorItem]];
-    [menu addItemWithTitle:@"切换点击穿透（⌥⌘G）" action:@selector(toggleClickThrough:) keyEquivalent:@""].target = self;
+    [menu addItemWithTitle:@"切换点击穿透（⌃⌥⌘G）" action:@selector(toggleClickThrough:) keyEquivalent:@""].target = self;
     [menu addItemWithTitle:@"重置窗口位置和大小" action:@selector(resetFrame:) keyEquivalent:@""].target = self;
     [menu addItem:[NSMenuItem separatorItem]];
     [menu addItemWithTitle:@"关闭悬浮层" action:@selector(quitApp:) keyEquivalent:@""].target = self;
@@ -381,11 +381,11 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [self saveFrame];
 }
 
-/* 全局快捷键 ⌥⌘G：穿透后窗口收不到鼠标事件，靠它切回来（Carbon 热键不需要辅助功能权限） */
+/* 全局快捷键 ⌃⌥⌘G（四键，避免冲突）：穿透后窗口收不到鼠标事件，靠它切回来（Carbon 热键不需要辅助功能权限） */
 - (void)registerToggleHotKey {
     EventTypeSpec spec = {kEventClassKeyboard, kEventHotKeyPressed};
     InstallApplicationEventHandler(NewEventHandlerUPP(GufaHotKeyHandler), 1, &spec, (__bridge void *)self, NULL);
-    RegisterEventHotKey(kVK_ANSI_G, cmdKey | optionKey, GufaToggleHotKey, GetApplicationEventTarget(), 0, &_hotKeyRef);
+    RegisterEventHotKey(kVK_ANSI_G, controlKey | optionKey | cmdKey, GufaToggleHotKey, GetApplicationEventTarget(), 0, &_hotKeyRef);
 }
 
 - (void)toggleClickThrough:(id)sender {
