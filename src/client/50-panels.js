@@ -409,7 +409,7 @@ G.Explorer = function Explorer(props) {
             setMenu(null)
             fn()
           }
-          return h(
+          return G.portal(h(
             'div',
             {
               className: 'gufa-menu',
@@ -442,7 +442,7 @@ G.Explorer = function Explorer(props) {
             single
               ? h(G.MenuItem, { icon: 'trash', label: t('explorer.delete'), danger: true, onClick: closeAnd(() => props.onDelete?.(menu.path)) })
               : null,
-          )
+          ))
         })(),
   )
 }
@@ -832,7 +832,7 @@ G.GitPanel = function GitPanel(props) {
     ),
     headMenu === null
       ? null
-      : h(
+      : G.portal(h(
           'div',
           {
             className: 'gufa-menu',
@@ -871,10 +871,10 @@ G.GitPanel = function GitPanel(props) {
             label: t('graph.open'),
             onClick: menuAction(() => props.onOpenGraph?.()),
           }),
-        ),
+        )),
     rowMenu === null
       ? null
-      : h(
+      : G.portal(h(
           'div',
           {
             className: 'gufa-menu',
@@ -902,7 +902,7 @@ G.GitPanel = function GitPanel(props) {
               })
             : null,
           h(G.MenuItem, { icon: 'files', label: t('git.copyPath'), onClick: menuAction(() => copyText(rowMenu.change.path)) }),
-        ),
+        )),
   )
 }
 

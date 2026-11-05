@@ -1097,15 +1097,14 @@ html[data-gufa-float] #root [data-gufa-dock],
 html[data-gufa-float] #root .gufa-overlay-root *,
 html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
-html[data-gufa-ide] .dsh-pet-root{z-index:2147483400!important}
-/* 古法自己的弹窗/菜单打开时：整个覆盖层临时抬到右侧停靠会话（z-index 2147483040）之上 */
-html[data-gufa-popup] .gufa-overlay-root{z-index:2147483300!important}
-/* 外部弹窗（DSH 设置等）打开时：停靠会话与桌宠降到弹窗之下，保证弹窗完整可点可关 */
+html[data-gufa-ide] .dsh-pet-root{z-index:2147483050!important}
+/* 外部弹窗（DSH 设置等）打开时：停靠会话、古法 portal、桌宠全部降到官方弹窗之下 */
 html[data-gufa-external-modal] [data-gufa-dock]{z-index:2!important}
+html[data-gufa-external-modal] #gufa-portal-root{z-index:1!important}
 html[data-gufa-external-modal] .dsh-pet-root{z-index:2!important}
 html[data-gufa-external-modal] div[data-dsh-pet-root]{z-index:2!important}
 /* 桌宠（@linxin666/dsh-pet）在 IDE 模式提到覆盖层之上，避免被古法编程面板遮住 */
-html[data-gufa-ide] div[data-dsh-pet-root]{position:fixed;inset:0;z-index:2147483400;pointer-events:none}
+html[data-gufa-ide] div[data-dsh-pet-root]{position:fixed;inset:0;z-index:2147483050;pointer-events:none}
 html[data-gufa-ide] div[data-dsh-pet-root] *{pointer-events:auto}
 .gufa-backdrop-page{position:absolute;inset:0;transition:background-color 200ms linear}
 .gufa-backdrop-glow{position:absolute;inset:0;pointer-events:none;
@@ -1167,7 +1166,10 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
 /* 官方同款 body 级 portal 容器（弹窗渲染到这里，天然在停靠会话之上） */
-#gufa-portal-root{position:fixed;inset:0;z-index:2147483350;pointer-events:none}
+/* 层级契约（见 docs/KNOWN-PITFALLS.md）：
+   1 = 古法覆盖层；2147483040 = 右侧停靠会话；2147483060 = 官方 DSH 菜单/弹窗；
+   2147483100 = 古法 portal（所有弹窗/菜单）；2147483200 = toast。 */
+#gufa-portal-root{position:fixed;inset:0;z-index:2147483100;pointer-events:none}
 #gufa-portal-root>*{pointer-events:auto}
 /* 摸鱼模式：App 窗口选择器 */
 .gufa-float-backdrop{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;

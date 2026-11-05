@@ -2,25 +2,32 @@
 
 > 这份清单记录已经犯过、并且容易再犯的错误。加新功能前先扫一遍。
 
-## 1. 古法编程里的浮层会被右侧停靠会话盖住（反复踩）
+## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
-**现象**：弹窗/菜单只显示一半；关闭按钮点不到；列表被右侧「古法 AI」聊天栏压住；点击穿透的弹窗挡在聊天栏下面。
+**现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。
 
-**原因**：
-- 古法编程的所有界面都在 `.gufa-overlay-root` 里，它是 `z-index:1` 的层叠上下文；
-- 右侧停靠的官方会话根节点是 **body 级** `position:fixed; z-index:2147483040`；
-- 所以 root 内弹窗自己的 `z-index` 写多大都没用，出不了 root 的层叠上下文，必然被会话盖住。
+**根因**：古法编程界面在 `.gufa-overlay-root`（z-index:1）这个层叠上下文里；右侧停靠的官方会话根节点是 body 级
+`position:fixed; z-index:2147483040`。任何渲染在 root 内部的弹窗/菜单，z-index 写多大都出不了 root 的上下文，
+必然被会话盖住。
 
-**正确做法（三选一）**：
-1. 古法自己的弹窗/菜单：打开时把 root 抬起来 —— 现有 `59-popup-layer.js` 会自动检测 root 内出现的
-   `[role=menu] / [role=dialog] / [role=listbox] / .gufa-modal / .gufa-float-backdrop` 等，
-   给 `<html>` 加 `data-gufa-popup`，CSS 把 `.gufa-overlay-root` 抬到 `z-index:2147483300`；
-   新增全屏浮层时**必须**把它的类名加进 `59-popup-layer.js` 的 SELECTOR。
-2. 外部（DSH 官方）弹窗：`59-dialog-layer.js` 检测 body 级 `[role="dialog"][aria-modal="true"]`，
-   加 `data-gufa-external-modal`，CSS 把停靠会话降到 `z-index:2`。
-3. 任何新浮层提交前：**在有右侧会话打开的情况下**实测它是否完整可见、可关闭。
+**定案（不要再发明新写法）**：
 
-**禁止**：只在浮层自身上写一个很高的 `z-index` 就交付。
+1. 所有浮层（modal / 菜单 / 列表 / 确认框）一律用 `G.portal(node)` 渲染到 `#gufa-portal-root`（body 级，官方同款 portal 机制）；
+   - 新增浮层时**必须**用 `G.portal(...)` 包裹，否则一定踩坑；
+   - 模块内联菜单（`50-panels.js` 的 `.gufa-menu`）已经全部 portal，坐标本来就是 client 坐标 + `position:fixed`。
+2. 层级契约（见 `00-core.js` 注释，按顺序递增）：
+   - `1`：`.gufa-overlay-root`（IDE 本体）
+   - `2147483040`：右侧停靠会话
+   - `2147483050`：桌宠
+   - `2147483060`：官方 DSH 菜单/弹窗（`html[data-gufa-ide] [role=...]` 规则）
+   - `2147483100`：`#gufa-portal-root`（古法所有弹窗/菜单）
+   - `2147483200`：toast
+3. 官方弹窗打开时（`59-dialog-layer.js` 检测 body 级 `[role=dialog][aria-modal=true]`）：
+   `html[data-gufa-external-modal]` 把停靠会话降到 2、`#gufa-portal-root` 降到 1，保证官方弹窗永远在最上面。
+4. **禁止**：抬高 `.gufa-overlay-root` 或它的祖先来做层级修正（历史补丁，已删除，最容易造成“弹窗层级混乱”）。
+
+**验收方式**：改完浮层后，在有右侧会话、且 IDE 里有打开文件的情况下，逐一点一遍：
+资源管理器右键菜单 / Git 菜单 / 摸鱼列表 / 切换会话 / 工作区切换 / 设置弹窗，确认都能完整显示、能点、能关。
 
 ## 2. macOS 屏幕录制权限 + 悬浮层 helper
 

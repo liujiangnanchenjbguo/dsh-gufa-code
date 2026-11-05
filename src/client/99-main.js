@@ -352,16 +352,6 @@ const GUFA_PLUGIN = {
     window.setTimeout(cleanStaleSidebarLayouts, 1500)
     window.setTimeout(cleanStaleSidebarLayouts, 5000)
 
-    // 弹窗/菜单打开时把覆盖层整体抬到右侧停靠会话之上（否则会被盖住）
-    try {
-      if (typeof G.installPopupLayerWatch === 'function') {
-        const disposePopupWatch = G.installPopupLayerWatch(ctx)
-        if (typeof disposePopupWatch === 'function') ctx.effect(() => disposePopupWatch, 'gufa-code: popup layer watch')
-      }
-    } catch (error) {
-      console.error('[gufa-code] 安装弹窗层级监听失败', error)
-    }
-
     // 外部弹窗（设置等）打开时降低停靠层，避免遮挡弹窗导致关不掉
     try {
       if (typeof G.installDialogLayerWatch === 'function') {

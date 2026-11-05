@@ -13,7 +13,9 @@ G.installDialogLayerWatch = function installDialogLayerWatch(ctx) {
   const isExternalDialog = (el) => {
     if (!(el instanceof Element) || typeof el.closest !== 'function') return false
     if (el.getAttribute('role') !== 'dialog' || el.getAttribute('aria-modal') !== 'true') return false
-    return el.closest('.gufa-root') === null
+    if (el.closest('.gufa-root') !== null) return false
+    if (el.closest('#gufa-portal-root') !== null) return false
+    return true
   }
 
   const sync = () => {
