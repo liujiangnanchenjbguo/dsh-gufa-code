@@ -1004,11 +1004,14 @@ G.GufaApp = function GufaApp(props) {
     if (pending === null || pending === undefined || typeof pending.key !== 'string') {
       if (typeof sessionCwd !== 'string' || sessionCwd === '') return
       entryWorkspaceSyncedRef.current = true
-      if (project.root !== sessionCwd) void openProjectPath(sessionCwd).catch((error) => setBanner(G.errorText(error)))
+      if (project !== null && typeof project.root === 'string' && project.root !== sessionCwd) {
+        void openProjectPath(sessionCwd).catch((error) => setBanner(G.errorText(error)))
+      }
       return
     }
     entryWorkspaceSyncedRef.current = true
-    void G.api('dev.log', { message: `entry-sync pending=${String(pending.key)} project=${project !== null ? project.root : 'null'} sessionCwd=${typeof sessionCwd === 'string' ? sessionCwd : ''}` }).catch(() => {})
+    const currentRoot = project !== null && typeof project.root === 'string' ? project.root : ''
+    void G.api('dev.log', { message: `entry-sync pending=${String(pending.key)} project=${currentRoot === '' ? 'null' : currentRoot} sessionCwd=${typeof sessionCwd === 'string' ? sessionCwd : ''}` }).catch(() => {})
     void (async () => {
       try {
         let targetPath = ''
@@ -1024,7 +1027,7 @@ G.GufaApp = function GufaApp(props) {
         const sameWorkspace = typeof sessionCwd === 'string' && sessionCwd !== '' && targetPath !== '' && sessionCwd === targetPath
         if (sameWorkspace) {
           /* 当前正在聊的会话就在这个工作区：直接用它，只把项目根对齐 */
-          if (project.root !== targetPath) await openProjectPath(targetPath)
+          if (currentRoot !== targetPath) await openProjectPath(targetPath)
           return
         }
         /* 会话属于别的工作区：切到目标工作区最近的会话，再对齐项目根 */
