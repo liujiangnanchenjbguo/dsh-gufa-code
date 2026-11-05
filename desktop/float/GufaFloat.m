@@ -14,6 +14,8 @@
 #import <CoreGraphics/CoreGraphics.h>
 
 @interface GufaDragStrip : NSView
+@property (nonatomic, weak) id doubleClickTarget;
+@property (nonatomic, assign) SEL doubleClickAction;
 @end
 
 @implementation GufaDragStrip
@@ -27,18 +29,31 @@
         NSFontAttributeName: [NSFont systemFontOfSize:10 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:1.0 alpha:0.6],
     };
-    NSString *label = @"古法编程 · 悬浮层（拖动这里移动窗口）";
+    NSString *label = @"古法编程 · 悬浮层（拖动移动 · 双击穿透 · 右键菜单）";
     NSSize size = [label sizeWithAttributes:attrs];
     NSPoint origin = NSMakePoint(floor((self.bounds.size.width - size.width) / 2.0), floor((self.bounds.size.height - size.height) / 2.0));
     [label drawAtPoint:origin withAttributes:attrs];
 }
 
-- (void)mouseDown:(NSEvent *)event {
-    [self.window performWindowDragWithEvent:event];
-}
-
 - (void)mouseDragged:(NSEvent *)event {
     /* performDrag 已接管拖动 */
+}
+
+- (void)rightMouseDown:(NSEvent *)event {
+    /* 右键直接弹出悬浮层菜单（菜单栏图标太挤时也能用） */
+    if (self.menu != nil) {
+        [NSMenu popUpContextMenu:self.menu withEvent:event forView:self];
+        return;
+    }
+    [super rightMouseDown:event];
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    if (event.clickCount == 2 && self.doubleClickTarget != nil && self.doubleClickAction != NULL) {
+        [NSApp sendAction:self.doubleClickAction to:self.doubleClickTarget from:self];
+        return;
+    }
+    [self.window performWindowDragWithEvent:event];
 }
 
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
@@ -56,6 +71,8 @@
 @property (nonatomic, strong) NSWindow *window;
 @property (nonatomic, strong) WKWebView *webView;
 @property (nonatomic, strong) NSStatusItem *statusItem;
+@property (nonatomic, strong) NSMenu *mainMenu;
+@property (nonatomic, strong) GufaDragStrip *dragStrip;
 @property (nonatomic, assign) BOOL clickThrough;
 @property (nonatomic, strong) NSString *frameKey;
 @property (nonatomic, strong) GufaNavigationDelegate *navigation;
@@ -159,7 +176,11 @@
     CGFloat stripHeight = 22.0;
     GufaDragStrip *strip = [[GufaDragStrip alloc] initWithFrame:NSMakeRect(0, frame.size.height - stripHeight, frame.size.width, stripHeight)];
     strip.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+    strip.menu = self.mainMenu;
+    strip.doubleClickTarget = self;
+    strip.doubleClickAction = @selector(toggleClickThrough:);
     [container addSubview:strip];
+    self.dragStrip = strip;
 
     self.window.contentView = container;
     [self.window makeKeyAndOrderFront:nil];
@@ -180,6 +201,7 @@
     [menu addItemWithTitle:@"重置窗口位置和大小" action:@selector(resetFrame:) keyEquivalent:@""].target = self;
     [menu addItem:[NSMenuItem separatorItem]];
     [menu addItemWithTitle:@"关闭悬浮层" action:@selector(quitApp:) keyEquivalent:@""].target = self;
+    self.mainMenu = menu;
     self.statusItem.menu = menu;
 }
 
