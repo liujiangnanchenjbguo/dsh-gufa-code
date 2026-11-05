@@ -370,7 +370,32 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         [js appendString:@"localStorage.setItem('gufa-code:float','1');location.href='/?gufa-float=1';}catch(e){}"];
         [self.webView evaluateJavaScript:js completionHandler:nil];
     };
-    [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:authUrl]]];
+    NSString *cookie = [self.options[@"cookie"] isKindOfClass:[NSString class]] ? self.options[@"cookie"] : nil;
+    if (cookie.length > 0) {
+        NSRange eq = [cookie rangeOfString:@"="];
+        if (eq.location != NSNotFound) {
+            NSString *name = [cookie substringToIndex:eq.location];
+            NSString *value = [cookie substringFromIndex:eq.location + 1];
+            NSDictionary *props = @{
+                NSHTTPCookieName: name,
+                NSHTTPCookieValue: value,
+                NSHTTPCookieDomain: @"127.0.0.1",
+                NSHTTPCookiePath: @"/",
+                NSHTTPCookieExpires: [NSDate dateWithTimeIntervalSinceNow:86400],
+            };
+            NSHTTPCookie *httpCookie = [NSHTTPCookie cookieWithProperties:props];
+            if (httpCookie != nil) {
+                WKHTTPCookieStore *store = [WKWebsiteDataStore defaultDataStore].httpCookieStore;
+                [store setCookie:httpCookie completionHandler:^{
+                    NSURLComponents *components = [NSURLComponents componentsWithString:self.options[@"appUrl"] ?: @""];
+                    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"gufa-float" value:@"1"]];
+                    [self.webView loadRequest:[NSURLRequest requestWithURL:components.URL]];
+                }];
+            }
+        }
+    } else {
+        [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:authUrl]]];
+    }
     /* 内部 QA：payload.selftest 是一段 JS，页面打开后在悬浮窗里跑一遍并写回诊断日志（仅开发用，不影响 UI） */
     NSString *selftest = [self.options[@"selftest"] isKindOfClass:[NSString class]] ? self.options[@"selftest"] : nil;
     if (selftest.length > 0) {

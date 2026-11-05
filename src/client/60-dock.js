@@ -580,6 +580,21 @@ G.OverlayHost = function OverlayHost(props) {
       root.style.setProperty('--gufa-solid-sidebar', palette.sidebar)
       root.style.setProperty('--gufa-solid-text', palette.text)
       root.style.setProperty('--gufa-solid-text-dim', palette.textDim)
+      /* 弹窗 portal 挂在 body 上，拿不到 root 上的 inline 变量，这里同步一份 */
+      try {
+        const portalHost = document.getElementById('gufa-portal-root')
+        if (portalHost !== null) {
+          portalHost.style.setProperty('--gufa-solid-bg', palette.bg)
+          portalHost.style.setProperty('--gufa-solid-layer', palette.layer)
+          portalHost.style.setProperty('--gufa-solid-layer2', palette.layer2)
+          portalHost.style.setProperty('--gufa-solid-overlay', palette.overlay)
+          portalHost.style.setProperty('--gufa-solid-sidebar', palette.sidebar)
+          portalHost.style.setProperty('--gufa-solid-text', palette.text)
+          portalHost.style.setProperty('--gufa-solid-text-dim', palette.textDim)
+        }
+      } catch {
+        /* ignore */
+      }
       if (typeof G.applyPopupTheme === 'function') G.applyPopupTheme(palette)
       try {
         if (window.__gufaApplyLogs === undefined) window.__gufaApplyLogs = 10

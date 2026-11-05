@@ -1177,7 +1177,16 @@ html[data-gufa-ide] [role="dialog"] {
 /* 层级契约（见 docs/KNOWN-PITFALLS.md）：
    1 = 古法覆盖层；2147483040 = 右侧停靠会话；2147483060 = 官方 DSH 菜单/弹窗；
    2147483100 = 古法 portal（所有弹窗/菜单）；2147483200 = toast。 */
-#gufa-portal-root{position:fixed;inset:0;z-index:2147483100;pointer-events:none}
+#gufa-portal-root{position:fixed;inset:0;z-index:2147483100;pointer-events:none;
+  /* portal 在 body 层，拿不到 .gufa-root 上的主题变量；这里补齐一套（固色变量由 60-dock 同步写入 inline） */
+  --gufa-accent:#c0392b;--gufa-accent-soft:color-mix(in srgb, var(--gufa-accent) 16%, transparent);
+  --gufa-bg:var(--gufa-solid-bg, var(--dsw-alias-bg-base, #17181c));--gufa-layer:var(--gufa-solid-layer, var(--dsw-alias-bg-layer-1, #1d1f24));
+  --gufa-layer2:var(--gufa-solid-layer2, var(--dsw-alias-bg-layer-2, #23262c));
+  --gufa-solid-overlay-bg:var(--gufa-solid-overlay, var(--dsw-alias-bg-overlay, #2a2d34));
+  --gufa-border:var(--dsw-alias-border-l1, rgba(255,255,255,0.1));--gufa-border-strong:var(--dsw-alias-border-l2, rgba(255,255,255,0.18));
+  --gufa-text:var(--gufa-solid-text, var(--dsw-alias-label-primary, #f4f1e8));--gufa-text-dim:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary, rgba(244,241,232,0.66)));
+  --gufa-hover:color-mix(in srgb, var(--gufa-text) 7%, transparent);--gufa-active:color-mix(in srgb, var(--gufa-text) 11%, transparent);
+  color:var(--gufa-text);font-size:13px;line-height:1.45}
 #gufa-portal-root>*{pointer-events:auto}
 /* 摸鱼模式：App 窗口选择器 */
 .gufa-float-backdrop{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;
@@ -8749,6 +8758,21 @@ G.OverlayHost = function OverlayHost(props) {
       root.style.setProperty('--gufa-solid-sidebar', palette.sidebar)
       root.style.setProperty('--gufa-solid-text', palette.text)
       root.style.setProperty('--gufa-solid-text-dim', palette.textDim)
+      /* 弹窗 portal 挂在 body 上，拿不到 root 上的 inline 变量，这里同步一份 */
+      try {
+        const portalHost = document.getElementById('gufa-portal-root')
+        if (portalHost !== null) {
+          portalHost.style.setProperty('--gufa-solid-bg', palette.bg)
+          portalHost.style.setProperty('--gufa-solid-layer', palette.layer)
+          portalHost.style.setProperty('--gufa-solid-layer2', palette.layer2)
+          portalHost.style.setProperty('--gufa-solid-overlay', palette.overlay)
+          portalHost.style.setProperty('--gufa-solid-sidebar', palette.sidebar)
+          portalHost.style.setProperty('--gufa-solid-text', palette.text)
+          portalHost.style.setProperty('--gufa-solid-text-dim', palette.textDim)
+        }
+      } catch {
+        /* ignore */
+      }
       if (typeof G.applyPopupTheme === 'function') G.applyPopupTheme(palette)
       try {
         if (window.__gufaApplyLogs === undefined) window.__gufaApplyLogs = 10
