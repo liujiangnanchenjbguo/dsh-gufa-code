@@ -1114,6 +1114,24 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+/* 摸鱼模式：App 窗口选择器 */
+.gufa-float-backdrop{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,0.42);padding:24px;box-sizing:border-box}
+.gufa-float-picker{width:min(660px,92vw);max-height:min(640px,82vh);display:flex;flex-direction:column;
+  background:var(--gufa-layer);border:1px solid var(--gufa-border-strong);border-radius:12px;overflow:hidden;
+  box-shadow:0 24px 60px rgba(0,0,0,0.45)}
+.gufa-float-list{display:flex;flex-direction:column;gap:4px;padding:8px 10px;overflow:auto;min-height:120px}
+.gufa-float-row{display:flex;align-items:center;gap:10px;width:100%;padding:7px 10px;border:0;border-radius:9px;
+  background:transparent;color:var(--gufa-text);font:inherit;text-align:left;cursor:pointer}
+.gufa-float-row:hover{background:var(--gufa-hover)}
+.gufa-float-row:disabled{opacity:0.55;cursor:default}
+.gufa-float-icon{width:26px;height:26px;object-fit:contain;flex:0 0 auto;border-radius:5px}
+.gufa-float-meta{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 auto}
+.gufa-float-owner{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-float-title{font-size:11px;color:var(--gufa-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-float-size{flex:0 0 auto;font-size:10.5px;color:var(--gufa-text-dim);font-variant-numeric:tabular-nums}
+.gufa-float-permission{padding:16px}
+.gufa-float-permission-title{font-size:13px;font-weight:600;margin-bottom:6px}
 .gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
   color:var(--gufa-text-dim);border-radius:7px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer;max-width:260px}
 .gufa-session-workspace-btn:hover{background:var(--gufa-hover);color:var(--gufa-text)}

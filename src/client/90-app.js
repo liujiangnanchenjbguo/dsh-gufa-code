@@ -157,6 +157,8 @@ G.GufaApp = function GufaApp(props) {
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [floatRunning, setFloatRunning] = useState(false)
   const [floatBusy, setFloatBusy] = useState(false)
+  /* 摸鱼窗口选择器：null | {status:'loading'|'ready'|'permission'|'error', windows:[], error:''} */
+  const [floatPicker, setFloatPicker] = useState(null)
   /* 会话弹窗里选中的工作区（null = 跟随当前 IDE 项目） */
   const [sessionWorkspacePath, setSessionWorkspacePath] = useState(null)
   const [sessionWorkspacePicker, setSessionWorkspacePicker] = useState(false)
@@ -829,25 +831,78 @@ G.GufaApp = function GufaApp(props) {
     return () => { cancelled = true }
   }, [])
 
-  const toggleFloatWindow = useCallback(async () => {
+  /* 退出摸鱼：关掉悬浮层（helper 会把主窗口唤回前台） */
+  const stopFloatWindow = useCallback(async () => {
     if (floatBusy) return
     setFloatBusy(true)
     try {
-      if (floatRunning) {
-        await G.api('float.stop')
-        setFloatRunning(false)
-        setBanner('悬浮层已关闭')
-      } else {
-        const value = await G.api('float.start')
-        setFloatRunning(value?.running === true)
-        setBanner('悬浮层已启动：屏幕上的半透明窗口，菜单栏「古法」可切换点击穿透')
-      }
+      await G.api('float.stop')
+      setFloatRunning(false)
+      setBanner('已退出摸鱼：主窗口已恢复')
     } catch (error) {
       setBanner(G.errorText(error))
     } finally {
       setFloatBusy(false)
     }
-  }, [floatBusy, floatRunning])
+  }, [floatBusy])
+
+  /* 拉取可吸附的 App 窗口列表（摸鱼列表） */
+  const openFloatPicker = useCallback(async () => {
+    if (floatBusy) return
+    setFloatPicker({ status: 'loading', windows: [], error: '' })
+    try {
+      const value = await G.api('float.windows')
+      if (value?.ok === true && Array.isArray(value.windows)) {
+        setFloatPicker({ status: 'ready', windows: value.windows, error: '' })
+      } else if (value?.ok === false && value?.permission === 'screen-recording') {
+        setFloatPicker({ status: 'permission', windows: [], error: '' })
+      } else {
+        setFloatPicker({ status: 'error', windows: [], error: '没有读到可吸附的窗口' })
+      }
+    } catch (error) {
+      setFloatPicker({ status: 'error', windows: [], error: G.errorText(error) })
+    }
+  }, [floatBusy])
+
+  /* 选中某个 App 窗口 → 启动悬浮层并吸附它 */
+  const startFloatForWindow = useCallback(async (target) => {
+    if (floatBusy || target === null || target === undefined) return
+    setFloatBusy(true)
+    try {
+      const value = await G.api('float.start', {
+        follow: { windowNumber: Number(target.windowNumber) || 0, pid: Number(target.pid) || 0 },
+      })
+      setFloatRunning(value?.running === true)
+      setFloatPicker(null)
+      const name = typeof target.owner === 'string' && target.owner !== '' ? target.owner : '所选窗口'
+      setBanner(`摸鱼模式已开启：已吸附 ${name}；⌃⌥⌘G 切换点击穿透，菜单栏「古法」可退出`)
+    } catch (error) {
+      setBanner(G.errorText(error))
+    } finally {
+      setFloatBusy(false)
+    }
+  }, [floatBusy])
+
+  /* 自由悬浮（不吸附窗口） */
+  const startFloatFree = useCallback(async () => {
+    if (floatBusy) return
+    setFloatBusy(true)
+    try {
+      const value = await G.api('float.start')
+      setFloatRunning(value?.running === true)
+      setFloatPicker(null)
+      setBanner('悬浮层已启动（自由悬浮）')
+    } catch (error) {
+      setBanner(G.errorText(error))
+    } finally {
+      setFloatBusy(false)
+    }
+  }, [floatBusy])
+
+  const toggleFloatWindow = useCallback(() => {
+    if (floatRequested === true || floatRunning) void stopFloatWindow()
+    else void openFloatPicker()
+  }, [floatRequested, floatRunning, stopFloatWindow, openFloatPicker])
 
   /* ── 右侧 AI 面板与当前工作区保持一致 ─────────────────────────────────
    * ChatDock 停靠的是 DSH「主视图会话」，但主视图会话可能属于别的工作区
@@ -1759,7 +1814,7 @@ G.GufaApp = function GufaApp(props) {
             }, h(G.Icon, { name: 'image', size: 16 }))
           : null,
         h(G.IconButton, {
-          title: floatRunning ? '关闭桌面悬浮层' : '打开桌面悬浮层（半透明置顶窗口）',
+          title: floatRequested === true || floatRunning ? '退出摸鱼（关闭悬浮层，回主窗口）' : '进入摸鱼模式：选择一个 App 吸附并悬浮',
           'data-active': floatRunning ? '' : undefined,
           disabled: floatBusy,
           onClick: () => void toggleFloatWindow(),
@@ -2085,6 +2140,80 @@ G.GufaApp = function GufaApp(props) {
         ),
     /* 弹窗 */
     modal === null ? null : renderModal(),
+    floatPicker !== null
+      ? h(
+          'div',
+          {
+            className: 'gufa-float-backdrop',
+            onMouseDown: (event) => { if (event.target === event.currentTarget) setFloatPicker(null) },
+          },
+          h(
+            'div',
+            { className: 'gufa-float-picker', role: 'dialog', 'aria-modal': 'true', 'aria-label': '选择要摸鱼的 App' },
+            h(
+              'div',
+              { className: 'gufa-modal-head' },
+              h(G.Icon, { name: 'monitor', size: 15 }),
+              h('span', { style: { flex: '1 1 auto' } }, '摸鱼模式：选择要吸附的 App'),
+              h(G.IconButton, { title: t('common.close'), onClick: () => setFloatPicker(null) }, h(G.Icon, { name: 'close', size: 14 })),
+            ),
+            floatPicker.status === 'loading'
+              ? h('div', { className: 'gufa-graph-loading', style: { height: 90 } }, h(G.Spinner), '正在读取窗口列表…')
+              : floatPicker.status === 'permission'
+                ? h(
+                    'div',
+                    { className: 'gufa-float-permission' },
+                    h('div', { className: 'gufa-float-permission-title' }, '需要「屏幕录制」权限'),
+                    h('div', { className: 'gufa-hint' }, '摸鱼模式需要读取其他 App 窗口的尺寸（只读尺寸，不录屏）。请在「系统设置 → 隐私与安全性 → 屏幕录制」里允许 DeepSeek Harness / gufa-float，然后点重试。'),
+                    h(
+                      'div',
+                      { className: 'gufa-row', style: { gap: 8, marginTop: 12 } },
+                      h(G.Button, { primary: true, onClick: () => void G.api('float.openPrivacy').catch(() => {}) }, '打开系统设置'),
+                      h(G.Button, { onClick: () => void openFloatPicker() }, '重试'),
+                    ),
+                  )
+                : floatPicker.status === 'error'
+                  ? h('div', { className: 'gufa-float-permission' }, h('div', { className: 'gufa-error-banner' }, floatPicker.error))
+                  : floatPicker.windows.length === 0
+                    ? h('div', { className: 'gufa-hint', style: { padding: 16 } }, '没有可吸附的窗口')
+                    : h(
+                        'div',
+                        { className: 'gufa-float-list gufa-scroll' },
+                        floatPicker.windows.map((win, index) =>
+                          h(
+                            'button',
+                            {
+                              key: `${win.pid}:${win.windowNumber}:${index}`,
+                              type: 'button',
+                              className: 'gufa-float-row',
+                              title: `${win.owner} — ${win.title}`,
+                              disabled: floatBusy,
+                              onClick: () => void startFloatForWindow(win),
+                            },
+                            win.icon !== undefined && win.icon !== ''
+                              ? h('img', { className: 'gufa-float-icon', src: `data:image/png;base64,${win.icon}`, alt: '' })
+                              : h(G.Icon, { name: 'monitor', size: 26 }),
+                            h(
+                              'span',
+                              { className: 'gufa-float-meta' },
+                              h('span', { className: 'gufa-float-owner' }, win.owner !== '' ? win.owner : '未知 App'),
+                              h('span', { className: 'gufa-float-title' }, win.title !== '' ? win.title : '（无标题窗口）'),
+                            ),
+                            h('span', { className: 'gufa-float-size' }, `${Math.round(win.width)}×${Math.round(win.height)}`),
+                          ),
+                        ),
+                      ),
+            h(
+              'div',
+              { className: 'gufa-modal-foot' },
+              h(G.IconButton, { title: '刷新列表', onClick: () => void openFloatPicker() }, h(G.Icon, { name: 'refresh', size: 14 })),
+              h('span', { style: { flex: '1 1 auto' } }),
+              h(G.Button, { onClick: () => void startFloatFree() }, '自由悬浮（不吸附）'),
+              h(G.Button, { onClick: () => setFloatPicker(null) }, t('common.close')),
+            ),
+          ),
+        )
+      : null,
     sessionsOpen ? renderSessionsDialog() : null,
     shortcutsOpen ? renderShortcutsDialog() : null,
   )

@@ -13,8 +13,12 @@
 #import <WebKit/WebKit.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <Carbon/Carbon.h>
+#import <signal.h>
 
 static const EventHotKeyID GufaToggleHotKey = {'gufa', 1};
+
+/* SIGTERM 时先把主窗口（DeepSeek Harness）唤回前台，再退出，实现「退出摸鱼」 */
+static void GufaInstallTermHandler(void);
 
 @class GufaAppDelegate;
 
@@ -34,7 +38,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         NSFontAttributeName: [NSFont systemFontOfSize:10 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:1.0 alpha:0.6],
     };
-    NSString *label = @"古法编程 · 悬浮层（拖动移动 · 右键菜单 · ⌃⌥⌘G 切穿透）";
+    NSString *label = @"古法编程 · 摸鱼中（拖动移动 · 右键菜单 · ⌃⌥⌘G 切穿透）";
     NSSize size = [label sizeWithAttributes:attrs];
     NSPoint origin = NSMakePoint(floor((self.bounds.size.width - size.width) / 2.0), floor((self.bounds.size.height - size.height) / 2.0));
     [label drawAtPoint:origin withAttributes:attrs];
@@ -86,6 +90,10 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *windowCandidates;
 - (void)loadWebContent;
 - (void)registerToggleHotKey;
+- (void)activateTargetApp;
+- (void)beginningFollowFromOptions;
+- (void)exitMoyu:(id)sender;
+- (void)restoreMainWindow;
 - (void)toggleClickThrough:(id)sender;
 - (void)resetFrame:(id)sender;
 - (void)quitApp:(id)sender;
@@ -114,7 +122,34 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [self buildWindow];
     [self buildStatusItem];
     [self registerToggleHotKey];
+    [self activateTargetApp];
+    [self beginningFollowFromOptions];
     [self loadWebContent];
+}
+
+/** 吸附目标 App：把它切到前台，主窗口就自然被盖住了（等价于「隐藏主窗口」的观感）。 */
+- (void)activateTargetApp {
+    NSDictionary *follow = self.options[@"follow"];
+    NSNumber *pid = [follow isKindOfClass:[NSDictionary class]] ? follow[@"pid"] : nil;
+    if (![pid isKindOfClass:[NSNumber class]]) return;
+    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:(pid_t)pid.intValue];
+    if (app == nil) return;
+    [app activateWithOptions:NSApplicationActivateAllWindows];
+}
+
+/** 启动就进入「吸附跟随」模式（摸鱼列表选好窗口后直接启动）。 */
+- (void)beginningFollowFromOptions {
+    NSDictionary *follow = self.options[@"follow"];
+    if (![follow isKindOfClass:[NSDictionary class]]) return;
+    NSNumber *number = follow[@"windowNumber"];
+    NSNumber *pid = follow[@"pid"];
+    if (![number isKindOfClass:[NSNumber class]] || ![pid isKindOfClass:[NSNumber class]]) return;
+    self.followWindowNumber = number.intValue;
+    self.followOwnerPID = (pid_t)pid.intValue;
+    self.following = YES;
+    [self startFollowTimer];
+    [self applyFollowFrame];
+    self.statusItem.button.title = @"古法·摸鱼";
 }
 
 - (void)parseOptions {
@@ -202,7 +237,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [menu addItemWithTitle:@"切换点击穿透（⌃⌥⌘G）" action:@selector(toggleClickThrough:) keyEquivalent:@""].target = self;
     [menu addItemWithTitle:@"重置窗口位置和大小" action:@selector(resetFrame:) keyEquivalent:@""].target = self;
     [menu addItem:[NSMenuItem separatorItem]];
-    [menu addItemWithTitle:@"关闭悬浮层" action:@selector(quitApp:) keyEquivalent:@""].target = self;
+    [menu addItemWithTitle:@"退出摸鱼（关闭悬浮层，回主窗口）" action:@selector(exitMoyu:) keyEquivalent:@""].target = self;
     self.mainMenu = menu;
     self.statusItem.menu = menu;
     /* buildWindow 先于 buildStatusItem 执行，这里补挂右键菜单 */
@@ -405,15 +440,38 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [self saveFrame];
 }
 
-- (void)quitApp:(id)sender {
+/* 退出摸鱼：恢复主窗口（DeepSeek Harness）到前台，然后关掉悬浮层 */
+- (void)exitMoyu:(id)sender {
+    [self restoreMainWindow];
     [self stopFollowTimer];
     [self saveFrame];
     [NSApp terminate:nil];
 }
 
+- (void)restoreMainWindow {
+    NSArray<NSRunningApplication *> *apps = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.deepseek.dsh"];
+    for (NSRunningApplication *app in apps) {
+        [app activateWithOptions:NSApplicationActivateAllWindows];
+    }
+}
+
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
 
 @end
+
+/* SIGTERM（Host 的 float.stop）→ 先恢复主窗口再退出，避免「摸鱼退出后主窗口不在前台」 */
+static void GufaInstallTermHandler(void) {
+    signal(SIGTERM, SIG_IGN);
+    dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(source, ^{
+        NSArray<NSRunningApplication *> *apps = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.deepseek.dsh"];
+        for (NSRunningApplication *app in apps) {
+            [app activateWithOptions:NSApplicationActivateAllWindows];
+        }
+        [NSApp terminate:nil];
+    });
+    dispatch_resume(source);
+}
 
 static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef event, void *userData) {
     (void)nextHandler;
@@ -423,8 +481,93 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     return noErr;
 }
 
+/* ── 窗口列表模式：gufa-float --list-windows ─────────────────────── */
+
+static NSArray<NSDictionary *> *GufaEnumerateWindows(void) {
+    NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
+    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+    if (list == NULL) return rows;
+    NSInteger count = CFArrayGetCount(list);
+    pid_t selfPid = NSProcessInfo.processInfo.processIdentifier;
+    NSMutableDictionary<NSNumber *, NSData *> *iconCache = [NSMutableDictionary dictionary];
+    for (NSInteger i = 0; i < count && rows.count < 60; i++) {
+        NSDictionary *info = (__bridge NSDictionary *)CFArrayGetValueAtIndex(list, i);
+        NSNumber *layer = info[(id)kCGWindowLayer];
+        if (![layer isKindOfClass:[NSNumber class]] || layer.intValue != 0) continue;
+        NSNumber *pid = info[(id)kCGWindowOwnerPID];
+        if (![pid isKindOfClass:[NSNumber class]] || pid.intValue == selfPid) continue;
+        NSNumber *number = info[(id)kCGWindowNumber];
+        NSDictionary *bounds = info[(id)kCGWindowBounds];
+        if (number == nil || bounds == nil) continue;
+        CGRect rect = CGRectZero;
+        if (!CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)bounds, &rect)) continue;
+        if (rect.size.width < 200 || rect.size.height < 140) continue;
+        NSString *owner = info[(id)kCGWindowOwnerName];
+        NSString *title = info[(id)kCGWindowName];
+        NSData *iconData = iconCache[pid];
+        if (iconData == nil) {
+            iconData = NSData.data;
+            NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:(pid_t)pid.intValue];
+            NSImage *icon = app.icon;
+            if (icon != nil) {
+                NSImage *resized = [[NSImage alloc] initWithSize:NSMakeSize(32, 32)];
+                [resized lockFocus];
+                [icon drawInRect:NSMakeRect(0, 0, 32, 32) fromRect:NSZeroRect operation:NSCompositingOperationCopy fraction:1.0 respectFlipped:YES hints:nil];
+                [resized unlockFocus];
+                NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithData:resized.TIFFRepresentation];
+                NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                if (png != nil) iconData = png;
+            }
+            iconCache[pid] = iconData;
+        }
+        [rows addObject:@{
+            @"windowNumber": number,
+            @"pid": pid,
+            @"owner": owner != nil ? owner : @"",
+            @"title": title != nil ? title : @"",
+            @"width": @(rect.size.width),
+            @"height": @(rect.size.height),
+            @"icon": [iconData base64EncodedStringWithOptions:0] ?: @"",
+        }];
+    }
+    CFRelease(list);
+    return rows;
+}
+
+static int GufaListWindowsMode(void) {
+    BOOL granted = CGPreflightScreenCaptureAccess();
+    if (!granted) {
+        CGRequestScreenCaptureAccess();
+        NSDictionary *out = @{@"ok": @NO, @"permission": @"screen-recording"};
+        NSData *json = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
+        fwrite(json.bytes, 1, json.length, stdout);
+        fputc('\n', stdout);
+        return 2;
+    }
+    NSArray<NSDictionary *> *rows = GufaEnumerateWindows();
+    if (rows.count == 0) {
+        /* CGRequestScreenCaptureAccess 授权后同一进程内可能还需要重启；提示前端重试 */
+        NSDictionary *out = @{@"ok": @NO, @"permission": @"screen-recording"};
+        NSData *json = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
+        fwrite(json.bytes, 1, json.length, stdout);
+        fputc('\n', stdout);
+        return 2;
+    }
+    NSDictionary *out = @{@"ok": @YES, @"windows": rows};
+    NSData *json = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
+    fwrite(json.bytes, 1, json.length, stdout);
+    fputc('\n', stdout);
+    return 0;
+}
+
 int main(int argc, const char *argv[]) {
+    if (argc > 1 && strcmp(argv[1], "--list-windows") == 0) {
+        @autoreleasepool {
+            return GufaListWindowsMode();
+        }
+    }
     @autoreleasepool {
+        GufaInstallTermHandler();
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
         GufaAppDelegate *delegate = [[GufaAppDelegate alloc] init];
