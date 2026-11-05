@@ -530,11 +530,21 @@ static NSArray<NSDictionary *> *GufaEnumerateWindows(void) {
     return rows;
 }
 
-static void GufaPrintPermissionResult(void) {
-    NSDictionary *out = @{@"ok": @NO, @"permission": @"screen-recording"};
+static NSString *GufaOutputPath = nil;
+
+static void GufaEmitJSON(NSDictionary *out) {
     NSData *json = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
-    if (json != nil) fwrite(json.bytes, 1, json.length, stdout);
+    if (json == nil) return;
+    if (GufaOutputPath.length > 0) {
+        [json writeToFile:GufaOutputPath atomically:YES];
+        return;
+    }
+    fwrite(json.bytes, 1, json.length, stdout);
     fputc('\n', stdout);
+}
+
+static void GufaPrintPermissionResult(void) {
+    GufaEmitJSON(@{@"ok": @NO, @"permission": @"screen-recording"});
 }
 
 /** 没权限时 CGWindowList 只返回「自己这个 App」的窗口；据此判断权限，而不是信 CGPreflight。 */
@@ -558,16 +568,16 @@ static int GufaListWindowsMode(void) {
         GufaPrintPermissionResult();
         return 2;
     }
-    NSDictionary *out = @{@"ok": @YES, @"windows": rows};
-    NSData *json = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
-    fwrite(json.bytes, 1, json.length, stdout);
-    fputc('\n', stdout);
+    GufaEmitJSON(@{@"ok": @YES, @"windows": rows});
     return 0;
 }
 
 int main(int argc, const char *argv[]) {
     if (argc > 1 && strcmp(argv[1], "--list-windows") == 0) {
         @autoreleasepool {
+            for (int i = 2; i + 1 < argc; i++) {
+                if (strcmp(argv[i], "--out") == 0) GufaOutputPath = [NSString stringWithUTF8String:argv[i + 1]];
+            }
             return GufaListWindowsMode();
         }
     }

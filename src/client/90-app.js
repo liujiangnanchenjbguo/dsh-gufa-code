@@ -2164,11 +2164,12 @@ G.GufaApp = function GufaApp(props) {
                     'div',
                     { className: 'gufa-float-permission' },
                     h('div', { className: 'gufa-float-permission-title' }, '需要「屏幕录制」权限'),
-                    h('div', { className: 'gufa-hint' }, '摸鱼列表需要读取其他 App 的窗口尺寸（只读尺寸，不录屏）。请在「系统设置 → 隐私与安全性 → 屏幕录制」里勾选 **DeepSeek Harness**（若列表只显示自己，请重启一次 DeepSeek Harness 让权限生效），然后点「重试」。'),
+                    h('div', { className: 'gufa-hint' }, '摸鱼列表需要读取其他 App 的窗口尺寸（只读尺寸，不录屏）。系统只认悬浮层 App 自己的授权：请在「系统设置 → 隐私与安全性 → 屏幕录制」里点左下角「+」，添加「古法编程悬浮层.app」并打开开关（DeepSeek Harness 的开关也保持打开）。加好后点「重试」。'),
                     h(
                       'div',
-                      { className: 'gufa-row', style: { gap: 8, marginTop: 12 } },
+                      { className: 'gufa-row', style: { gap: 8, marginTop: 12, flexWrap: 'wrap' } },
                       h(G.Button, { primary: true, onClick: () => void G.api('float.openPrivacy').catch(() => {}) }, '打开系统设置'),
+                      h(G.Button, { onClick: () => void G.api('float.revealHelper').catch(() => {}) }, '在 Finder 中显示悬浮层 App'),
                       h(G.Button, { onClick: () => void openFloatPicker() }, '重试'),
                     ),
                   )

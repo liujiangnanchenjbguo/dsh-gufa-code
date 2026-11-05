@@ -3,6 +3,8 @@
  * 旧版本 Host（没有本方法）会让 api('dev.version') 返回 not-found，客户端据此提示重启 Harness。
  */
 import { appendFileSync, existsSync } from 'node:fs'
+import { readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, join } from 'node:path'
@@ -43,36 +45,115 @@ export function register(router, env) {
   const startedAt = new Date().toISOString()
   const ctx = env?.ctx ?? router.ctx
 
-  /* ── 桌面悬浮层（P0，macOS） ─────────────────────────────────────── */
-  router.method('float.status', async () => ({
-    supported: process.platform === 'darwin' && floatBinaryPath() !== null,
-    platform: process.platform,
-    running: floatRunning(),
-    pid: floatRunning() ? floatState.child.pid : null,
-    binary: floatBinaryPath(),
-  }))
+  /* ── 桌面悬浮层 / 摸鱼模式（macOS） ────────────────────────────────
+   * 通过 .app bundle 启动 helper：TCC（屏幕录制）按 bundle 身份授权，
+   * 用户在「系统设置 → 隐私与安全性 → 屏幕录制」里添加「古法编程悬浮层.app」即可。
+   */
+  const appBundlePath = () => {
+    const candidates = [
+      join(PLUGIN_ROOT, 'desktop', 'float', '古法编程悬浮层.app'),
+      join(PLUGIN_ROOT, 'desktop', 'float', 'GufaFloat.app'),
+    ]
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate
+    }
+    return null
+  }
+  const floatProcessPattern = '古法编程悬浮层.app/Contents/MacOS/gufa-float'
 
-  /** 列出可吸附的 App 窗口（spawn helper 的 --list-windows 模式，JSON 输出）。 */
+  const listFloatPids = async () => {
+    try {
+      const { stdout } = await runFile('pgrep', ['-f', floatProcessPattern], { timeout: 3000 })
+      return String(stdout ?? '').split('\n').map((line) => Number(line.trim())).filter((pid) => Number.isFinite(pid) && pid > 0)
+    } catch {
+      return []
+    }
+  }
+  const floatRunningAsync = async () => (await listFloatPids()).length > 0
+
+  const openApp = (args) => new Promise((resolve, reject) => {
+    const app = appBundlePath()
+    if (app === null) {
+      reject(new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500))
+      return
+    }
+    const child = spawn('open', ['-n', app, '--args', ...args], { detached: true, stdio: 'ignore' })
+    child.once('error', reject)
+    child.once('exit', (code) => {
+      if (code === 0) resolve()
+      else reject(new ApiError('open-failed', `悬浮层启动失败（open exit ${code}）`, 500))
+    })
+  })
+
+  const killFloat = async () => {
+    const pids = await listFloatPids()
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGTERM')
+      } catch {
+        /* ignore */
+      }
+    }
+    if (pids.length > 0) await new Promise((resolve) => setTimeout(resolve, 400))
+    floatState.child = null
+  }
+
+  router.method('float.status', async () => {
+    const running = await floatRunningAsync()
+    return {
+      supported: process.platform === 'darwin' && appBundlePath() !== null,
+      platform: process.platform,
+      running,
+      pid: running ? (await listFloatPids())[0] ?? null : null,
+      app: appBundlePath(),
+    }
+  })
+
+  /** 在 Finder 里显示悬浮层 App，便于用户在「屏幕录制」里手动添加。 */
+  router.method('float.revealHelper', async () => {
+    const app = appBundlePath()
+    if (app === null) throw new ApiError('missing-helper', '悬浮层 App 未构建', 500)
+    try {
+      spawn('open', ['-R', app], { detached: true, stdio: 'ignore' }).unref()
+      return { ok: true, app }
+    } catch {
+      return { ok: false, app }
+    }
+  })
+
+  /** 列出可吸附的 App 窗口（通过 .app 身份启动 helper，输出到临时文件）。 */
   router.method('float.windows', async () => {
     if (process.platform !== 'darwin') throw new ApiError('unsupported', '摸鱼模式目前只支持 macOS', 400)
-    const binary = floatBinaryPath()
-    if (binary === null) throw new ApiError('missing-helper', '悬浮层程序未构建，请先运行 scripts/build-float-macos.sh', 500)
-    let stdout = ''
+    if (appBundlePath() === null) throw new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500)
+    const outPath = join(tmpdir(), `gufa-float-windows-${process.pid}-${Date.now()}.json`)
     try {
-      const result = await runFile(binary, ['--list-windows'], { timeout: 10_000, maxBuffer: 8 * 1024 * 1024 })
-      stdout = String(result.stdout ?? '')
-    } catch (error) {
-      stdout = String(error && error.stdout || '')
+      await openApp(['--list-windows', '--out', outPath])
+      const deadline = Date.now() + 10_000
+      let raw = ''
+      while (Date.now() < deadline) {
+        try {
+          raw = await readFile(outPath, 'utf8')
+          if (raw.trim() !== '') break
+        } catch {
+          /* 还没写出来 */
+        }
+        await new Promise((resolve) => setTimeout(resolve, 120))
+      }
+      let parsed = null
+      try {
+        parsed = JSON.parse(raw.trim())
+      } catch {
+        parsed = null
+      }
+      if (parsed === null) throw new ApiError('list-failed', '读取窗口列表失败（helper 无输出）', 500)
+      return parsed
+    } finally {
+      try {
+        await rm(outPath, { force: true })
+      } catch {
+        /* ignore */
+      }
     }
-    const line = stdout.trim().split('\n').filter(Boolean).pop() ?? ''
-    let parsed = null
-    try {
-      parsed = JSON.parse(line)
-    } catch {
-      parsed = null
-    }
-    if (parsed === null) throw new ApiError('list-failed', '读取窗口列表失败（helper 无输出）', 500)
-    return parsed
   })
 
   router.method('float.openPrivacy', async () => {
@@ -86,71 +167,36 @@ export function register(router, env) {
   })
 
   router.method('float.start', async (body) => {
-    if (process.platform !== 'darwin') throw new ApiError('unsupported', '桌面悬浮层目前只支持 macOS', 400)
-    const binary = floatBinaryPath()
-    if (binary === null) throw new ApiError('missing-helper', '悬浮层程序未构建，请先运行 scripts/build-float-macos.sh', 500)
+    if (process.platform !== 'darwin') throw new ApiError('unsupported', '摸鱼模式目前只支持 macOS', 400)
+    if (appBundlePath() === null) throw new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500)
     const follow = body !== null && typeof body === 'object' && body.follow !== null && typeof body.follow === 'object'
       ? { windowNumber: Number(body.follow.windowNumber) || 0, pid: Number(body.follow.pid) || 0 }
       : null
     if (follow !== null && follow.windowNumber > 0) {
-      /* 切换摸鱼目标：先关掉旧悬浮层再起一个新的 */
-      if (floatRunning()) {
-        try {
-          floatState.child.kill('SIGTERM')
-        } catch {
-          /* ignore */
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
-    } else if (floatRunning()) {
-      return { running: true, pid: floatState.child.pid }
+      await killFloat()
+    } else if (await floatRunningAsync()) {
+      return { running: true, pid: (await listFloatPids())[0] ?? null }
     }
-    let webServer
-    let connection
-    try {
-      webServer = ctx.get('webServer')
-      connection = ctx.get('connection')
-    } catch {
-      /* ignore */
-    }
+    const webServer = ctx.get('webServer')
+    const connection = ctx.get('connection')
     if (webServer === undefined || webServer === null || connection === undefined || connection === null || typeof connection.authenticatedUrl !== 'function') {
       throw new ApiError('unavailable', '当前 Host 不提供 Web 服务地址，无法启动悬浮层', 500)
     }
     const base = `${webServer.protocol}//127.0.0.1:${String(webServer.port)}`
     const authUrl = connection.authenticatedUrl(`${base}/`)
     const payload = JSON.stringify({ authUrl, appUrl: `${base}/`, follow: follow !== null && follow.windowNumber > 0 ? follow : undefined })
-    let child
-    try {
-      child = spawn(binary, [payload], { detached: true, stdio: 'ignore' })
-    } catch (error) {
-      throw new ApiError('spawn-failed', `悬浮层启动失败：${String(error && error.message || error)}`, 500)
-    }
-    child.unref()
-    floatState.child = child
+    await openApp([payload])
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const pids = await listFloatPids()
     floatState.startedAt = Date.now()
-    child.once('exit', () => {
-      if (floatState.child === child) floatState.child = null
-    })
-    return { running: true, pid: child.pid ?? null }
+    return { running: pids.length > 0, pid: pids[0] ?? null }
   })
 
   router.method('float.stop', async () => {
-    if (floatRunning()) {
-      try {
-        floatState.child.kill('SIGTERM')
-      } catch {
-        /* ignore */
-      }
-    }
-    floatState.child = null
+    await killFloat()
     return { running: false }
   })
 
-  router.method('dev.log', async (body) => {
-    const message = body !== null && typeof body === 'object' && typeof body.message === 'string' ? body.message : ''
-    if (message !== '') debugLog(message)
-    return { ok: true }
-  })
   router.method('dev.version', async () => ({
     name: 'dsh-gufa-code',
     version: '1.0.0',
