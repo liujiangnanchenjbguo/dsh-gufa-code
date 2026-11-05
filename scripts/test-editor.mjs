@@ -449,14 +449,9 @@ test('window.require 被非 Monaco 的 AMD loader 占用：拒载，不注入脚
   assert.equal(scripts.length, 0)
 })
 
-test('worker 工厂在 worker 内先加载 loader、配置 paths.vs，再执行 workerMain', () => {
+test('worker 工厂用同源 worker-bootstrap.js 作为 Worker 入口', () => {
   const blobs = []
   const workers = []
-  class FakeBlob {
-    constructor(parts) {
-      this.parts = parts
-    }
-  }
   const fakeURL = {
     createObjectURL(blob) {
       blobs.push(blob)
@@ -470,10 +465,10 @@ test('worker 工厂在 worker 内先加载 loader、配置 paths.vs，再执行 
       this.options = options
       workers.push(this)
     }
+    addEventListener() {}
   }
   const module = createGufaModule({
     window: { ...createFakeWindow(), MonacoEnvironment: undefined },
-    Blob: FakeBlob,
     URL: fakeURL,
     Worker: FakeWorker,
   })
@@ -484,13 +479,9 @@ test('worker 工厂在 worker 内先加载 loader、配置 paths.vs，再执行 
     const environment = fakeWindow.MonacoEnvironment
     assert.equal(typeof environment.getWorker, 'function')
     const worker = environment.getWorker('workerMain.js', 'typescript')
-    assert.equal(worker.url, 'blob:gufa-worker')
+    assert.equal(worker.url, '/gufa-code/asset/monaco/worker-bootstrap.js?v=3')
     assert.equal(worker.options.name, 'typescript')
-    assert.equal(blobs.length, 1)
-    const text = blobs[0].parts.join('\n')
-    assert.ok(text.includes('/gufa-code/asset/monaco/loader.js'), 'worker 内应加载 loader.js')
-    assert.ok(text.includes(`require.config({ paths: { vs: ${JSON.stringify('/gufa-code/asset/monaco')} } })`))
-    assert.ok(text.includes('/gufa-code/asset/monaco/base/worker/workerMain.js'))
+    assert.equal(blobs.length, 0, '同源 bootstrap 可用时不应再创建 blob worker')
   })
 })
 
