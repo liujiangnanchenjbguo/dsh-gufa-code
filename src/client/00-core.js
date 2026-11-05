@@ -1063,6 +1063,9 @@ html[data-gufa-float] [data-gufa-dock]{
 }
 html[data-gufa-float] [data-gufa-dock] [data-conversation-scroll],
 html[data-gufa-float] [data-gufa-dock] [data-conversation-content]{background:transparent!important}
+/* 悬浮层启动瞬间：先隐藏经典界面，避免闪一下「另一个 DSH」 */
+html[data-gufa-booting] body{background:transparent!important}
+html[data-gufa-booting] #root{visibility:hidden!important}
 /* 经典 DSH 界面在悬浮窗里整体隐藏（保留古法覆盖层与右侧停靠会话），否则半透明下会透出「另一个 DSH」 */
 html[data-gufa-float] #root{visibility:hidden!important}
 html[data-gufa-float] #root .gufa-overlay-root,

@@ -20,6 +20,23 @@ static const EventHotKeyID GufaToggleHotKey = {'gufa', 1};
 
 /* 前置声明（实现位于文件后半部分） */
 static NSString *GufaOutputPath = nil;
+/** 悬浮层诊断日志（/tmp/gufa-float-debug.log）。 */
+static void GufaLog(NSString *format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    NSISO8601DateFormatter *formatter = [[NSISO8601DateFormatter alloc] init];
+    NSString *line = [NSString stringWithFormat:@"[%@] %@\n", [formatter stringFromDate:[NSDate date]], message];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:@"/tmp/gufa-float-debug.log"];
+    if (handle == nil) {
+        [line writeToFile:@"/tmp/gufa-float-debug.log" atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    } else {
+        [handle seekToEndOfFile];
+        [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+        [handle closeFile];
+    }
+}
 static void GufaEmitJSON(NSDictionary *out);
 static BOOL GufaTrustedForAX(void);
 static NSArray<NSDictionary *> *GufaAXWindows(void);
@@ -105,6 +122,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 - (void)registerToggleHotKey;
 - (void)activateTargetApp;
 - (void)beginningFollowFromOptions;
+- (void)findFollowWindowWithRetries:(NSInteger)attempt;
 - (void)exitMoyu:(id)sender;
 - (void)restoreMainWindow;
 - (void)toggleClickThrough:(id)sender;
@@ -163,15 +181,33 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     if (![pid isKindOfClass:[NSNumber class]]) return;
     self.followPid = (pid_t)pid.intValue;
     self.followTitle = [follow[@"title"] isKindOfClass:[NSString class]] ? follow[@"title"] : @"";
-    /* App 刚被激活，窗口可能还没切到当前 Space；稍等再抓窗口 */
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        self.followWindowRef = GufaCopyAppWindow(self.followPid);
-        if (self.followWindowRef == NULL) return;
-        self.following = YES;
-        [self startFollowTimer];
-        [self applyFollowFrame];
-        self.statusItem.button.title = @"古法·摸鱼";
-    });
+    GufaLog(@"follow-start pid=%d bundle=%@ axTrusted=%d", self.followPid, follow[@"bundleId"] ?: @"", GufaTrustedForAX() ? 1 : 0);
+    [self findFollowWindowWithRetries:0];
+}
+
+/* 激活 App 后窗口可能还在切 Space，轮询最多 5 秒找它的窗口。 */
+- (void)findFollowWindowWithRetries:(NSInteger)attempt {
+    AXUIElementRef window = GufaCopyAppWindow(self.followPid);
+    if (window == NULL) {
+        if (attempt >= 20) {
+            GufaLog(@"follow-window-not-found pid=%d attempts=%ld axTrusted=%d", self.followPid, (long)attempt, GufaTrustedForAX() ? 1 : 0);
+            return;
+        }
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [weakSelf findFollowWindowWithRetries:attempt + 1];
+        });
+        return;
+    }
+    NSRect rect = NSZeroRect;
+    GufaRectFromAX(window, &rect);
+    GufaLog(@"follow-window-found pid=%d rect=%.0f,%.0f %.0fx%.0f attempt=%ld", self.followPid, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, (long)attempt);
+    if (self.followWindowRef != NULL) CFRelease(self.followWindowRef);
+    self.followWindowRef = window;
+    self.following = YES;
+    [self startFollowTimer];
+    [self applyFollowFrame];
+    self.statusItem.button.title = @"古法·摸鱼";
 }
 
 - (void)parseOptions {

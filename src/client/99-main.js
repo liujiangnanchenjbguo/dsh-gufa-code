@@ -218,6 +218,41 @@ const GUFA_PLUGIN = {
   apply(ctx) {
     G.ctx = ctx
 
+    /* ── 悬浮层模式（?gufa-float=1 或 helper 注入的 localStorage 标记）──
+     * 尽早打标记并隐藏经典 DSH 界面，避免先闪出一个「另一个 DSH」；
+     * 同时重试进入 IDE 模式，直到覆盖层挂载完成。 */
+    try {
+      let floatMode = false
+      try {
+        floatMode = /[?&]gufa-float=1/.test(String(location.search || '')) || localStorage.getItem('gufa-code:float') === '1'
+      } catch {
+        floatMode = false
+      }
+      if (floatMode) {
+        document.documentElement.setAttribute('data-gufa-float', '1')
+        document.documentElement.setAttribute('data-gufa-booting', '1')
+        let attempts = 0
+        const timer = window.setInterval(() => {
+          attempts += 1
+          try {
+            if (typeof G.mode?.get === 'function' && G.mode.get() !== true) G.mode.set(true)
+          } catch {
+            /* ignore */
+          }
+          if (document.querySelector('.gufa-overlay-root') !== null || attempts > 40) {
+            document.documentElement.removeAttribute('data-gufa-booting')
+            window.clearInterval(timer)
+          }
+        }, 250)
+        ctx.effect(() => () => {
+          window.clearInterval(timer)
+          document.documentElement.removeAttribute('data-gufa-booting')
+        }, 'gufa-code: float boot')
+      }
+    } catch (error) {
+      console.error('[gufa-code] 悬浮模式初始化失败', error)
+    }
+
     /* HMR 重载时如果仍处于 IDE 模式，重新打上标记（卸载清理会移除它） */
     try {
       if (typeof G.mode?.get === 'function' && G.mode.get() === true) document.documentElement.setAttribute('data-gufa-ide', '')

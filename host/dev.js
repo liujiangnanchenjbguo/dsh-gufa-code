@@ -59,15 +59,22 @@ export function register(router, env) {
     }
     return null
   }
-  const floatProcessPattern = '古法编程悬浮层.app/Contents/MacOS/gufa-float'
+  const floatProcessPatterns = ['gufa-float-macos-', '古法编程悬浮层.app/Contents/MacOS/gufa-float']
 
   const listFloatPids = async () => {
-    try {
-      const { stdout } = await runFile('pgrep', ['-f', floatProcessPattern], { timeout: 3000 })
-      return String(stdout ?? '').split('\n').map((line) => Number(line.trim())).filter((pid) => Number.isFinite(pid) && pid > 0)
-    } catch {
-      return []
+    const pids = new Set()
+    for (const pattern of floatProcessPatterns) {
+      try {
+        const { stdout } = await runFile('pgrep', ['-f', pattern], { timeout: 3000 })
+        for (const line of String(stdout ?? '').split('\n')) {
+          const pid = Number(line.trim())
+          if (Number.isFinite(pid) && pid > 0) pids.add(pid)
+        }
+      } catch {
+        /* 没匹配到 */
+      }
     }
+    return [...pids]
   }
   const floatRunningAsync = async () => (await listFloatPids()).length > 0
 
@@ -206,11 +213,15 @@ export function register(router, env) {
     const base = `${webServer.protocol}//127.0.0.1:${String(webServer.port)}`
     const authUrl = connection.authenticatedUrl(`${base}/`)
     const payload = JSON.stringify({ authUrl, appUrl: `${base}/`, follow: follow !== null && follow.pid > 0 ? follow : undefined })
-    await openApp([payload])
+    const binary = floatBinaryPath()
+    if (binary === null) throw new ApiError('missing-helper', '悬浮层程序未构建', 500)
+    const child = spawn(binary, [payload], { detached: true, stdio: 'ignore' })
+    child.unref()
+    floatState.child = child
+    floatState.startedAt = Date.now()
     await new Promise((resolve) => setTimeout(resolve, 300))
     const pids = await listFloatPids()
-    floatState.startedAt = Date.now()
-    return { running: pids.length > 0, pid: pids[0] ?? null }
+    return { running: pids.length > 0 || child.exitCode === null, pid: child.pid ?? pids[0] ?? null }
   })
 
   router.method('float.stop', async () => {
