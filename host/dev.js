@@ -125,9 +125,9 @@ export function register(router, env) {
   router.method('float.windows', async () => {
     if (process.platform !== 'darwin') throw new ApiError('unsupported', '摸鱼模式目前只支持 macOS', 400)
     if (appBundlePath() === null) throw new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500)
+    const binary = floatBinaryPath()
     const outPath = join(tmpdir(), `gufa-float-windows-${process.pid}-${Date.now()}.json`)
-    try {
-      await openApp(['--list-windows', '--out', outPath])
+    const readResult = async () => {
       const deadline = Date.now() + 10_000
       let raw = ''
       while (Date.now() < deadline) {
@@ -139,12 +139,29 @@ export function register(router, env) {
         }
         await new Promise((resolve) => setTimeout(resolve, 120))
       }
-      let parsed = null
       try {
-        parsed = JSON.parse(raw.trim())
+        return JSON.parse(raw.trim())
       } catch {
-        parsed = null
+        return null
       }
+    }
+    try {
+      /* 路线 A：直接从 Host 进程 spawn（responsible app = DeepSeek Harness，可继承 DSH 的屏幕录制授权） */
+      if (binary !== null) {
+        try {
+          await runFile(binary, ['--list-windows', '--out', outPath], { timeout: 12_000 })
+        } catch {
+          /* 走读取兜底 */
+        }
+        const parsed = await readResult()
+        debugLog(`float-windows route=direct ok=${String(parsed !== null && parsed.ok === true)} permission=${String(parsed !== null ? parsed.permission : 'none')}`)
+        if (parsed !== null && parsed.ok === true) return parsed
+        try { await rm(outPath, { force: true }) } catch { /* ignore */ }
+      }
+      /* 路线 B：通过 .app 身份启动（用户给「古法编程悬浮层.app」单独授权） */
+      await openApp(['--list-windows', '--out', outPath])
+      const parsed = await readResult()
+      debugLog(`float-windows route=app ok=${String(parsed !== null && parsed.ok === true)} permission=${String(parsed !== null ? parsed.permission : 'none')}`)
       if (parsed === null) throw new ApiError('list-failed', '读取窗口列表失败（helper 无输出）', 500)
       return parsed
     } finally {

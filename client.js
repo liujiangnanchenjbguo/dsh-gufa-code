@@ -8137,11 +8137,41 @@ G.installPopupLayerWatch = function installPopupLayerWatch(ctx) {
     '.gufa-shortcuts-backdrop',
   ].join(',')
 
+  /* 真正需要抬的是 overlay root 的 body 级祖先：它和停靠会话都是 body 的直接子节点，
+     在祖先上设 z-index 才能压过会话的 2147483040；只抬 .gufa-overlay-root 出不了
+     它自己的层叠上下文。 */
+  let liftedNodes = []
+  const lift = (open) => {
+    try {
+      if (open) {
+        if (liftedNodes.length > 0) return
+        let node = document.querySelector('.gufa-overlay-root')
+        if (node === null) return
+        while (node.parentElement !== null && node.parentElement !== document.body) node = node.parentElement
+        if (node.parentElement !== document.body) return
+        const saved = { node, zIndex: node.style.zIndex, position: node.style.position }
+        node.style.zIndex = '2147483300'
+        if (window.getComputedStyle(node).position === 'static') node.style.position = 'relative'
+        liftedNodes.push(saved)
+        if (node.parentElement !== document.body) return
+      } else {
+        for (const saved of liftedNodes) {
+          saved.node.style.zIndex = saved.zIndex
+          saved.node.style.position = saved.position
+        }
+        liftedNodes = []
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const sync = () => {
     try {
       const root = document.querySelector('.gufa-root')
       const popup = root === null ? null : root.querySelector(SELECTOR)
       const open = popup !== null
+      lift(open)
       if ((document.documentElement.getAttribute(ATTR) === '1') === open) return
       if (open) document.documentElement.setAttribute(ATTR, '1')
       else document.documentElement.removeAttribute(ATTR)
@@ -8162,6 +8192,7 @@ G.installPopupLayerWatch = function installPopupLayerWatch(ctx) {
   return () => {
     if (observer !== null) observer.disconnect()
     window.clearInterval(timer)
+    lift(false)
     document.documentElement.removeAttribute(ATTR)
   }
 }
