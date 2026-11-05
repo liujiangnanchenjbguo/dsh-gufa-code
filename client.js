@@ -21,6 +21,29 @@ G.pendingEntryWorkspace = null
 G.ctx = null
 G.h = h
 G.React = React
+/** 官方同款 portal：把弹窗渲染到 body（与 DSH 自己的设置/会话弹窗同一层级机制），
+ *  避免被右侧停靠会话（body 级 fixed z-index 2147483040）盖住。 */
+G.portal = (function createPortalHelper() {
+  let ReactDOM = null
+  try {
+    ReactDOM = require('react-dom')
+  } catch {
+    ReactDOM = null
+  }
+  const ensureHost = () => {
+    let host = document.getElementById('gufa-portal-root')
+    if (host === null) {
+      host = document.createElement('div')
+      host.id = 'gufa-portal-root'
+      document.body.appendChild(host)
+    }
+    return host
+  }
+  return function portal(content) {
+    if (ReactDOM === null || typeof ReactDOM.createPortal !== 'function' || typeof document === 'undefined') return content
+    return ReactDOM.createPortal(content, ensureHost())
+  }
+})()
 G.hooks = { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect }
 
 /* ── 事件总线（零件之间解耦：SSH → 终端 发送命令等） ───────────────────── */
@@ -1124,6 +1147,9 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-session-group-count{font-size:10.5px;opacity:.6;font-variant-numeric:tabular-nums}
 .gufa-session-group[data-current] .gufa-session-group-head{color:var(--gufa-text)}
 .gufa-session-group .gufa-session-row{margin-left:10px}
+/* 官方同款 body 级 portal 容器（弹窗渲染到这里，天然在停靠会话之上） */
+#gufa-portal-root{position:fixed;inset:0;z-index:2147483350;pointer-events:none}
+#gufa-portal-root>*{pointer-events:auto}
 /* 摸鱼模式：App 窗口选择器 */
 .gufa-float-backdrop{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;
   background:rgba(0,0,0,0.42);padding:24px;box-sizing:border-box}
@@ -11393,7 +11419,7 @@ G.GufaApp = function GufaApp(props) {
     ),
     ),
     typeof G.UsageDock === 'function' ? h(G.UsageDock, { active: true }) : null,
-    workspaceDialog === null
+    G.portal(workspaceDialog === null
       ? null
       : h(
           'div',
@@ -11457,7 +11483,8 @@ G.GufaApp = function GufaApp(props) {
             ),
           ),
         ),
-    branchMenu === null
+    ),
+    G.portal(branchMenu === null
       ? null
       : h(
           'div',
@@ -11526,9 +11553,10 @@ G.GufaApp = function GufaApp(props) {
             ),
           ),
         ),
+    ),
     /* 弹窗 */
-    modal === null ? null : renderModal(),
-    floatPicker !== null
+    G.portal(modal === null ? null : renderModal()),
+    G.portal(floatPicker !== null
       ? h(
           'div',
           {
@@ -11602,9 +11630,9 @@ G.GufaApp = function GufaApp(props) {
             ),
           ),
         )
-      : null,
-    sessionsOpen ? renderSessionsDialog() : null,
-    shortcutsOpen ? renderShortcutsDialog() : null,
+      : null),
+    G.portal(sessionsOpen ? renderSessionsDialog() : null),
+    G.portal(shortcutsOpen ? renderShortcutsDialog() : null),
   )
 
   function renderShortcutsDialog() {

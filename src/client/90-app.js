@@ -2005,7 +2005,7 @@ G.GufaApp = function GufaApp(props) {
     ),
     ),
     typeof G.UsageDock === 'function' ? h(G.UsageDock, { active: true }) : null,
-    workspaceDialog === null
+    G.portal(workspaceDialog === null
       ? null
       : h(
           'div',
@@ -2069,7 +2069,8 @@ G.GufaApp = function GufaApp(props) {
             ),
           ),
         ),
-    branchMenu === null
+    ),
+    G.portal(branchMenu === null
       ? null
       : h(
           'div',
@@ -2138,9 +2139,10 @@ G.GufaApp = function GufaApp(props) {
             ),
           ),
         ),
+    ),
     /* 弹窗 */
-    modal === null ? null : renderModal(),
-    floatPicker !== null
+    G.portal(modal === null ? null : renderModal()),
+    G.portal(floatPicker !== null
       ? h(
           'div',
           {
@@ -2214,9 +2216,9 @@ G.GufaApp = function GufaApp(props) {
             ),
           ),
         )
-      : null,
-    sessionsOpen ? renderSessionsDialog() : null,
-    shortcutsOpen ? renderShortcutsDialog() : null,
+      : null),
+    G.portal(sessionsOpen ? renderSessionsDialog() : null),
+    G.portal(shortcutsOpen ? renderShortcutsDialog() : null),
   )
 
   function renderShortcutsDialog() {
