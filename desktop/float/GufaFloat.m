@@ -21,8 +21,6 @@ static const EventHotKeyID GufaToggleHotKey = {'gufa', 1};
 static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef event, void *userData);
 
 @interface GufaDragStrip : NSView
-@property (nonatomic, weak) id doubleClickTarget;
-@property (nonatomic, assign) SEL doubleClickAction;
 @end
 
 @implementation GufaDragStrip
@@ -36,7 +34,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         NSFontAttributeName: [NSFont systemFontOfSize:10 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:1.0 alpha:0.6],
     };
-    NSString *label = @"古法编程 · 悬浮层（拖动移动 · 双击穿透 · 右键菜单 · ⌥⌘G 切穿透）";
+    NSString *label = @"古法编程 · 悬浮层（拖动移动 · 右键菜单 · ⌥⌘G 切穿透）";
     NSSize size = [label sizeWithAttributes:attrs];
     NSPoint origin = NSMakePoint(floor((self.bounds.size.width - size.width) / 2.0), floor((self.bounds.size.height - size.height) / 2.0));
     [label drawAtPoint:origin withAttributes:attrs];
@@ -56,10 +54,6 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 }
 
 - (void)mouseDown:(NSEvent *)event {
-    if (event.clickCount == 2 && self.doubleClickTarget != nil && self.doubleClickAction != NULL) {
-        [NSApp sendAction:self.doubleClickAction to:self.doubleClickTarget from:self];
-        return;
-    }
     [self.window performWindowDragWithEvent:event];
 }
 
@@ -187,8 +181,6 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     GufaDragStrip *strip = [[GufaDragStrip alloc] initWithFrame:NSMakeRect(0, frame.size.height - stripHeight, frame.size.width, stripHeight)];
     strip.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     strip.menu = self.mainMenu;
-    strip.doubleClickTarget = self;
-    strip.doubleClickAction = @selector(toggleClickThrough:);
     [container addSubview:strip];
     self.dragStrip = strip;
 
