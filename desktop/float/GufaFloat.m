@@ -19,6 +19,7 @@ static const EventHotKeyID GufaToggleHotKey = {'gufa', 1};
 
 /* SIGTERM 时先把主窗口（DeepSeek Harness）唤回前台，再退出，实现「退出摸鱼」 */
 static void GufaInstallTermHandler(void);
+static BOOL GufaRowsHaveForeignWindows(NSArray<NSDictionary *> *rows);
 
 @class GufaAppDelegate;
 
@@ -327,14 +328,9 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 }
 
 - (void)chooseFollowWindow:(id)sender {
-    if (!CGPreflightScreenCaptureAccess()) {
-        CGRequestScreenCaptureAccess();
-        [self showPermissionGuide];
-        return;
-    }
     NSArray<NSDictionary *> *rows = [self visibleWindows];
-    /* 只有一个窗口 = 权限没生效，仍是我们自己 */
-    if (rows.count == 0) {
+    if (rows.count == 0 || !GufaRowsHaveForeignWindows(rows)) {
+        CGRequestScreenCaptureAccess();
         [self showPermissionGuide];
         return;
     }
@@ -534,23 +530,32 @@ static NSArray<NSDictionary *> *GufaEnumerateWindows(void) {
     return rows;
 }
 
-static int GufaListWindowsMode(void) {
-    BOOL granted = CGPreflightScreenCaptureAccess();
-    if (!granted) {
-        CGRequestScreenCaptureAccess();
-        NSDictionary *out = @{@"ok": @NO, @"permission": @"screen-recording"};
-        NSData *json = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
-        fwrite(json.bytes, 1, json.length, stdout);
-        fputc('\n', stdout);
-        return 2;
+static void GufaPrintPermissionResult(void) {
+    NSDictionary *out = @{@"ok": @NO, @"permission": @"screen-recording"};
+    NSData *json = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
+    if (json != nil) fwrite(json.bytes, 1, json.length, stdout);
+    fputc('\n', stdout);
+}
+
+/** 没权限时 CGWindowList 只返回「自己这个 App」的窗口；据此判断权限，而不是信 CGPreflight。 */
+static BOOL GufaRowsHaveForeignWindows(NSArray<NSDictionary *> *rows) {
+    NSString *own = NSProcessInfo.processInfo.processName;
+    for (NSDictionary *row in rows) {
+        NSString *owner = row[@"owner"];
+        if ([owner isKindOfClass:[NSString class]] && owner.length > 0
+            && ![owner isEqualToString:@"DeepSeek Harness"] && ![owner isEqualToString:own]) {
+            return YES;
+        }
     }
+    return NO;
+}
+
+static int GufaListWindowsMode(void) {
     NSArray<NSDictionary *> *rows = GufaEnumerateWindows();
-    if (rows.count == 0) {
-        /* CGRequestScreenCaptureAccess 授权后同一进程内可能还需要重启；提示前端重试 */
-        NSDictionary *out = @{@"ok": @NO, @"permission": @"screen-recording"};
-        NSData *json = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
-        fwrite(json.bytes, 1, json.length, stdout);
-        fputc('\n', stdout);
+    if (rows.count == 0 || !GufaRowsHaveForeignWindows(rows)) {
+        /* 触发一次系统授权提示（授权后重新点「重试」即可） */
+        CGRequestScreenCaptureAccess();
+        GufaPrintPermissionResult();
         return 2;
     }
     NSDictionary *out = @{@"ok": @YES, @"windows": rows};

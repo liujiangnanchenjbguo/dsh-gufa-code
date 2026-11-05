@@ -99,6 +99,11 @@ node scripts/test-editor.mjs
 # 修改 host/*.js 后无需重启（请求级热重载）；修改 client 后重新构建并刷新页面
 ```
 
+> 加新功能/新浮层前先看 [`docs/KNOWN-PITFALLS.md`](docs/KNOWN-PITFALLS.md)（层级、TCC 权限、Monaco worker 三个坑）。
+
+```sh
+```
+
 ## License
 
 MIT

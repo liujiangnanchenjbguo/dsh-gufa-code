@@ -1048,6 +1048,8 @@ html[data-gufa-float] #root .gufa-overlay-root *,
 html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483400!important}
+/* 古法自己的弹窗/菜单打开时：整个覆盖层临时抬到右侧停靠会话（z-index 2147483040）之上 */
+html[data-gufa-popup] .gufa-overlay-root{z-index:2147483300!important}
 /* 外部弹窗（DSH 设置等）打开时：停靠会话与桌宠降到弹窗之下，保证弹窗完整可点可关 */
 html[data-gufa-external-modal] [data-gufa-dock]{z-index:2!important}
 html[data-gufa-external-modal] .dsh-pet-root{z-index:2!important}

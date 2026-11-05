@@ -1056,6 +1056,8 @@ html[data-gufa-float] #root .gufa-overlay-root *,
 html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483400!important}
+/* 古法自己的弹窗/菜单打开时：整个覆盖层临时抬到右侧停靠会话（z-index 2147483040）之上 */
+html[data-gufa-popup] .gufa-overlay-root{z-index:2147483300!important}
 /* 外部弹窗（DSH 设置等）打开时：停靠会话与桌宠降到弹窗之下，保证弹窗完整可点可关 */
 html[data-gufa-external-modal] [data-gufa-dock]{z-index:2!important}
 html[data-gufa-external-modal] .dsh-pet-root{z-index:2!important}
@@ -8107,6 +8109,64 @@ G.installDialogLayerWatch = function installDialogLayerWatch(ctx) {
 }
 
 
+/* ─────────────────────── 59-popup-layer.js ─────────────────────── */
+/**
+ * 59-popup-layer：弹窗/菜单层级修正。
+ *
+ * 背景（踩坑记录，见 docs/KNOWN-PITFALLS.md）：
+ * 古法编程的界面都在 `.gufa-overlay-root`（z-index:1）这个层叠上下文里，而右侧停靠的
+ * 官方会话根节点是 body 级 fixed、z-index 2147483040。任何在 root 内部弹出的
+ * modal / menu / popover，如果只设自己的 z-index，都会被困在 root 的上下文里，
+ * 被停靠会话盖住（表现为「弹窗被右侧聊天挡一半、点不到关闭」）。
+ *
+ * 修法：检测 root 内是否出现 popup，出现时给 html 加 `data-gufa-popup`，
+ * 由 CSS 把整个 overlay root 临时抬到停靠会话之上。
+ */
+
+G.installPopupLayerWatch = function installPopupLayerWatch(ctx) {
+  if (typeof document === 'undefined') return () => {}
+  const ATTR = 'data-gufa-popup'
+  const SELECTOR = [
+    '[role="menu"]',
+    '[role="listbox"]',
+    '[role="dialog"]',
+    '.gufa-modal',
+    '.gufa-float-backdrop',
+    '.gufa-branch-dialog-backdrop',
+    '.gufa-session-backdrop',
+    '.gufa-shortcuts-backdrop',
+  ].join(',')
+
+  const sync = () => {
+    try {
+      const root = document.querySelector('.gufa-root')
+      const popup = root === null ? null : root.querySelector(SELECTOR)
+      const open = popup !== null
+      if ((document.documentElement.getAttribute(ATTR) === '1') === open) return
+      if (open) document.documentElement.setAttribute(ATTR, '1')
+      else document.documentElement.removeAttribute(ATTR)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  let observer = null
+  try {
+    observer = new MutationObserver(sync)
+    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-state', 'aria-hidden'] })
+  } catch {
+    observer = null
+  }
+  sync()
+  const timer = window.setInterval(sync, 400)
+  return () => {
+    if (observer !== null) observer.disconnect()
+    window.clearInterval(timer)
+    document.documentElement.removeAttribute(ATTR)
+  }
+}
+
+
 /* ─────────────────────── 60-dock.js ─────────────────────── */
 /**
  * 60-dock：把官方 DSH 会话面板「停靠」进古法编程右侧的 AI 栏。
@@ -11461,7 +11521,7 @@ G.GufaApp = function GufaApp(props) {
                     'div',
                     { className: 'gufa-float-permission' },
                     h('div', { className: 'gufa-float-permission-title' }, '需要「屏幕录制」权限'),
-                    h('div', { className: 'gufa-hint' }, '摸鱼模式需要读取其他 App 窗口的尺寸（只读尺寸，不录屏）。请在「系统设置 → 隐私与安全性 → 屏幕录制」里允许 DeepSeek Harness / gufa-float，然后点重试。'),
+                    h('div', { className: 'gufa-hint' }, '摸鱼列表需要读取其他 App 的窗口尺寸（只读尺寸，不录屏）。请在「系统设置 → 隐私与安全性 → 屏幕录制」里勾选 **DeepSeek Harness**（若列表只显示自己，请重启一次 DeepSeek Harness 让权限生效），然后点「重试」。'),
                     h(
                       'div',
                       { className: 'gufa-row', style: { gap: 8, marginTop: 12 } },
@@ -12131,6 +12191,16 @@ const GUFA_PLUGIN = {
     cleanStaleSidebarLayouts()
     window.setTimeout(cleanStaleSidebarLayouts, 1500)
     window.setTimeout(cleanStaleSidebarLayouts, 5000)
+
+    // 弹窗/菜单打开时把覆盖层整体抬到右侧停靠会话之上（否则会被盖住）
+    try {
+      if (typeof G.installPopupLayerWatch === 'function') {
+        const disposePopupWatch = G.installPopupLayerWatch(ctx)
+        if (typeof disposePopupWatch === 'function') ctx.effect(() => disposePopupWatch, 'gufa-code: popup layer watch')
+      }
+    } catch (error) {
+      console.error('[gufa-code] 安装弹窗层级监听失败', error)
+    }
 
     // 外部弹窗（设置等）打开时降低停靠层，避免遮挡弹窗导致关不掉
     try {

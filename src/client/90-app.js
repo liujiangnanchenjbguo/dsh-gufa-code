@@ -2164,7 +2164,7 @@ G.GufaApp = function GufaApp(props) {
                     'div',
                     { className: 'gufa-float-permission' },
                     h('div', { className: 'gufa-float-permission-title' }, '需要「屏幕录制」权限'),
-                    h('div', { className: 'gufa-hint' }, '摸鱼模式需要读取其他 App 窗口的尺寸（只读尺寸，不录屏）。请在「系统设置 → 隐私与安全性 → 屏幕录制」里允许 DeepSeek Harness / gufa-float，然后点重试。'),
+                    h('div', { className: 'gufa-hint' }, '摸鱼列表需要读取其他 App 的窗口尺寸（只读尺寸，不录屏）。请在「系统设置 → 隐私与安全性 → 屏幕录制」里勾选 **DeepSeek Harness**（若列表只显示自己，请重启一次 DeepSeek Harness 让权限生效），然后点「重试」。'),
                     h(
                       'div',
                       { className: 'gufa-row', style: { gap: 8, marginTop: 12 } },
