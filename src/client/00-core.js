@@ -1293,8 +1293,6 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-project{appearance:none;border:0;background:transparent;font:inherit;color:inherit;cursor:pointer}
 .gufa-project:hover{background:var(--gufa-hover)}
 .gufa-workspace-row{height:auto;min-height:38px;padding:5px 8px}
-.gufa-workspace-row-wrap{display:flex;align-items:center;gap:4px}
-.gufa-workspace-row-wrap .gufa-workspace-row{flex:1 1 auto;min-width:0}
 .gufa-workspace-title{display:block;font-size:12px;line-height:1.3}
 .gufa-workspace-path{display:block;font-size:10.5px;color:var(--gufa-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-project{display:flex;align-items:center;gap:6px;min-width:0;margin-left:6px;padding:3px 9px;border-radius:7px;

@@ -1301,8 +1301,6 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-project{appearance:none;border:0;background:transparent;font:inherit;color:inherit;cursor:pointer}
 .gufa-project:hover{background:var(--gufa-hover)}
 .gufa-workspace-row{height:auto;min-height:38px;padding:5px 8px}
-.gufa-workspace-row-wrap{display:flex;align-items:center;gap:4px}
-.gufa-workspace-row-wrap .gufa-workspace-row{flex:1 1 auto;min-width:0}
 .gufa-workspace-title{display:block;font-size:12px;line-height:1.3}
 .gufa-workspace-path{display:block;font-size:10.5px;color:var(--gufa-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-project{display:flex;align-items:center;gap:6px;min-width:0;margin-left:6px;padding:3px 9px;border-radius:7px;
@@ -9965,8 +9963,6 @@ G.GufaApp = function GufaApp(props) {
     }))
   }, [])
 
-  /* 「仅切换 IDE 项目」：项目固定为用户手动打开的目录，不跟随 DSH 会话/工作区 */
-  const projectPinnedRef = useRef(false)
   /* 会话弹窗里选了别的工作区的会话：右侧会话保持不动，不再自动把 IDE 项目切过去 */
   const sessionPinnedRef = useRef(false)
 
@@ -9975,7 +9971,7 @@ G.GufaApp = function GufaApp(props) {
    * （重启恢复、手动切换会话后常见）。项目根变化时自动切到当前工作区的会话。 */
   const dockSyncRef = useRef('')
   useEffect(() => {
-    if (projectPinnedRef.current === true || sessionPinnedRef.current === true) return undefined
+    if (sessionPinnedRef.current === true) return undefined
     if (project === null || typeof project.root !== 'string' || project.root === '') return undefined
     if (dockSyncRef.current === project.root) return undefined
     if (typeof sessionCwd === 'string' && sessionCwd !== '' && sessionCwd === project.root) {
@@ -10227,7 +10223,6 @@ G.GufaApp = function GufaApp(props) {
   /* 点击左侧工作区名 → 切换已有工作区（与经典模式同一份 workspace 列表） */
   const switchWorkspace = useCallback(async (workspace) => {
     if (workspace === null || workspace === undefined) return
-    projectPinnedRef.current = false
     sessionPinnedRef.current = false
     const service = workspaceService()
     try {
@@ -10264,21 +10259,6 @@ G.GufaApp = function GufaApp(props) {
   }, [openProjectPath, closeWorkspaceDialog, showBanner])
 
   /* 新建工作区：走经典模式同样的「选目录 → 创建 workspace → 打开并新建会话」 */
-  /* 只切换 IDE 项目目录，不切换 DSH 会话/工作区（方便在同一个会话里边看别的项目边聊） */
-  const pinProjectOnly = useCallback(async (workspace) => {
-    if (workspace === null || workspace === undefined || typeof workspace.path !== 'string' || workspace.path === '') return
-    try {
-      projectPinnedRef.current = true
-      sessionPinnedRef.current = false
-      await openProjectPath(workspace.path)
-      closeWorkspaceDialog()
-      showBanner('已切换 IDE 项目（当前会话保持不变）', 'success')
-    } catch (error) {
-      projectPinnedRef.current = false
-      setBanner(G.errorText(error))
-    }
-  }, [openProjectPath, closeWorkspaceDialog, showBanner])
-
   const createWorkspace = useCallback(async () => {
     const ui = workspaceService()
     const registry = workspacesService()
@@ -11116,36 +11096,25 @@ G.GufaApp = function GufaApp(props) {
                       ? h('div', { className: 'gufa-hint', style: { padding: '10px 8px' } }, t('workspace.empty'))
                       : workspaceDialog.workspaces.map((workspace) =>
                           h(
-                            'div',
-                            { key: workspace.id, className: 'gufa-workspace-row-wrap' },
+                            'button',
+                            {
+                              key: workspace.id,
+                              type: 'button',
+                              className: 'gufa-branch-row gufa-workspace-row',
+                              'data-current': project !== null && project.root === workspace.path ? '' : undefined,
+                              title: workspace.path,
+                              onClick: () => void switchWorkspace(workspace),
+                            },
+                            h(G.Icon, { name: 'folder-open', size: 13 }),
                             h(
-                              'button',
-                              {
-                                type: 'button',
-                                className: 'gufa-branch-row gufa-workspace-row',
-                                'data-current': project !== null && project.root === workspace.path ? '' : undefined,
-                                title: `切换工作区 + 会话：${workspace.path}`,
-                                onClick: () => void switchWorkspace(workspace),
-                              },
-                              h(G.Icon, { name: 'folder-open', size: 13 }),
-                              h(
-                                'span',
-                                { className: 'gufa-branch-name' },
-                                h('span', { className: 'gufa-workspace-title' }, workspace.title !== '' ? workspace.title : G.basename(workspace.path)),
-                                h('span', { className: 'gufa-workspace-path' }, workspace.path),
-                              ),
-                              project !== null && project.root === workspace.path
-                                ? h('span', { className: 'gufa-branch-tag' }, t('workspace.current'))
-                                : null,
+                              'span',
+                              { className: 'gufa-branch-name' },
+                              h('span', { className: 'gufa-workspace-title' }, workspace.title !== '' ? workspace.title : G.basename(workspace.path)),
+                              h('span', { className: 'gufa-workspace-path' }, workspace.path),
                             ),
-                            h(G.IconButton, {
-                              title: '只切换 IDE 项目（保持当前会话）',
-                              onClick: (event) => {
-                                event.preventDefault()
-                                event.stopPropagation()
-                                void pinProjectOnly(workspace)
-                              },
-                            }, h(G.Icon, { name: 'panel-left', size: 13 })),
+                            project !== null && project.root === workspace.path
+                              ? h('span', { className: 'gufa-branch-tag' }, t('workspace.current'))
+                              : null,
                           ),
                         ),
                 ),
