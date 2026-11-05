@@ -85,7 +85,10 @@ function gufaPlaceDockedConversation(root, host, options) {
     /* ignore */
   }
   const backdropMode = options !== null && options !== undefined && options.translucent === true
-  if (backdropMode && dockBackground !== '') root.style.background = `color-mix(in srgb, ${dockBackground} 34%, transparent)`
+  let floatMode = false
+  try { floatMode = document.documentElement.hasAttribute('data-gufa-float') } catch { floatMode = false }
+  if (floatMode) root.style.background = dockBackground === '' ? 'rgba(13, 15, 19, 0.55)' : `color-mix(in srgb, ${dockBackground} 45%, transparent)`
+  else if (backdropMode && dockBackground !== '') root.style.background = `color-mix(in srgb, ${dockBackground} 34%, transparent)`
   else root.style.background = dockBackground === '' ? 'var(--gufa-solid-bg, #1a1b1f)' : dockBackground
   root.style.borderLeft = '1px solid var(--dsw-alias-border-l1)'
   root.style.boxSizing = 'border-box'

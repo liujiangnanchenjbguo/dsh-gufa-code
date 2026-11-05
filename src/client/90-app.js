@@ -155,6 +155,8 @@ G.GufaApp = function GufaApp(props) {
   const sessionTitle = useSessions !== undefined ? useSessions(selectSessionTitle) : null
   const currentSessionId = useSessions !== undefined ? useSessions(selectMainSessionId) : null
   const [sessionsOpen, setSessionsOpen] = useState(false)
+  const [floatRunning, setFloatRunning] = useState(false)
+  const [floatBusy, setFloatBusy] = useState(false)
   /* 会话弹窗里选中的工作区（null = 跟随当前 IDE 项目） */
   const [sessionWorkspacePath, setSessionWorkspacePath] = useState(null)
   const [sessionWorkspacePicker, setSessionWorkspacePicker] = useState(false)
@@ -789,6 +791,63 @@ G.GufaApp = function GufaApp(props) {
 
   /* 会话弹窗里选了别的工作区的会话：右侧会话保持不动，不再自动把 IDE 项目切过去 */
   const sessionPinnedRef = useRef(false)
+
+  /* ── 桌面悬浮层：URL 带 ?gufa-float=1 时自动进入 IDE 并用半透明皮肤 ── */
+  const floatRequested = (() => {
+    try {
+      if (typeof location !== 'undefined' && /[?&]gufa-float=1/.test(location.search)) return true
+      return typeof localStorage !== 'undefined' && localStorage.getItem('gufa-code:float') === '1'
+    } catch {
+      return false
+    }
+  })()
+  useEffect(() => {
+    if (floatRequested !== true) return undefined
+    try { document.documentElement.setAttribute('data-gufa-float', '1') } catch { /* ignore */ }
+    const enter = (attempt) => {
+      try {
+        if (typeof G.mode?.get === 'function' && G.mode.get() !== true) G.mode.set(true)
+      } catch { /* ignore */ }
+      void G.api('dev.log', {
+        message: `float-mode enter attempt=${attempt} mode=${String(typeof G.mode?.get === 'function' ? G.mode.get() : 'n/a')} overlay=${document.querySelector('.gufa-overlay-root') !== null}`,
+      }).catch(() => {})
+    }
+    const first = window.setTimeout(() => enter(1), 400)
+    const second = window.setTimeout(() => enter(2), 2000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearTimeout(second)
+    }
+  }, [floatRequested])
+
+  /* 悬浮层运行状态（主窗口里显示按钮状态用） */
+  useEffect(() => {
+    let cancelled = false
+    void G.api('float.status').then((value) => {
+      if (!cancelled) setFloatRunning(value?.running === true)
+    }).catch(() => { /* 旧 host 没有该方法 */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const toggleFloatWindow = useCallback(async () => {
+    if (floatBusy) return
+    setFloatBusy(true)
+    try {
+      if (floatRunning) {
+        await G.api('float.stop')
+        setFloatRunning(false)
+        setBanner('悬浮层已关闭')
+      } else {
+        const value = await G.api('float.start')
+        setFloatRunning(value?.running === true)
+        setBanner('悬浮层已启动：屏幕上的半透明窗口，菜单栏「古法」可切换点击穿透')
+      }
+    } catch (error) {
+      setBanner(G.errorText(error))
+    } finally {
+      setFloatBusy(false)
+    }
+  }, [floatBusy, floatRunning])
 
   /* ── 右侧 AI 面板与当前工作区保持一致 ─────────────────────────────────
    * ChatDock 停靠的是 DSH「主视图会话」，但主视图会话可能属于别的工作区
@@ -1699,6 +1758,12 @@ G.GufaApp = function GufaApp(props) {
               }),
             }, h(G.Icon, { name: 'image', size: 16 }))
           : null,
+        h(G.IconButton, {
+          title: floatRunning ? '关闭桌面悬浮层' : '打开桌面悬浮层（半透明置顶窗口）',
+          'data-active': floatRunning ? '' : undefined,
+          disabled: floatBusy,
+          onClick: () => void toggleFloatWindow(),
+        }, h(G.Icon, { name: 'monitor', size: 15 })),
         h(G.IconButton, { title: t('app.refresh'), onClick: () => { setRefreshToken((token) => token + 1); setGitRefreshToken((token) => token + 1); setSshRefreshToken((token) => token + 1) } }, h(G.Icon, { name: 'refresh', size: 15 })),
         h(G.IconButton, {
           title: ui.chatOpen ? t('activity.collapseChat') : t('activity.expandChat'),

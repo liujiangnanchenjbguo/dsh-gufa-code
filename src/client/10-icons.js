@@ -14,6 +14,10 @@ const ICON_PATHS = {
     ['path', { d: 'M12 5v14' }],
     ['path', { d: 'M6 13l6 6 6-6' }],
   ],
+  monitor: [
+    ['rect', { x: 3, y: 4.5, width: 18, height: 12, rx: 2 }],
+    ['path', { d: 'M9 20h6M12 16.5V20' }],
+  ],
   graph: [
     ['circle', { cx: 6, cy: 6, r: 2.2 }],
     ['circle', { cx: 6, cy: 18, r: 2.2 }],

@@ -1019,6 +1019,33 @@ G.errorText = (error) => {
 G.CSS = `
 .gufa-overlay-root{position:fixed;inset:0;z-index:1;display:flex;box-sizing:border-box;background:var(--gufa-solid-bg, var(--dsw-alias-bg-base));pointer-events:auto;overflow:hidden}
 .gufa-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+/* 桌面悬浮层模式：整窗半透明（0.55），顶部留出 22px 拖动条 */
+html[data-gufa-float] body{background:transparent!important}
+html[data-gufa-float] .gufa-overlay-root,
+html[data-gufa-float] .gufa-root{
+  --gufa-solid-bg:rgba(13,15,19,0.55);--gufa-bg:rgba(13,15,19,0.55);
+  --gufa-solid-layer:rgba(20,22,27,0.55);--gufa-layer:rgba(20,22,27,0.55);
+  --gufa-solid-layer2:rgba(26,28,34,0.55);--gufa-layer2:rgba(26,28,34,0.55);
+  --gufa-solid-overlay:rgba(30,33,40,0.72);
+}
+html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
+html[data-gufa-float] .gufa-backdrop{opacity:0.5}
+/* 悬浮模式：右侧停靠的官方会话内部也半透明（DSH 主题变量在停靠根上覆盖） */
+html[data-gufa-float] [data-gufa-dock]{
+  --dsw-alias-bg-base:rgba(13,15,19,0.55);
+  --dsw-alias-bg-layer-1:rgba(20,22,27,0.55);
+  --dsw-alias-bg-layer-2:rgba(26,28,34,0.55);
+  --dsw-alias-bg-overlay:rgba(30,33,40,0.72);
+  background:rgba(13,15,19,0.55)!important;
+}
+html[data-gufa-float] [data-gufa-dock] [data-conversation-scroll],
+html[data-gufa-float] [data-gufa-dock] [data-conversation-content]{background:transparent!important}
+/* 经典 DSH 界面在悬浮窗里整体隐藏（保留古法覆盖层与右侧停靠会话），否则半透明下会透出「另一个 DSH」 */
+html[data-gufa-float] #root{visibility:hidden!important}
+html[data-gufa-float] #root .gufa-overlay-root,
+html[data-gufa-float] #root [data-gufa-dock],
+html[data-gufa-float] #root .gufa-overlay-root *,
+html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483400!important}
 /* 外部弹窗（DSH 设置等）打开时：停靠会话与桌宠降到弹窗之下，保证弹窗完整可点可关 */

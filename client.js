@@ -1027,6 +1027,33 @@ G.errorText = (error) => {
 G.CSS = `
 .gufa-overlay-root{position:fixed;inset:0;z-index:1;display:flex;box-sizing:border-box;background:var(--gufa-solid-bg, var(--dsw-alias-bg-base));pointer-events:auto;overflow:hidden}
 .gufa-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+/* 桌面悬浮层模式：整窗半透明（0.55），顶部留出 22px 拖动条 */
+html[data-gufa-float] body{background:transparent!important}
+html[data-gufa-float] .gufa-overlay-root,
+html[data-gufa-float] .gufa-root{
+  --gufa-solid-bg:rgba(13,15,19,0.55);--gufa-bg:rgba(13,15,19,0.55);
+  --gufa-solid-layer:rgba(20,22,27,0.55);--gufa-layer:rgba(20,22,27,0.55);
+  --gufa-solid-layer2:rgba(26,28,34,0.55);--gufa-layer2:rgba(26,28,34,0.55);
+  --gufa-solid-overlay:rgba(30,33,40,0.72);
+}
+html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
+html[data-gufa-float] .gufa-backdrop{opacity:0.5}
+/* 悬浮模式：右侧停靠的官方会话内部也半透明（DSH 主题变量在停靠根上覆盖） */
+html[data-gufa-float] [data-gufa-dock]{
+  --dsw-alias-bg-base:rgba(13,15,19,0.55);
+  --dsw-alias-bg-layer-1:rgba(20,22,27,0.55);
+  --dsw-alias-bg-layer-2:rgba(26,28,34,0.55);
+  --dsw-alias-bg-overlay:rgba(30,33,40,0.72);
+  background:rgba(13,15,19,0.55)!important;
+}
+html[data-gufa-float] [data-gufa-dock] [data-conversation-scroll],
+html[data-gufa-float] [data-gufa-dock] [data-conversation-content]{background:transparent!important}
+/* 经典 DSH 界面在悬浮窗里整体隐藏（保留古法覆盖层与右侧停靠会话），否则半透明下会透出「另一个 DSH」 */
+html[data-gufa-float] #root{visibility:hidden!important}
+html[data-gufa-float] #root .gufa-overlay-root,
+html[data-gufa-float] #root [data-gufa-dock],
+html[data-gufa-float] #root .gufa-overlay-root *,
+html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483400!important}
 /* 外部弹窗（DSH 设置等）打开时：停靠会话与桌宠降到弹窗之下，保证弹窗完整可点可关 */
@@ -1774,6 +1801,10 @@ const ICON_PATHS = {
   'arrow-down': [
     ['path', { d: 'M12 5v14' }],
     ['path', { d: 'M6 13l6 6 6-6' }],
+  ],
+  monitor: [
+    ['rect', { x: 3, y: 4.5, width: 18, height: 12, rx: 2 }],
+    ['path', { d: 'M9 20h6M12 16.5V20' }],
   ],
   graph: [
     ['circle', { cx: 6, cy: 6, r: 2.2 }],
@@ -8146,7 +8177,10 @@ function gufaPlaceDockedConversation(root, host, options) {
     /* ignore */
   }
   const backdropMode = options !== null && options !== undefined && options.translucent === true
-  if (backdropMode && dockBackground !== '') root.style.background = `color-mix(in srgb, ${dockBackground} 34%, transparent)`
+  let floatMode = false
+  try { floatMode = document.documentElement.hasAttribute('data-gufa-float') } catch { floatMode = false }
+  if (floatMode) root.style.background = dockBackground === '' ? 'rgba(13, 15, 19, 0.55)' : `color-mix(in srgb, ${dockBackground} 45%, transparent)`
+  else if (backdropMode && dockBackground !== '') root.style.background = `color-mix(in srgb, ${dockBackground} 34%, transparent)`
   else root.style.background = dockBackground === '' ? 'var(--gufa-solid-bg, #1a1b1f)' : dockBackground
   root.style.borderLeft = '1px solid var(--dsw-alias-border-l1)'
   root.style.boxSizing = 'border-box'
@@ -9400,6 +9434,8 @@ G.GufaApp = function GufaApp(props) {
   const sessionTitle = useSessions !== undefined ? useSessions(selectSessionTitle) : null
   const currentSessionId = useSessions !== undefined ? useSessions(selectMainSessionId) : null
   const [sessionsOpen, setSessionsOpen] = useState(false)
+  const [floatRunning, setFloatRunning] = useState(false)
+  const [floatBusy, setFloatBusy] = useState(false)
   /* 会话弹窗里选中的工作区（null = 跟随当前 IDE 项目） */
   const [sessionWorkspacePath, setSessionWorkspacePath] = useState(null)
   const [sessionWorkspacePicker, setSessionWorkspacePicker] = useState(false)
@@ -10034,6 +10070,63 @@ G.GufaApp = function GufaApp(props) {
 
   /* 会话弹窗里选了别的工作区的会话：右侧会话保持不动，不再自动把 IDE 项目切过去 */
   const sessionPinnedRef = useRef(false)
+
+  /* ── 桌面悬浮层：URL 带 ?gufa-float=1 时自动进入 IDE 并用半透明皮肤 ── */
+  const floatRequested = (() => {
+    try {
+      if (typeof location !== 'undefined' && /[?&]gufa-float=1/.test(location.search)) return true
+      return typeof localStorage !== 'undefined' && localStorage.getItem('gufa-code:float') === '1'
+    } catch {
+      return false
+    }
+  })()
+  useEffect(() => {
+    if (floatRequested !== true) return undefined
+    try { document.documentElement.setAttribute('data-gufa-float', '1') } catch { /* ignore */ }
+    const enter = (attempt) => {
+      try {
+        if (typeof G.mode?.get === 'function' && G.mode.get() !== true) G.mode.set(true)
+      } catch { /* ignore */ }
+      void G.api('dev.log', {
+        message: `float-mode enter attempt=${attempt} mode=${String(typeof G.mode?.get === 'function' ? G.mode.get() : 'n/a')} overlay=${document.querySelector('.gufa-overlay-root') !== null}`,
+      }).catch(() => {})
+    }
+    const first = window.setTimeout(() => enter(1), 400)
+    const second = window.setTimeout(() => enter(2), 2000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearTimeout(second)
+    }
+  }, [floatRequested])
+
+  /* 悬浮层运行状态（主窗口里显示按钮状态用） */
+  useEffect(() => {
+    let cancelled = false
+    void G.api('float.status').then((value) => {
+      if (!cancelled) setFloatRunning(value?.running === true)
+    }).catch(() => { /* 旧 host 没有该方法 */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const toggleFloatWindow = useCallback(async () => {
+    if (floatBusy) return
+    setFloatBusy(true)
+    try {
+      if (floatRunning) {
+        await G.api('float.stop')
+        setFloatRunning(false)
+        setBanner('悬浮层已关闭')
+      } else {
+        const value = await G.api('float.start')
+        setFloatRunning(value?.running === true)
+        setBanner('悬浮层已启动：屏幕上的半透明窗口，菜单栏「古法」可切换点击穿透')
+      }
+    } catch (error) {
+      setBanner(G.errorText(error))
+    } finally {
+      setFloatBusy(false)
+    }
+  }, [floatBusy, floatRunning])
 
   /* ── 右侧 AI 面板与当前工作区保持一致 ─────────────────────────────────
    * ChatDock 停靠的是 DSH「主视图会话」，但主视图会话可能属于别的工作区
@@ -10944,6 +11037,12 @@ G.GufaApp = function GufaApp(props) {
               }),
             }, h(G.Icon, { name: 'image', size: 16 }))
           : null,
+        h(G.IconButton, {
+          title: floatRunning ? '关闭桌面悬浮层' : '打开桌面悬浮层（半透明置顶窗口）',
+          'data-active': floatRunning ? '' : undefined,
+          disabled: floatBusy,
+          onClick: () => void toggleFloatWindow(),
+        }, h(G.Icon, { name: 'monitor', size: 15 })),
         h(G.IconButton, { title: t('app.refresh'), onClick: () => { setRefreshToken((token) => token + 1); setGitRefreshToken((token) => token + 1); setSshRefreshToken((token) => token + 1) } }, h(G.Icon, { name: 'refresh', size: 15 })),
         h(G.IconButton, {
           title: ui.chatOpen ? t('activity.collapseChat') : t('activity.expandChat'),
