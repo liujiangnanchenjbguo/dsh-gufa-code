@@ -12,14 +12,25 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <ApplicationServices/ApplicationServices.h>
 #import <Carbon/Carbon.h>
 #import <signal.h>
 
 static const EventHotKeyID GufaToggleHotKey = {'gufa', 1};
 
+/* 前置声明（实现位于文件后半部分） */
+static NSString *GufaOutputPath = nil;
+static void GufaEmitJSON(NSDictionary *out);
+static BOOL GufaTrustedForAX(void);
+static NSArray<NSDictionary *> *GufaAXWindows(void);
+static AXUIElementRef GufaCopyAXWindow(pid_t pid, NSString *title);
+static BOOL GufaRectFromAX(AXUIElementRef element, NSRect *out);
+static void GufaActivateBundle(NSString *bundleId);
+static NSArray<NSDictionary *> *GufaAXApps(void);
+static AXUIElementRef GufaCopyAppWindow(pid_t pid);
+
 /* SIGTERM 时先把主窗口（DeepSeek Harness）唤回前台，再退出，实现「退出摸鱼」 */
 static void GufaInstallTermHandler(void);
-static BOOL GufaRowsHaveForeignWindows(NSArray<NSDictionary *> *rows);
 
 @class GufaAppDelegate;
 
@@ -85,8 +96,9 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 @property (nonatomic, strong) NSDictionary *options;
 @property (nonatomic, assign) EventHotKeyRef hotKeyRef;
 @property (nonatomic, assign) BOOL following;
-@property (nonatomic, assign) int followWindowNumber;
-@property (nonatomic, assign) pid_t followOwnerPID;
+@property (nonatomic, assign) pid_t followPid;
+@property (nonatomic, copy) NSString *followTitle;
+@property (nonatomic, assign) AXUIElementRef followWindowRef;
 @property (nonatomic, strong) NSTimer *followTimer;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *windowCandidates;
 - (void)loadWebContent;
@@ -128,29 +140,38 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [self loadWebContent];
 }
 
-/** 吸附目标 App：把它切到前台，主窗口就自然被盖住了（等价于「隐藏主窗口」的观感）。 */
+/** 吸附目标 App：把它切到前台（主窗口自然被盖住 + 切到它所在的 Space）。 */
 - (void)activateTargetApp {
     NSDictionary *follow = self.options[@"follow"];
-    NSNumber *pid = [follow isKindOfClass:[NSDictionary class]] ? follow[@"pid"] : nil;
+    if (![follow isKindOfClass:[NSDictionary class]]) return;
+    NSString *bundleId = [follow[@"bundleId"] isKindOfClass:[NSString class]] ? follow[@"bundleId"] : @"";
+    if (bundleId.length > 0) {
+        GufaActivateBundle(bundleId);
+        return;
+    }
+    NSNumber *pid = follow[@"pid"];
     if (![pid isKindOfClass:[NSNumber class]]) return;
     NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:(pid_t)pid.intValue];
-    if (app == nil) return;
-    [app activateWithOptions:NSApplicationActivateAllWindows];
+    if (app != nil) GufaActivateBundle(app.bundleIdentifier);
 }
 
-/** 启动就进入「吸附跟随」模式（摸鱼列表选好窗口后直接启动）。 */
+/** 启动就进入「吸附跟随」模式（摸鱼列表选好 App 后直接启动）。 */
 - (void)beginningFollowFromOptions {
     NSDictionary *follow = self.options[@"follow"];
     if (![follow isKindOfClass:[NSDictionary class]]) return;
-    NSNumber *number = follow[@"windowNumber"];
     NSNumber *pid = follow[@"pid"];
-    if (![number isKindOfClass:[NSNumber class]] || ![pid isKindOfClass:[NSNumber class]]) return;
-    self.followWindowNumber = number.intValue;
-    self.followOwnerPID = (pid_t)pid.intValue;
-    self.following = YES;
-    [self startFollowTimer];
-    [self applyFollowFrame];
-    self.statusItem.button.title = @"古法·摸鱼";
+    if (![pid isKindOfClass:[NSNumber class]]) return;
+    self.followPid = (pid_t)pid.intValue;
+    self.followTitle = [follow[@"title"] isKindOfClass:[NSString class]] ? follow[@"title"] : @"";
+    /* App 刚被激活，窗口可能还没切到当前 Space；稍等再抓窗口 */
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        self.followWindowRef = GufaCopyAppWindow(self.followPid);
+        if (self.followWindowRef == NULL) return;
+        self.following = YES;
+        [self startFollowTimer];
+        [self applyFollowFrame];
+        self.statusItem.button.title = @"古法·摸鱼";
+    });
 }
 
 - (void)parseOptions {
@@ -232,7 +253,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.statusItem.button.title = @"古法";
     self.statusItem.button.toolTip = @"古法编程悬浮层";
     NSMenu *menu = [[NSMenu alloc] init];
-    [menu addItemWithTitle:@"跟随 App 窗口…（需屏幕录制权限）" action:@selector(chooseFollowWindow:) keyEquivalent:@""].target = self;
+    [menu addItemWithTitle:@"跟随 App 窗口…（需辅助功能权限）" action:@selector(chooseFollowWindow:) keyEquivalent:@""].target = self;
     [menu addItemWithTitle:@"停止跟随" action:@selector(stopFollow:) keyEquivalent:@""].target = self;
     [menu addItem:[NSMenuItem separatorItem]];
     [menu addItemWithTitle:@"切换点击穿透（⌃⌥⌘G）" action:@selector(toggleClickThrough:) keyEquivalent:@""].target = self;
@@ -275,87 +296,53 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [[NSUserDefaults standardUserDefaults] setObject:NSStringFromRect(self.window.frame) forKey:self.frameKey];
 }
 
-/* ── P1：跟随选中的 App 窗口 ───────────────────────────────────── */
-
-/** 枚举屏幕上的普通窗口（需要屏幕录制权限才能看到别的 App）。 */
-- (NSArray<NSDictionary *> *)visibleWindows {
-    NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
-    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
-    if (list == NULL) return rows;
-    NSInteger count = CFArrayGetCount(list);
-    pid_t selfPid = NSProcessInfo.processInfo.processIdentifier;
-    for (NSInteger i = 0; i < count && rows.count < 60; i++) {
-        NSDictionary *info = (__bridge NSDictionary *)CFArrayGetValueAtIndex(list, i);
-        NSNumber *layer = info[(id)kCGWindowLayer];
-        if (![layer isKindOfClass:[NSNumber class]] || layer.intValue != 0) continue;
-        NSNumber *pid = info[(id)kCGWindowOwnerPID];
-        if (![pid isKindOfClass:[NSNumber class]] || pid.intValue == selfPid) continue;
-        NSNumber *number = info[(id)kCGWindowNumber];
-        NSDictionary *bounds = info[(id)kCGWindowBounds];
-        if (number == nil || bounds == nil) continue;
-        CGRect rect = CGRectZero;
-        if (!CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)bounds, &rect)) continue;
-        if (rect.size.width < 220 || rect.size.height < 160) continue;
-        NSString *owner = info[(id)kCGWindowOwnerName];
-        NSString *title = info[(id)kCGWindowName];
-        NSString *label = [NSString stringWithFormat:@"%@%@  ·  %.0f×%.0f",
-                           owner != nil ? owner : @"?",
-                           (title.length > 0 ? [NSString stringWithFormat:@" — %@", title] : @""),
-                           rect.size.width, rect.size.height];
-        [rows addObject:@{
-            @"number": number,
-            @"pid": pid,
-            @"owner": owner != nil ? owner : @"?",
-            @"title": title != nil ? title : @"",
-            @"label": label,
-            @"rect": NSStringFromRect(NSRectFromCGRect(rect)),
-        }];
-    }
-    CFRelease(list);
-    return rows;
-}
+/* ── 跟随选中的 App 窗口（Accessibility API） ─────────────────────── */
 
 - (void)showPermissionGuide {
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"需要「屏幕录制」权限";
-    alert.informativeText = @"要跟随其他 App 的窗口大小，系统需要授予本悬浮层「屏幕录制」权限：\n\n系统设置 → 隐私与安全性 → 屏幕录制 → 勾选「古法编程悬浮层 / gufa-float」；授权后点「重试」。\n\n（只读取窗口尺寸，不录屏、不采集画面。）";
+    alert.messageText = @"需要「辅助功能」权限";
+    alert.informativeText = @"摸鱼列表要读取其他 App 窗口的位置和大小，需要「辅助功能」权限：\n\n系统设置 → 隐私与安全性 → 辅助功能 → 打开 DeepSeek Harness（以及「古法编程悬浮层」）的开关；改完后点「重试」。\n\n（只读取窗口尺寸/位置，不录屏、不采集画面。）";
     [alert addButtonWithTitle:@"打开系统设置"];
     [alert addButtonWithTitle:@"取消"];
-    NSModalResponse response = [alert runModal];
-    if (response == NSAlertFirstButtonReturn) {
-        [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"]];
+    if ([alert runModal] == NSAlertFirstButtonReturn) {
+        [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"]];
     }
 }
 
 - (void)chooseFollowWindow:(id)sender {
-    NSArray<NSDictionary *> *rows = [self visibleWindows];
-    if (rows.count == 0 || !GufaRowsHaveForeignWindows(rows)) {
-        CGRequestScreenCaptureAccess();
+    if (!GufaTrustedForAX()) {
         [self showPermissionGuide];
         return;
     }
-    self.windowCandidates = [rows mutableCopy];
-
-    NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"选择要跟随的 App 窗口";
-    alert.informativeText = @"悬浮层会保持与该窗口相同的位置和大小；窗口移动/缩放时自动跟随。";
-    NSPopUpButton *popup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 420, 26) pullsDown:NO];
-    for (NSDictionary *row in self.windowCandidates) {
-        [popup addItemWithTitle:row[@"label"]];
+    NSArray<NSDictionary *> *rows = GufaAXApps();
+    if (rows.count == 0) {
+        [self showPermissionGuide];
+        return;
     }
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"选择要吸附的 App";
+    alert.informativeText = @"悬浮层会切到该 App 的窗口并保持相同位置/大小，窗口移动时自动跟随。";
+    NSPopUpButton *popup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 420, 26) pullsDown:NO];
+    for (NSDictionary *row in rows) [popup addItemWithTitle:row[@"name"] ?: @"?"];
     alert.accessoryView = popup;
-    [alert addButtonWithTitle:@"开始跟随"];
+    [alert addButtonWithTitle:@"开始摸鱼"];
     [alert addButtonWithTitle:@"取消"];
     if ([alert runModal] != NSAlertFirstButtonReturn) return;
     NSInteger index = popup.indexOfSelectedItem;
-    if (index < 0 || index >= (NSInteger)self.windowCandidates.count) return;
-    NSDictionary *row = self.windowCandidates[(NSUInteger)index];
-    self.followWindowNumber = [row[@"number"] intValue];
-    self.followOwnerPID = (pid_t)[row[@"pid"] intValue];
-    self.following = YES;
-    [self startFollowTimer];
-    [self applyFollowFrame];
-    self.statusItem.button.title = @"古法·跟随";
+    if (index < 0 || index >= (NSInteger)rows.count) return;
+    NSDictionary *row = rows[(NSUInteger)index];
+    self.followPid = (pid_t)[row[@"pid"] intValue];
+    self.followTitle = @"";
+    if (self.followWindowRef != NULL) { CFRelease(self.followWindowRef); self.followWindowRef = NULL; }
+    GufaActivateBundle(row[@"bundleId"]);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        self.followWindowRef = GufaCopyAppWindow(self.followPid);
+        if (self.followWindowRef == NULL) return;
+        self.following = YES;
+        [self startFollowTimer];
+        [self applyFollowFrame];
+        self.statusItem.button.title = @"古法·摸鱼";
+    });
 }
 
 - (void)stopFollow:(id)sender {
@@ -379,29 +366,25 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         self.followTimer = nil;
     }
     self.following = NO;
+    if (self.followWindowRef != NULL) {
+        CFRelease(self.followWindowRef);
+        self.followWindowRef = NULL;
+    }
 }
 
-/** 找到被跟随窗口当前 bounds，把悬浮窗贴上去（主屏坐标换算；多屏后续再完善）。 */
+/** 读取被跟随窗口当前 bounds，把悬浮窗贴上去（主屏坐标换算；多屏后续再完善）。 */
 - (void)applyFollowFrame {
-    if (!self.following || self.followWindowNumber == 0) return;
-    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
-    if (list == NULL) return;
-    CGRect target = CGRectZero;
-    BOOL found = NO;
-    NSInteger count = CFArrayGetCount(list);
-    for (NSInteger i = 0; i < count; i++) {
-        NSDictionary *info = (__bridge NSDictionary *)CFArrayGetValueAtIndex(list, i);
-        NSNumber *number = info[(id)kCGWindowNumber];
-        if (![number isKindOfClass:[NSNumber class]] || number.intValue != self.followWindowNumber) continue;
-        NSNumber *pid = info[(id)kCGWindowOwnerPID];
-        if (![pid isKindOfClass:[NSNumber class]] || pid.intValue != self.followOwnerPID) continue;
-        NSDictionary *bounds = info[(id)kCGWindowBounds];
-        if (bounds != nil && CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)bounds, &target)) found = YES;
-        break;
+    if (!self.following) return;
+    if (self.followWindowRef == NULL) {
+        self.followWindowRef = GufaCopyAXWindow(self.followPid, self.followTitle);
+        if (self.followWindowRef == NULL) {
+            [self stopFollowTimer];
+            self.statusItem.button.title = @"古法";
+            return;
+        }
     }
-    CFRelease(list);
-    if (!found) {
-        /* 目标窗口关闭：停止跟随，保持当前位置 */
+    NSRect target = NSZeroRect;
+    if (!GufaRectFromAX(self.followWindowRef, &target)) {
         [self stopFollowTimer];
         self.statusItem.button.title = @"古法";
         return;
@@ -409,7 +392,6 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     CGFloat screenHeight = NSScreen.mainScreen.frame.size.height;
     NSRect frame = NSMakeRect(target.origin.x, screenHeight - target.origin.y - target.size.height, target.size.width, target.size.height);
     [self.window setFrame:frame display:YES animate:NO];
-    [self saveFrame];
 }
 
 /* 全局快捷键 ⌃⌥⌘G（四键，避免冲突）：穿透后窗口收不到鼠标事件，靠它切回来（Carbon 热键不需要辅助功能权限） */
@@ -445,10 +427,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 }
 
 - (void)restoreMainWindow {
-    NSArray<NSRunningApplication *> *apps = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.deepseek.dsh"];
-    for (NSRunningApplication *app in apps) {
-        [app activateWithOptions:NSApplicationActivateAllWindows];
-    }
+    GufaActivateBundle(@"com.deepseek.dsh");
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
@@ -460,10 +439,7 @@ static void GufaInstallTermHandler(void) {
     signal(SIGTERM, SIG_IGN);
     dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, dispatch_get_main_queue());
     dispatch_source_set_event_handler(source, ^{
-        NSArray<NSRunningApplication *> *apps = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.deepseek.dsh"];
-        for (NSRunningApplication *app in apps) {
-            [app activateWithOptions:NSApplicationActivateAllWindows];
-        }
+        GufaActivateBundle(@"com.deepseek.dsh");
         [NSApp terminate:nil];
     });
     dispatch_resume(source);
@@ -477,60 +453,170 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     return noErr;
 }
 
-/* ── 窗口列表模式：gufa-float --list-windows ─────────────────────── */
+/* ── 窗口枚举：用 Accessibility（辅助功能）API ─────────────────────
+ * 不用 CGWindowList（它需要「屏幕录制」，ad-hoc 签名的 helper 拿不到授权）；
+ * 辅助功能权限按 responsible app（DeepSeek Harness）继承，用户只需在
+ * 「隐私与安全性 → 辅助功能」里勾选 DeepSeek Harness 即可。
+ */
 
-static NSArray<NSDictionary *> *GufaEnumerateWindows(void) {
-    NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
-    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
-    if (list == NULL) return rows;
-    NSInteger count = CFArrayGetCount(list);
-    pid_t selfPid = NSProcessInfo.processInfo.processIdentifier;
-    NSMutableDictionary<NSNumber *, NSData *> *iconCache = [NSMutableDictionary dictionary];
-    for (NSInteger i = 0; i < count && rows.count < 60; i++) {
-        NSDictionary *info = (__bridge NSDictionary *)CFArrayGetValueAtIndex(list, i);
-        NSNumber *layer = info[(id)kCGWindowLayer];
-        if (![layer isKindOfClass:[NSNumber class]] || layer.intValue != 0) continue;
-        NSNumber *pid = info[(id)kCGWindowOwnerPID];
-        if (![pid isKindOfClass:[NSNumber class]] || pid.intValue == selfPid) continue;
-        NSNumber *number = info[(id)kCGWindowNumber];
-        NSDictionary *bounds = info[(id)kCGWindowBounds];
-        if (number == nil || bounds == nil) continue;
-        CGRect rect = CGRectZero;
-        if (!CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)bounds, &rect)) continue;
-        if (rect.size.width < 200 || rect.size.height < 140) continue;
-        NSString *owner = info[(id)kCGWindowOwnerName];
-        NSString *title = info[(id)kCGWindowName];
-        NSData *iconData = iconCache[pid];
-        if (iconData == nil) {
-            iconData = NSData.data;
-            NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:(pid_t)pid.intValue];
-            NSImage *icon = app.icon;
-            if (icon != nil) {
-                NSImage *resized = [[NSImage alloc] initWithSize:NSMakeSize(32, 32)];
-                [resized lockFocus];
-                [icon drawInRect:NSMakeRect(0, 0, 32, 32) fromRect:NSZeroRect operation:NSCompositingOperationCopy fraction:1.0 respectFlipped:YES hints:nil];
-                [resized unlockFocus];
-                NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithData:resized.TIFFRepresentation];
-                NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-                if (png != nil) iconData = png;
-            }
-            iconCache[pid] = iconData;
-        }
-        [rows addObject:@{
-            @"windowNumber": number,
-            @"pid": pid,
-            @"owner": owner != nil ? owner : @"",
-            @"title": title != nil ? title : @"",
-            @"width": @(rect.size.width),
-            @"height": @(rect.size.height),
-            @"icon": [iconData base64EncodedStringWithOptions:0] ?: @"",
-        }];
+static BOOL GufaStringFromAX(AXUIElementRef element, CFStringRef attribute, NSString **out) {
+    CFTypeRef value = NULL;
+    if (AXUIElementCopyAttributeValue(element, attribute, &value) != kAXErrorSuccess || value == NULL) return NO;
+    if (CFGetTypeID(value) != CFStringGetTypeID()) { CFRelease(value); return NO; }
+    if (out != NULL) *out = (__bridge_transfer NSString *)value;
+    else CFRelease(value);
+    return YES;
+}
+
+static BOOL GufaRectFromAX(AXUIElementRef element, NSRect *out) {
+    CFTypeRef posRef = NULL;
+    CFTypeRef sizeRef = NULL;
+    CGPoint pos = CGPointZero;
+    CGSize size = CGSizeZero;
+    BOOL ok = NO;
+    if (AXUIElementCopyAttributeValue(element, (CFStringRef)CFSTR("AXPosition"), &posRef) == kAXErrorSuccess && posRef != NULL) {
+        AXValueGetValue((AXValueRef)posRef, kAXValueCGPointType, &pos);
+        CFRelease(posRef);
     }
-    CFRelease(list);
+    if (AXUIElementCopyAttributeValue(element, (CFStringRef)CFSTR("AXSize"), &sizeRef) == kAXErrorSuccess && sizeRef != NULL) {
+        AXValueGetValue((AXValueRef)sizeRef, kAXValueCGSizeType, &size);
+        CFRelease(sizeRef);
+        ok = YES;
+    }
+    if (out != NULL) *out = NSMakeRect(pos.x, pos.y, size.width, size.height);
+    return ok;
+}
+
+/** 枚举所有可见窗口，返回 [{pid, owner, title, rect, icon}]。 */
+static NSArray<NSDictionary *> *GufaAXWindows(void) {
+    NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
+    NSMutableDictionary<NSNumber *, NSData *> *iconCache = [NSMutableDictionary dictionary];
+    for (NSRunningApplication *app in [NSWorkspace sharedWorkspace].runningApplications) {
+        if (app.activationPolicy != NSApplicationActivationPolicyRegular) continue;
+        AXUIElementRef appElement = AXUIElementCreateApplication(app.processIdentifier);
+        if (appElement == NULL) continue;
+        CFTypeRef winsRef = NULL;
+        if (AXUIElementCopyAttributeValue(appElement, (CFStringRef)CFSTR("AXWindows"), &winsRef) == kAXErrorSuccess && winsRef != NULL) {
+            NSArray *wins = (__bridge_transfer NSArray *)winsRef;
+            for (id win in wins) {
+                AXUIElementRef window = (__bridge AXUIElementRef)win;
+                NSRect rect = NSZeroRect;
+                if (!GufaRectFromAX(window, &rect)) continue;
+                if (rect.size.width < 200 || rect.size.height < 140) continue;
+                NSString *title = @"";
+                GufaStringFromAX(window, (CFStringRef)CFSTR("AXTitle"), &title);
+                NSNumber *pidKey = @(app.processIdentifier);
+                NSData *iconData = iconCache[pidKey];
+                if (iconData == nil) {
+                    iconData = NSData.data;
+                    NSImage *icon = app.icon;
+                    if (icon != nil) {
+                        NSImage *resized = [[NSImage alloc] initWithSize:NSMakeSize(32, 32)];
+                        [resized lockFocus];
+                        [icon drawInRect:NSMakeRect(0, 0, 32, 32) fromRect:NSZeroRect operation:NSCompositingOperationCopy fraction:1.0 respectFlipped:YES hints:nil];
+                        [resized unlockFocus];
+                        NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithData:resized.TIFFRepresentation];
+                        NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                        if (png != nil) iconData = png;
+                    }
+                    iconCache[pidKey] = iconData;
+                }
+                [rows addObject:@{
+                    @"pid": pidKey,
+                    @"owner": app.localizedName ?: @"",
+                    @"title": title,
+                    @"x": @(rect.origin.x),
+                    @"y": @(rect.origin.y),
+                    @"width": @(rect.size.width),
+                    @"height": @(rect.size.height),
+                    @"icon": [iconData base64EncodedStringWithOptions:0] ?: @"",
+                }];
+            }
+        }
+        CFRelease(appElement);
+    }
     return rows;
 }
 
-static NSString *GufaOutputPath = nil;
+/** 枚举运行中的普通 App（不依赖任何权限），按「最前 → 后台」排序。 */
+static NSArray<NSDictionary *> *GufaAXApps(void) {
+    NSMutableArray<NSDictionary *> *rows = [NSMutableArray array];
+    NSRunningApplication *front = [NSWorkspace sharedWorkspace].frontmostApplication;
+    CGFloat iconScale = 32.0;
+    for (NSRunningApplication *app in [NSWorkspace sharedWorkspace].runningApplications) {
+        if (app.activationPolicy != NSApplicationActivationPolicyRegular) continue;
+        if (app.bundleIdentifier.length == 0) continue;
+        NSData *iconData = NSData.data;
+        NSImage *icon = app.icon;
+        if (icon != nil) {
+            NSImage *resized = [[NSImage alloc] initWithSize:NSMakeSize(iconScale, iconScale)];
+            [resized lockFocus];
+            [icon drawInRect:NSMakeRect(0, 0, iconScale, iconScale) fromRect:NSZeroRect operation:NSCompositingOperationCopy fraction:1.0 respectFlipped:YES hints:nil];
+            [resized unlockFocus];
+            NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithData:resized.TIFFRepresentation];
+            NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+            if (png != nil) iconData = png;
+        }
+        [rows addObject:@{
+            @"pid": @(app.processIdentifier),
+            @"bundleId": app.bundleIdentifier,
+            @"name": app.localizedName ?: @"",
+            @"frontmost": @(front != nil && front.processIdentifier == app.processIdentifier),
+            @"icon": [iconData base64EncodedStringWithOptions:0] ?: @"",
+        }];
+    }
+    [rows sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        BOOL fa = [a[@"frontmost"] boolValue];
+        BOOL fb = [b[@"frontmost"] boolValue];
+        if (fa != fb) return fa ? NSOrderedAscending : NSOrderedDescending;
+        return [a[@"name"] localizedCompare:b[@"name"]];
+    }];
+    return rows;
+}
+
+/** 找某个 App 的窗口：优先 focused/main，其次最大的窗口。 */
+static AXUIElementRef GufaCopyAppWindow(pid_t pid) {
+    AXUIElementRef appElement = AXUIElementCreateApplication(pid);
+    if (appElement == NULL) return NULL;
+    CFTypeRef windowRef = NULL;
+    AXUIElementRef found = NULL;
+    if (AXUIElementCopyAttributeValue(appElement, (CFStringRef)CFSTR("AXFocusedWindow"), &windowRef) == kAXErrorSuccess && windowRef != NULL) {
+        found = (AXUIElementRef)CFRetain(windowRef);
+        CFRelease(windowRef);
+    }
+    if (found == NULL && AXUIElementCopyAttributeValue(appElement, (CFStringRef)CFSTR("AXMainWindow"), &windowRef) == kAXErrorSuccess && windowRef != NULL) {
+        found = (AXUIElementRef)CFRetain(windowRef);
+        CFRelease(windowRef);
+    }
+    if (found == NULL) {
+        CFTypeRef winsRef = NULL;
+        if (AXUIElementCopyAttributeValue(appElement, (CFStringRef)CFSTR("AXWindows"), &winsRef) == kAXErrorSuccess && winsRef != NULL) {
+            NSArray *wins = (__bridge NSArray *)winsRef;
+            CGFloat bestArea = 0;
+            for (id win in wins) {
+                AXUIElementRef window = (__bridge AXUIElementRef)win;
+                NSRect rect = NSZeroRect;
+                if (!GufaRectFromAX(window, &rect)) continue;
+                CGFloat area = rect.size.width * rect.size.height;
+                if (area > bestArea && rect.size.width >= 200 && rect.size.height >= 140) {
+                    if (found != NULL) CFRelease(found);
+                    found = (AXUIElementRef)CFRetain(window);
+                    bestArea = area;
+                }
+            }
+            CFRelease(winsRef);
+        }
+    }
+    CFRelease(appElement);
+    return found;
+}
+
+static BOOL GufaTrustedForAX(void) {
+    if (AXIsProcessTrusted()) return YES;
+    NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES};
+    AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
+    return NO;
+}
 
 static void GufaEmitJSON(NSDictionary *out) {
     NSData *json = [NSJSONSerialization dataWithJSONObject:out options:0 error:NULL];
@@ -543,33 +629,59 @@ static void GufaEmitJSON(NSDictionary *out) {
     fputc('\n', stdout);
 }
 
-static void GufaPrintPermissionResult(void) {
-    GufaEmitJSON(@{@"ok": @NO, @"permission": @"screen-recording"});
-}
-
-/** 没权限时 CGWindowList 只返回「自己这个 App」的窗口；据此判断权限，而不是信 CGPreflight。 */
-static BOOL GufaRowsHaveForeignWindows(NSArray<NSDictionary *> *rows) {
-    NSString *own = NSProcessInfo.processInfo.processName;
-    for (NSDictionary *row in rows) {
-        NSString *owner = row[@"owner"];
-        if ([owner isKindOfClass:[NSString class]] && owner.length > 0
-            && ![owner isEqualToString:@"DeepSeek Harness"] && ![owner isEqualToString:own]) {
-            return YES;
-        }
-    }
-    return NO;
-}
-
 static int GufaListWindowsMode(void) {
-    NSArray<NSDictionary *> *rows = GufaEnumerateWindows();
-    if (rows.count == 0 || !GufaRowsHaveForeignWindows(rows)) {
-        /* 触发一次系统授权提示（授权后重新点「重试」即可） */
-        CGRequestScreenCaptureAccess();
-        GufaPrintPermissionResult();
-        return 2;
-    }
-    GufaEmitJSON(@{@"ok": @YES, @"windows": rows});
+    NSArray<NSDictionary *> *rows = GufaAXApps();
+    GufaEmitJSON(@{@"ok": @YES, @"apps": rows, @"accessibility": @(GufaTrustedForAX())});
     return 0;
+}
+
+/** 激活目标 App（LaunchServices open -b，能切到它的 Space）。 */
+static void GufaActivateBundle(NSString *bundleId) {
+    if (bundleId.length == 0) return;
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/open"];
+    task.arguments = @[@"-b", bundleId];
+    @try {
+        [task launchAndReturnError:NULL];
+    } @catch (NSException *exception) {
+        /* ignore */
+    }
+}
+
+/** 按 pid + title 查找对应 AX window（follow 用）。 */
+static AXUIElementRef GufaCopyAXWindow(pid_t pid, NSString *title) {
+    AXUIElementRef appElement = AXUIElementCreateApplication(pid);
+    if (appElement == NULL) return NULL;
+    CFTypeRef winsRef = NULL;
+    AXUIElementRef found = NULL;
+    if (AXUIElementCopyAttributeValue(appElement, (CFStringRef)CFSTR("AXWindows"), &winsRef) == kAXErrorSuccess && winsRef != NULL) {
+        NSArray *wins = (__bridge NSArray *)winsRef;
+        for (id win in wins) {
+            AXUIElementRef window = (__bridge AXUIElementRef)win;
+            NSRect rect = NSZeroRect;
+            if (!GufaRectFromAX(window, &rect)) continue;
+            NSString *candidateTitle = @"";
+            GufaStringFromAX(window, (CFStringRef)CFSTR("AXTitle"), &candidateTitle);
+            if (title.length > 0 && ![candidateTitle isEqualToString:title]) continue;
+            if (rect.size.width < 200 || rect.size.height < 140) continue;
+            found = (AXUIElementRef)CFRetain(window);
+            break;
+        }
+        if (found == NULL && title.length == 0) {
+            /* 没标题时退化为第一个够大的窗口 */
+            for (id win in wins) {
+                AXUIElementRef window = (__bridge AXUIElementRef)win;
+                NSRect rect = NSZeroRect;
+                if (!GufaRectFromAX(window, &rect)) continue;
+                if (rect.size.width < 200 || rect.size.height < 140) continue;
+                found = (AXUIElementRef)CFRetain(window);
+                break;
+            }
+        }
+        CFRelease(winsRef);
+    }
+    CFRelease(appElement);
+    return found;
 }
 
 int main(int argc, const char *argv[]) {

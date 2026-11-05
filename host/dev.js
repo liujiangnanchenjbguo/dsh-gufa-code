@@ -176,7 +176,7 @@ export function register(router, env) {
   router.method('float.openPrivacy', async () => {
     if (process.platform !== 'darwin') return { ok: false }
     try {
-      spawn('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'], { detached: true, stdio: 'ignore' }).unref()
+      spawn('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'], { detached: true, stdio: 'ignore' }).unref()
       return { ok: true }
     } catch {
       return { ok: false }
@@ -187,9 +187,13 @@ export function register(router, env) {
     if (process.platform !== 'darwin') throw new ApiError('unsupported', '摸鱼模式目前只支持 macOS', 400)
     if (appBundlePath() === null) throw new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500)
     const follow = body !== null && typeof body === 'object' && body.follow !== null && typeof body.follow === 'object'
-      ? { windowNumber: Number(body.follow.windowNumber) || 0, pid: Number(body.follow.pid) || 0 }
+      ? {
+        pid: Number(body.follow.pid) || 0,
+        bundleId: typeof body.follow.bundleId === 'string' ? body.follow.bundleId : '',
+        title: typeof body.follow.title === 'string' ? body.follow.title : '',
+      }
       : null
-    if (follow !== null && follow.windowNumber > 0) {
+    if (follow !== null && follow.pid > 0) {
       await killFloat()
     } else if (await floatRunningAsync()) {
       return { running: true, pid: (await listFloatPids())[0] ?? null }
@@ -201,7 +205,7 @@ export function register(router, env) {
     }
     const base = `${webServer.protocol}//127.0.0.1:${String(webServer.port)}`
     const authUrl = connection.authenticatedUrl(`${base}/`)
-    const payload = JSON.stringify({ authUrl, appUrl: `${base}/`, follow: follow !== null && follow.windowNumber > 0 ? follow : undefined })
+    const payload = JSON.stringify({ authUrl, appUrl: `${base}/`, follow: follow !== null && follow.pid > 0 ? follow : undefined })
     await openApp([payload])
     await new Promise((resolve) => setTimeout(resolve, 300))
     const pids = await listFloatPids()

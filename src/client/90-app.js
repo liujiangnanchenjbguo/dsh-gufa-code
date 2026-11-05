@@ -852,9 +852,11 @@ G.GufaApp = function GufaApp(props) {
     setFloatPicker({ status: 'loading', windows: [], error: '' })
     try {
       const value = await G.api('float.windows')
-      if (value?.ok === true && Array.isArray(value.windows)) {
-        setFloatPicker({ status: 'ready', windows: value.windows, error: '' })
-      } else if (value?.ok === false && value?.permission === 'screen-recording') {
+      if (value?.ok === true && value?.accessibility !== true) {
+        setFloatPicker({ status: 'permission', windows: [], error: '' })
+      } else if (value?.ok === true && Array.isArray(value.apps)) {
+        setFloatPicker({ status: 'ready', windows: value.apps, error: '' })
+      } else if (value?.ok === false) {
         setFloatPicker({ status: 'permission', windows: [], error: '' })
       } else {
         setFloatPicker({ status: 'error', windows: [], error: '没有读到可吸附的窗口' })
@@ -870,7 +872,11 @@ G.GufaApp = function GufaApp(props) {
     setFloatBusy(true)
     try {
       const value = await G.api('float.start', {
-        follow: { windowNumber: Number(target.windowNumber) || 0, pid: Number(target.pid) || 0 },
+        follow: {
+          pid: Number(target.pid) || 0,
+          bundleId: typeof target.bundleId === 'string' ? target.bundleId : '',
+          title: '',
+        },
       })
       setFloatRunning(value?.running === true)
       setFloatPicker(null)
@@ -2165,8 +2171,8 @@ G.GufaApp = function GufaApp(props) {
                 ? h(
                     'div',
                     { className: 'gufa-float-permission' },
-                    h('div', { className: 'gufa-float-permission-title' }, '需要「屏幕录制」权限'),
-                    h('div', { className: 'gufa-hint' }, '摸鱼列表需要读取其他 App 的窗口尺寸（只读尺寸，不录屏）。系统只认悬浮层 App 自己的授权：请在「系统设置 → 隐私与安全性 → 屏幕录制」里点左下角「+」，添加「古法编程悬浮层.app」并打开开关（DeepSeek Harness 的开关也保持打开）。加好后点「重试」。'),
+                    h('div', { className: 'gufa-float-permission-title' }, '需要「辅助功能」权限'),
+                    h('div', { className: 'gufa-hint' }, '摸鱼模式需要「辅助功能」权限才能读取/跟随其他 App 的窗口位置和大小（只读窗口信息，不录屏）。请在「系统设置 → 隐私与安全性 → 辅助功能」里打开 **DeepSeek Harness** 的开关（改完可能需要重启一次 DSH），然后点「重试」。'),
                     h(
                       'div',
                       { className: 'gufa-row', style: { gap: 8, marginTop: 12, flexWrap: 'wrap' } },
@@ -2199,10 +2205,10 @@ G.GufaApp = function GufaApp(props) {
                             h(
                               'span',
                               { className: 'gufa-float-meta' },
-                              h('span', { className: 'gufa-float-owner' }, win.owner !== '' ? win.owner : '未知 App'),
-                              h('span', { className: 'gufa-float-title' }, win.title !== '' ? win.title : '（无标题窗口）'),
+                              h('span', { className: 'gufa-float-owner' }, win.name !== undefined && win.name !== '' ? win.name : '未知 App'),
+                              h('span', { className: 'gufa-float-title' }, win.bundleId !== undefined ? win.bundleId : ''),
                             ),
-                            h('span', { className: 'gufa-float-size' }, `${Math.round(win.width)}×${Math.round(win.height)}`),
+                            win.frontmost === true ? h('span', { className: 'gufa-float-size' }, '当前') : null,
                           ),
                         ),
                       ),
