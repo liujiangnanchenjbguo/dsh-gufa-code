@@ -70,7 +70,9 @@ function floatSupportStatus() {
       binary: null,
       hint: process.platform === 'darwin'
         ? '运行 ./scripts/build-float-macos.sh 构建悬浮层'
-        : (process.platform === 'win32' ? '运行 ./scripts/build-float-win.sh 或下载 Release 中的 Windows 产物' : '运行 ./scripts/build-float-linux.sh'),
+        : (process.platform === 'win32'
+          ? '按 desktop/float/win/README-WIN.md 用 CMake + WebView2 SDK 构建（CI windows job 会产出 gufa-float-win.exe）'
+          : '运行 ./scripts/build-float-linux.sh（或 CI 的 linux job 构建产物）'),
     }
   }
   return { supported: true, reason: '', platform: process.platform, binary }
@@ -276,13 +278,29 @@ export function register(router, env) {
     return { ok: true, accessibility: true, apps }
   }
 
-  /** Linux(X11)：wmctrl 枚举窗口（没装 wmctrl 时给出安装提示）。 */
+  /** Linux(X11)：优先用 helper 自己的 --list-windows（X11 直读，无需 wmctrl），失败再退回 wmctrl。 */
   const listFloatWindowsLinux = async () => {
+    const support = floatSupportStatus()
+    if (support.supported && typeof support.binary === 'string') {
+      const outPath = join(tmpdir(), `gufa-float-win-list-${process.pid}-${Date.now()}.json`)
+      try {
+        await runFile(support.binary, ['--list-windows', '--out', outPath], { timeout: 12_000 })
+        const raw = await readFile(outPath, 'utf8')
+        const parsed = JSON.parse(raw.trim())
+        if (parsed !== null && parsed.ok === true && Array.isArray(parsed.apps)) {
+          await rm(outPath, { force: true }).catch(() => {})
+          return { ok: true, accessibility: true, apps: parsed.apps }
+        }
+      } catch {
+        /* helper 不支持/失败：退回 wmctrl */
+      }
+      try { await rm(outPath, { force: true }) } catch { /* ignore */ }
+    }
     let stdout = ''
     try {
       ({ stdout } = await runFile('wmctrl', ['-lp'], { timeout: 6000 }))
     } catch {
-      throw new ApiError('missing-tool', 'Linux 下需要 wmctrl 才能列出窗口：sudo apt install wmctrl', 500)
+      throw new ApiError('missing-tool', 'Linux 下列出窗口失败：请重新构建 helper，或安装 wmctrl（sudo apt install wmctrl）', 500)
     }
     const apps = []
     const seen = new Set()

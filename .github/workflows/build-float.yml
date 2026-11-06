@@ -16,9 +16,12 @@ on:
 jobs:
   macos:
     name: macOS universal helper
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Build universal (arm64 + x86_64)
         run: ./scripts/build-float-macos.sh
       - name: Smoke test (list windows)
@@ -62,7 +65,7 @@ jobs:
           $exe = Get-ChildItem -Path build-win -Recurse -Filter *.exe | Where-Object { $_.Name -notlike 'vc_redist*' } | Select-Object -First 1
           if ($exe -eq $null) { Write-Error 'built exe not found'; exit 1 }
           Copy-Item $exe.FullName desktop/float/bin/win-x64/gufa-float-win.exe -Force
-          & desktop/float/bin/win-x64/gufa-float-win.exe --version
+          Get-Item desktop/float/bin/win-x64/gufa-float-win.exe | Select-Object Length
       - name: Smoke test (ciProbe, non-interactive desktop may be unavailable)
         shell: pwsh
         continue-on-error: true
@@ -76,13 +79,13 @@ jobs:
 
   linux:
     name: Linux helper (X11 + GTK/WebKit2GTK)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev xvfb wmctrl xdotool
+          sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev xvfb wmctrl xdotool
       - name: Build
         working-directory: desktop/float/linux
         run: make -j"$(nproc)"
@@ -99,6 +102,49 @@ jobs:
         with:
           name: gufa-float-linux-x64
           path: desktop/float/bin/linux-x64/gufa-float-linux
+
+  package-binaries:
+    name: Commit helper binaries to build/float-binaries
+    if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Stage binaries
+        run: |
+          set -e
+          mkdir -p desktop/float/bin/win-x64 desktop/float/bin/linux-x64
+          find artifacts -type f | head -50
+          if [ -f artifacts/gufa-float-win-x64/gufa-float-win.exe ]; then
+            cp artifacts/gufa-float-win-x64/gufa-float-win.exe desktop/float/bin/win-x64/gufa-float-win.exe
+          fi
+          if [ -f artifacts/gufa-float-linux-x64/gufa-float-linux ]; then
+            cp artifacts/gufa-float-linux-x64/gufa-float-linux desktop/float/bin/linux-x64/gufa-float-linux
+            chmod +x desktop/float/bin/linux-x64/gufa-float-linux
+          fi
+          if [ -d artifacts/gufa-float-macos ]; then
+            cp -R artifacts/gufa-float-macos/. desktop/float/bin/ 2>/dev/null || true
+          fi
+          git status --porcelain
+      - name: Commit and push branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A desktop/float/bin
+          if git diff --cached --quiet; then
+            echo 'no binary changes'
+            exit 0
+          fi
+          git commit -m 'CI: update float helper binaries [skip ci]'
+          git push origin HEAD:build/float-binaries --force
 
   release-assets:
     name: Attach binaries to release

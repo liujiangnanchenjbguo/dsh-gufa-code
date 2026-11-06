@@ -1,0 +1,3 @@
+# 构建产物（CI 会重新构建并放到 desktop/float/bin/linux-x64/）
+*.o
+/gufa-float-linux
