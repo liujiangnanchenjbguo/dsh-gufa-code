@@ -936,7 +936,7 @@ G.GufaApp = function GufaApp(props) {
     } finally {
       setFloatBusy(false)
     }
-  }, [floatBusy])
+  }, [floatBusy, project, activePath, tabs, ui, currentSessionId])
 
   /* 自由悬浮（不吸附窗口） */
   const startFloatFree = useCallback(async () => {
