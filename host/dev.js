@@ -254,6 +254,11 @@ export function register(router, env) {
     const base = `${webServer.protocol}//127.0.0.1:${String(webServer.port)}`
     const authUrl = connection.authenticatedUrl(`${base}/`)
     const state = body !== null && typeof body === 'object' && body.state !== null && typeof body.state === 'object' ? body.state : null
+    try {
+      debugLog(`float-start-state project=${String(state !== null && state.projectRoot) } tabs=${state !== null && Array.isArray(state.tabs) ? state.tabs.length : 'none'} active=${state !== null && typeof state.activePath === 'string' ? state.activePath : 'none'} session=${state !== null && typeof state.sessionId === 'string' ? state.sessionId : 'none'}`)
+    } catch {
+      /* ignore */
+    }
     const controlPath = join(tmpdir(), `gufa-float-exit-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
     try { await rm(controlPath, { force: true }) } catch { /* ignore */ }
     const payload = JSON.stringify({
@@ -297,6 +302,13 @@ export function register(router, env) {
   router.method('float.stop', async () => {
     await killFloat()
     return { running: false }
+  })
+
+  /* 客户端诊断日志（曾经被误删导致所有 client:* 日志丢失） */
+  router.method('dev.log', async (body) => {
+    const message = body !== null && typeof body === 'object' && typeof body.message === 'string' ? body.message : ''
+    if (message !== '') debugLog(message)
+    return { ok: true }
   })
 
   router.method('dev.version', async () => ({
