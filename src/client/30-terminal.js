@@ -259,8 +259,20 @@ function gufaTermPalette(props) {
  * @param {string} mode 'dark' | 'light'
  * @param {object|null} palette 插件合成的实色调色板（优先于 mode）
  */
+function gufaTermFloatMode() {
+  try {
+    return typeof G.isFloatMode === 'function' && G.isFloatMode() === true
+  } catch {
+    return false
+  }
+}
+
+/** 摸鱼窗口里终端容器的半透明底色（跟随标题栏透明度滑块） */
+const GUFA_TERM_FLOAT_BG = 'rgba(30,30,30,var(--gufa-float-alpha))'
+
 function gufaTermTheme(mode, palette) {
-  const dark = palette !== null && palette !== undefined && typeof palette.isDark === 'boolean' ? palette.isDark : mode === 'dark'
+  const floatMode = gufaTermFloatMode()
+  const dark = floatMode || (palette !== null && palette !== undefined && typeof palette.isDark === 'boolean' ? palette.isDark : mode === 'dark')
   if (dark) {
     const darkTheme = {
       background: '#1e1e1e',
@@ -285,7 +297,13 @@ function gufaTermTheme(mode, palette) {
       brightCyan: '#29b8db',
       brightWhite: '#e5e5e5',
     }
-    return gufaApplyPaletteToTermTheme(darkTheme, palette)
+    const themed = gufaApplyPaletteToTermTheme(darkTheme, palette)
+    /* 摸鱼：xterm 自身背景透明，交给外层容器跟随 --gufa-float-alpha */
+    if (floatMode) {
+      themed.background = 'rgba(0,0,0,0)'
+      themed.cursorAccent = 'rgba(0,0,0,0)'
+    }
+    return themed
   }
   const light = {
     background: '#ffffff',
@@ -786,8 +804,12 @@ function GufaTerminalView(props) {
       }
       gufaTermDebug('terminal-xterm', `open host=${host.clientWidth}x${host.clientHeight} palette=${palette !== null} isDark=${palette === null ? '?' : palette.isDark === true}`)
       try {
+        const floatTerm = gufaTermFloatMode()
+        const initialTheme = gufaTermTheme(themeRef.current, paletteRef.current)
+        void G.api('dev.log', { message: `term-create float=${floatTerm} allowTransparency=${floatTerm} bg=${String(initialTheme.background)}` }).catch(() => {})
         const terminal = new props.assets.Terminal({
           allowProposedApi: false,
+          allowTransparency: floatTerm,
           convertEol: false,
           cursorBlink: true,
           cursorStyle: 'bar',
@@ -1029,7 +1051,9 @@ function GufaTerminalView(props) {
 
   const monoFont = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace'
   const fallbackTheme = gufaTermTheme(props.theme, palette)
-  const background = fallbackTheme.background
+  const terminalFloat = gufaTermFloatMode()
+  const background = terminalFloat ? 'transparent' : fallbackTheme.background
+  const shellBackground = terminalFloat ? GUFA_TERM_FLOAT_BG : fallbackTheme.background
   const foreground = fallbackTheme.foreground
 
   const body = fallback
@@ -1108,7 +1132,7 @@ function GufaTerminalView(props) {
         minHeight: 0,
         minWidth: 0,
         position: 'relative',
-        background,
+        background: shellBackground,
       },
     },
     body,
@@ -1503,7 +1527,7 @@ G.TerminalPane = function TerminalPane(props) {
       : null,
     h(
       'div',
-      { ref: sizeRef, style: { position: 'relative', flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: theme === 'dark' ? '#1e1e1e' : '#ffffff' } },
+      { ref: sizeRef, style: { position: 'relative', flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: gufaTermFloatMode() ? 'transparent' : (theme === 'dark' ? '#1e1e1e' : '#ffffff') } },
       body,
     ),
   )

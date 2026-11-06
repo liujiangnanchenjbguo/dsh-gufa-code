@@ -1100,6 +1100,10 @@ html[data-gufa-float] .gufa-overlay-root::before{
   background:rgba(13,15,19,var(--gufa-float-alpha));z-index:1;
 }
 html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
+/* 摸鱼：xterm 的内置黑色背景层（xterm.css 默认 #000）也要透明，否则终端永远不透 */
+html[data-gufa-float] .xterm,
+html[data-gufa-float] .xterm .xterm-viewport,
+html[data-gufa-float] .xterm .xterm-screen{background-color:transparent!important;background-image:none!important}
 /* 摸鱼模式不显示皮肤（梁圣）背景：包括古法自己的复刻层和第三方皮肤插件在 body/html 上画的层 */
 html[data-gufa-float],
 html[data-gufa-float] body,
