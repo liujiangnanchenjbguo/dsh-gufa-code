@@ -105,6 +105,10 @@ dsh plugin add dsh-gufa-code
 - 颜色全部走 DSH 主题 token，亮/暗主题自动跟随；界面宽度、开关状态持久化到 localStorage；
 - 与皮肤插件兼容：如果装有「滑动变祖」这类皮肤，IDE 面板会半透明透出皮肤人像/粒子，编辑器区域也保持轻微透明。
 
+## 发布（维护者）
+
+打 tag + 建 GitHub Release 即可自动发布：`publish.yml` 用 npm trusted publishing（OIDC）发 npm 包，`build-float.yml` 编译三平台 helper 并挂到 Release assets。详见 [`docs/RELEASE.md`](docs/RELEASE.md)。
+
 ## 开发
 
 ```sh
