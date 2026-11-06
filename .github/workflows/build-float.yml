@@ -177,6 +177,23 @@ jobs:
           git commit -m 'CI: update float helper binaries [skip ci]'
           git push origin HEAD:build/float-binaries --force
 
+  package-check:
+    name: npm package contents (three-platform helpers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check npm tarball contains all helpers
+        run: |
+          npm install --no-audit --no-fund
+          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          grep -q 'desktop/float/bin/gufa-float-macos-universal' /tmp/pack.txt
+          grep -q 'desktop/float/bin/win-x64/gufa-float-win.exe' /tmp/pack.txt
+          grep -q 'desktop/float/bin/linux-x64/gufa-float-linux' /tmp/pack.txt
+          echo 'three-platform helpers present in npm tarball'
+
   release-assets:
     name: Attach binaries to release
     if: github.event_name == 'release'
