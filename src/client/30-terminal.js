@@ -1048,8 +1048,8 @@ function GufaTerminalView(props) {
 
   const monoFont = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace'
   const fallbackTheme = gufaTermTheme(props.theme, palette)
-  /* 终端背景和其它面板用同一个变量：IDE 里是实色调色板，摸鱼里是带 --gufa-float-alpha 的半透明色 */
-  const shellBackground = 'var(--gufa-solid-layer, var(--gufa-bg, #1e1e1e))'
+  /* 终端背景由外层 .gufa-termpane 统一提供（和编辑器区域同一套透明度规则） */
+  const shellBackground = 'transparent'
   const background = 'transparent'
   const foreground = fallbackTheme.foreground
 
@@ -1122,6 +1122,7 @@ function GufaTerminalView(props) {
   return h(
     'div',
     {
+      className: 'gufa-termview',
       style: {
         display: props.active === true ? 'flex' : 'none',
         flexDirection: 'column',
@@ -1129,7 +1130,6 @@ function GufaTerminalView(props) {
         minHeight: 0,
         minWidth: 0,
         position: 'relative',
-        background: shellBackground,
       },
     },
     body,
@@ -1487,6 +1487,7 @@ G.TerminalPane = function TerminalPane(props) {
   return h(
     'div',
     {
+      className: 'gufa-termpane',
       style: {
         height,
         flex: '0 0 auto',
@@ -1495,12 +1496,12 @@ G.TerminalPane = function TerminalPane(props) {
         minHeight: 0,
         minWidth: 0,
         borderTop: '1px solid var(--gufa-border)',
-        background: 'var(--gufa-solid-bg, var(--gufa-bg))',
       },
     },
     h(
       'div',
       {
+        className: 'gufa-termhead',
         style: {
           display: 'flex',
           alignItems: 'center',
@@ -1509,7 +1510,6 @@ G.TerminalPane = function TerminalPane(props) {
           padding: '0 6px 0 8px',
           flex: '0 0 auto',
           borderBottom: '1px solid var(--gufa-border)',
-          background: 'var(--gufa-solid-layer, var(--gufa-layer))',
           minWidth: 0,
         },
       },
@@ -1546,7 +1546,7 @@ G.TerminalPane = function TerminalPane(props) {
       : null,
     h(
       'div',
-      { ref: sizeRef, style: { position: 'relative', flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: 'transparent' } },
+      { ref: sizeRef, className: 'gufa-termbody', style: { position: 'relative', flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 } },
       body,
     ),
   )

@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.33'
+G.BUILD = '1.3.34'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1108,6 +1108,15 @@ html[data-gufa-float] .gufa-overlay-root::before{
   background:rgba(13,15,19,var(--gufa-float-alpha));z-index:1;
 }
 html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
+/* 终端面板：古法编程（带皮肤背景）时和编辑器区域一样透出背景；摸鱼时跟随滑块 */
+.gufa-termpane{background:var(--gufa-bg)}
+.gufa-termhead{background:var(--gufa-layer)}
+.gufa-termbody,
+.gufa-termview{background:transparent!important}
+.gufa-root[data-backdrop="on"] .gufa-termpane{background:color-mix(in srgb, var(--gufa-bg) 46%, transparent)}
+.gufa-root[data-backdrop="on"] .gufa-termhead{background:color-mix(in srgb, var(--gufa-layer) 64%, transparent)}
+html[data-gufa-float] .gufa-termpane{background:rgba(13,15,19,var(--gufa-float-alpha))!important}
+html[data-gufa-float] .gufa-termhead{background:rgba(20,22,27,var(--gufa-float-alpha))!important}
 /* 摸鱼：xterm 的内置黑色背景层（xterm.css 默认 #000）也要透明，否则终端永远不透 */
 html[data-gufa-float] .xterm,
 html[data-gufa-float] .xterm .xterm-viewport,
@@ -4563,8 +4572,8 @@ function GufaTerminalView(props) {
 
   const monoFont = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace'
   const fallbackTheme = gufaTermTheme(props.theme, palette)
-  /* 终端背景和其它面板用同一个变量：IDE 里是实色调色板，摸鱼里是带 --gufa-float-alpha 的半透明色 */
-  const shellBackground = 'var(--gufa-solid-layer, var(--gufa-bg, #1e1e1e))'
+  /* 终端背景由外层 .gufa-termpane 统一提供（和编辑器区域同一套透明度规则） */
+  const shellBackground = 'transparent'
   const background = 'transparent'
   const foreground = fallbackTheme.foreground
 
@@ -4637,6 +4646,7 @@ function GufaTerminalView(props) {
   return h(
     'div',
     {
+      className: 'gufa-termview',
       style: {
         display: props.active === true ? 'flex' : 'none',
         flexDirection: 'column',
@@ -4644,7 +4654,6 @@ function GufaTerminalView(props) {
         minHeight: 0,
         minWidth: 0,
         position: 'relative',
-        background: shellBackground,
       },
     },
     body,
@@ -5002,6 +5011,7 @@ G.TerminalPane = function TerminalPane(props) {
   return h(
     'div',
     {
+      className: 'gufa-termpane',
       style: {
         height,
         flex: '0 0 auto',
@@ -5010,12 +5020,12 @@ G.TerminalPane = function TerminalPane(props) {
         minHeight: 0,
         minWidth: 0,
         borderTop: '1px solid var(--gufa-border)',
-        background: 'var(--gufa-solid-bg, var(--gufa-bg))',
       },
     },
     h(
       'div',
       {
+        className: 'gufa-termhead',
         style: {
           display: 'flex',
           alignItems: 'center',
@@ -5024,7 +5034,6 @@ G.TerminalPane = function TerminalPane(props) {
           padding: '0 6px 0 8px',
           flex: '0 0 auto',
           borderBottom: '1px solid var(--gufa-border)',
-          background: 'var(--gufa-solid-layer, var(--gufa-layer))',
           minWidth: 0,
         },
       },
@@ -5061,7 +5070,7 @@ G.TerminalPane = function TerminalPane(props) {
       : null,
     h(
       'div',
-      { ref: sizeRef, style: { position: 'relative', flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: 'transparent' } },
+      { ref: sizeRef, className: 'gufa-termbody', style: { position: 'relative', flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 } },
       body,
     ),
   )

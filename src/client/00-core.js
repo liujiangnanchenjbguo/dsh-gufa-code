@@ -1100,6 +1100,15 @@ html[data-gufa-float] .gufa-overlay-root::before{
   background:rgba(13,15,19,var(--gufa-float-alpha));z-index:1;
 }
 html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
+/* 终端面板：古法编程（带皮肤背景）时和编辑器区域一样透出背景；摸鱼时跟随滑块 */
+.gufa-termpane{background:var(--gufa-bg)}
+.gufa-termhead{background:var(--gufa-layer)}
+.gufa-termbody,
+.gufa-termview{background:transparent!important}
+.gufa-root[data-backdrop="on"] .gufa-termpane{background:color-mix(in srgb, var(--gufa-bg) 46%, transparent)}
+.gufa-root[data-backdrop="on"] .gufa-termhead{background:color-mix(in srgb, var(--gufa-layer) 64%, transparent)}
+html[data-gufa-float] .gufa-termpane{background:rgba(13,15,19,var(--gufa-float-alpha))!important}
+html[data-gufa-float] .gufa-termhead{background:rgba(20,22,27,var(--gufa-float-alpha))!important}
 /* 摸鱼：xterm 的内置黑色背景层（xterm.css 默认 #000）也要透明，否则终端永远不透 */
 html[data-gufa-float] .xterm,
 html[data-gufa-float] .xterm .xterm-viewport,
