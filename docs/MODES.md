@@ -36,7 +36,8 @@
 ## 摸鱼模式跨平台实现
 
 - helper 与 Host 的通信协议统一在 `desktop/float/PLATFORM-PROTOCOL.md`（argv JSON + controlPath 控制文件 + ciProbe 冒烟）。
-- macOS：`desktop/float/GufaFloat.m`（已可用）；Windows：`desktop/float/win/`（Win32 + WebView2）；Linux：`desktop/float/linux/`（X11 + GTK3/WebKit2GTK），后两者由 `.github/workflows/build-float.yml` 在 CI 构建，需真机验收。
+- macOS：`desktop/float/GufaFloat.m`（已可用，universal arm64+x86_64）；Windows：`desktop/float/win/`（Win32 + WebView2，首版不透明）；Linux：`desktop/float/linux/`（X11 + GTK3/WebKit2GTK，仅 X11）。
+- 后两者由 `.github/workflows/build-float.yml` 在 CI 编译 + ciProbe 冒烟，产物放到 `desktop/float/bin/{win-x64,linux-x64}/` 随 npm 包发布；真机交互仍在验收。
 - Host 端 `host/dev.js` 的 `float.*` API 已按平台分支：darwin 用 .app + AX；win32/linux 用原生 helper + controlPath 退出，用 PowerShell/wmctrl 列窗口。
 
 ## 摸鱼模式现行限制

@@ -130,9 +130,16 @@ jobs:
             cp artifacts/gufa-float-linux-x64/gufa-float-linux desktop/float/bin/linux-x64/gufa-float-linux
             chmod +x desktop/float/bin/linux-x64/gufa-float-linux
           fi
-          if [ -d artifacts/gufa-float-macos ]; then
-            cp -R artifacts/gufa-float-macos/. desktop/float/bin/ 2>/dev/null || true
-          fi
+          # macOS artifact 保留了上传时的相对路径（desktop/float/...），显式搬运，避免出现 bin/bin 嵌套
+          for base in artifacts/gufa-float-macos/desktop/float artifacts/gufa-float-macos; do
+            [ -d "$base" ] || continue
+            if [ -f "$base/bin/gufa-float-macos-universal" ]; then
+              cp "$base/bin/gufa-float-macos-universal" desktop/float/bin/gufa-float-macos-universal
+            fi
+            if [ -d "$base/古法编程悬浮层.app" ]; then
+              cp -R "$base/古法编程悬浮层.app" desktop/float/古法编程悬浮层.app
+            fi
+          done
           git status --porcelain
       - name: Commit and push branch
         run: |

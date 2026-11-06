@@ -87,12 +87,17 @@ dsh plugin add dsh-gufa-code
 - 选择器底部还有「自由悬浮（不吸附）」：不绑定窗口，自己拖拽缩放（同样带状态、同样可调透明度）。
 - 平台支持：
   - **macOS Apple Silicon / Intel：开箱可用**（npm 包内是 universal helper，arm64 + x86_64，无需自己编译）；
-  - **Windows：开发中**（Win32 + WebView2 原生 helper，GitHub Actions 构建；需要 WebView2 Runtime，Win10/11 自带）；
-    暂有限制：虚拟桌面切换时悬浮窗可能留在原桌面；悬浮窗透明度待完善；
-  - **Linux：开发中**（X11 + GTK3/WebKit2GTK 原生 helper，GitHub Actions 构建；列窗口需要安装 `wmctrl`）；
-    暂有限制：仅支持 X11，Wayland 下只能自由悬浮（无法全局读取其它窗口位置）；
+  - **Windows：可用（实验）**：npm 包内含 `desktop/float/bin/win-x64/gufa-float-win.exe`（CI 构建的 Win32 + WebView2 helper）。
+    前置条件：Windows 10/11 + **WebView2 Runtime**（Win10/11 的 Edge 通常已自带；缺失时 helper 会提示下载）。
+    暂有限制：**首版窗口不透明**（悬浮层本身不能透出下层 App，透明度滑块对窗口背景不生效）；虚拟桌面切换时悬浮窗可能留在原桌面；
+    exe 未代码签名，首次运行可能被 SmartScreen 拦截（「更多信息 → 仍要运行」）；
+  - **Linux：可用（实验，仅 X11）**：npm 包内含 `desktop/float/bin/linux-x64/gufa-float-linux`（CI 构建的 X11 + GTK3/WebKit2GTK helper）。
+    前置条件：X11 桌面 + GTK3/WebKit2GTK 运行库（`libgtk-3-0`、`libwebkit2gtk-4.1-0` 或 `4.0`、`libsoup-3.0-0` 或 `2.4`）。
+    暂有限制：**纯 Wayland 下不能跟随/隐藏其它窗口**（有 XWayland 时自动退到 X11 后端，可用；完全 Wayland 时只能自由悬浮）；
+    列窗口可用 helper 自带 X11 实现，也可安装 `wmctrl` 兜底；
   - 其它平台（以及 helper 二进制缺失时）：摸鱼模式会给出版本/构建提示，其余 IDE 功能不受影响；
-  - helper 为 ad-hoc 签名；首次启动若被系统拦截，在「隐私与安全性」里允许一次即可。
+  - macOS helper 为 ad-hoc 签名；首次启动若被系统拦截，在「隐私与安全性」里允许一次即可。
+  - Windows/Linux helper 已通过 GitHub Actions 编译与 ciProbe 冒烟；**真机交互（吸附/隐藏/退出）仍在验收中**，遇到问题请把 `~/.dsh/gufa-code-debug.log`、helper 日志和系统信息发出来。
 
 ### 外观
 
