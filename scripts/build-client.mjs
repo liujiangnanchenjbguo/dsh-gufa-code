@@ -32,7 +32,11 @@ const footer = `
 })
 `
 
-const output = header + body + footer
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const version = typeof pkg.version === 'string' && pkg.version !== '' ? pkg.version : '0.0.0'
+/* 版本号统一由 package.json 注入，避免 00-core 里手写的 G.BUILD 忘记更新 */
+const versionedBody = body.replaceAll("G.BUILD = 'dev'", `G.BUILD = '${version}'`)
+const output = header + versionedBody + footer
 writeFileSync(join(root, 'client.js'), output, 'utf8')
 console.log(`build-client: ${files.length} parts -> client.js (${(Buffer.byteLength(output) / 1024).toFixed(1)} KB)`)
 if (process.argv.includes('--list')) console.log(files.join('\n'))
