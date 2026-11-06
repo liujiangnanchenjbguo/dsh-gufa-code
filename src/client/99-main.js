@@ -261,6 +261,21 @@ const GUFA_PLUGIN = {
             window.clearInterval(timer)
             /* 显式恢复主窗口状态（项目 → 标签页 → 会话），避免依赖 Web 版 App 的启动时序 */
             try {
+              /* 诊断：摸鱼窗口里各面板的实际底色（排查透明度不一致） */
+              try {
+                const pick = (sel) => {
+                  const el = document.querySelector(sel)
+                  if (el === null) return `${sel}=none`
+                  const cs = window.getComputedStyle(el)
+                  return `${sel}=${cs.backgroundColor}/${cs.opacity}`
+                }
+                const root = document.querySelector('.gufa-root')
+                void G.api('dev.log', {
+                  message: `float-styles backdrop=${root === null ? '?' : root.getAttribute('data-backdrop')} ${pick('.gufa-overlay-root')} ${pick('.gufa-editor-area')} ${pick('.gufa-chatpane')} ${pick('.gufa-termpane')} ${pick('.gufa-termhead')} ${pick('.gufa-sidepanel')} ${pick('.gufa-main')} alphaVar=${window.getComputedStyle(document.documentElement).getPropertyValue('--gufa-float-alpha')}`,
+                }).catch(() => {})
+              } catch {
+                /* ignore */
+              }
               void G.api('dev.log', { message: `float-boot hasState=${G.floatState !== null && G.floatState !== undefined} restoreRef=${G.floatRestoreRef !== null && G.floatRestoreRef !== undefined} state=${G.floatState === null || G.floatState === undefined ? 'null' : JSON.stringify({ projectRoot: G.floatState.projectRoot, tabs: Array.isArray(G.floatState.tabs) ? G.floatState.tabs.length : 0, activePath: G.floatState.activePath })}` }).catch(() => {})
               if (window.__gufaFloatRestored !== true && G.floatState !== null && G.floatState !== undefined) {
                 window.__gufaFloatRestored = true

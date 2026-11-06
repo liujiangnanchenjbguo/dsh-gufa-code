@@ -1100,6 +1100,35 @@ html[data-gufa-float] .gufa-overlay-root::before{
   background:rgba(13,15,19,var(--gufa-float-alpha));z-index:1;
 }
 html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
+/* 摸鱼：整窗只保留「覆盖层根节点」这一层半透明底，其余面板/会话/终端全部透明，
+   保证编辑器、会话框、终端框看到的透明度完全一致（都等于滑块的 alpha）。 */
+html[data-gufa-float] .gufa-overlay-root{background:rgba(13,15,19,var(--gufa-float-alpha))!important}
+html[data-gufa-float] .gufa-root,
+html[data-gufa-float] .gufa-shell,
+html[data-gufa-float] .gufa-main,
+html[data-gufa-float] .gufa-main-row,
+html[data-gufa-float] .gufa-sidepanel,
+html[data-gufa-float] .gufa-editor-area,
+html[data-gufa-float] .gufa-chatpane,
+html[data-gufa-float] .gufa-termpane,
+html[data-gufa-float] .gufa-termhead,
+html[data-gufa-float] .gufa-termbody,
+html[data-gufa-float] .gufa-termview,
+html[data-gufa-float] .gufa-titlebar,
+html[data-gufa-float] .gufa-activity,
+html[data-gufa-float] .gufa-tabs,
+html[data-gufa-float] .gufa-statusbar,
+html[data-gufa-float] [data-gufa-dock],
+html[data-gufa-float] [data-gufa-dock] > *{background:transparent!important}
+/* 官方会话/组件在摸鱼里也用透明 token，避免和覆盖层底叠成两层 */
+html[data-gufa-float] .gufa-root,
+html[data-gufa-float] .gufa-overlay-root,
+html[data-gufa-float] [data-gufa-dock]{
+  --dsw-alias-bg-base:transparent!important;
+  --dsw-alias-bg-layer-1:transparent!important;
+  --dsw-alias-bg-layer-2:transparent!important;
+  --dsw-alias-bg-overlay:transparent!important;
+}
 /* 终端面板：古法编程（带皮肤背景）时和编辑器区域一样透出背景；摸鱼时跟随滑块 */
 .gufa-termpane{background:var(--gufa-bg)}
 .gufa-termhead{background:var(--gufa-layer)}
@@ -1107,8 +1136,8 @@ html[data-gufa-float] .gufa-overlay-root{background:transparent!important;paddin
 .gufa-termview{background:transparent!important}
 .gufa-root[data-backdrop="on"] .gufa-termpane{background:color-mix(in srgb, var(--gufa-bg) 46%, transparent)}
 .gufa-root[data-backdrop="on"] .gufa-termhead{background:color-mix(in srgb, var(--gufa-layer) 64%, transparent)}
-html[data-gufa-float] .gufa-termpane{background:rgba(13,15,19,var(--gufa-float-alpha))!important}
-html[data-gufa-float] .gufa-termhead{background:rgba(20,22,27,var(--gufa-float-alpha))!important}
+html[data-gufa-float] .gufa-termpane{background:transparent!important}
+html[data-gufa-float] .gufa-termhead{background:transparent!important}
 /* xterm 自带的黑色底（xterm.css 默认 .xterm-viewport{background:#000}）必须清掉，
    否则古法编程和摸鱼里的终端内容区永远是黑的（外层透明也没用） */
 .gufa-termview .xterm,
