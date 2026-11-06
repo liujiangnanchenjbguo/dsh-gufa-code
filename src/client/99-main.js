@@ -272,24 +272,18 @@ const GUFA_PLUGIN = {
                     /* ignore */
                   }
                   await new Promise((resolve) => setTimeout(resolve, 500))
-                  const ordered = typeof state.activePath === 'string' && state.activePath !== ''
-                    ? paths.filter((path) => path !== state.activePath).concat([state.activePath])
-                    : paths
-                  /* 关键：applyProject 之后 App 已重渲染，必须重新取最新的 openFile（旧闭包里 project 还是 null） */
-                  for (let attempt = 0; attempt < 3 && ordered.length > 0; attempt += 1) {
-                    const latest = G.floatRestoreRef
-                    const openFile = latest !== null && latest !== undefined && typeof latest.openFile === 'function' ? latest.openFile : null
-                    if (openFile === null) break
+                  /* 按快照里的标签顺序打开，最后再激活 activePath，避免顺序漂移 */
+                  const ordered = paths
+                  const activeOne = typeof state.activePath === 'string' && state.activePath !== '' ? state.activePath : null
+                  /* 关键：applyProject 之后 App 已重渲染，取最新恢复入口；优先原子恢复标签集合 */
+                  await new Promise((resolve) => setTimeout(resolve, 250))
+                  const latest = G.floatRestoreRef
+                  if (latest !== null && latest !== undefined && typeof latest.applyTabs === 'function') {
+                    await latest.applyTabs(ordered, activeOne)
+                  } else if (latest !== null && latest !== undefined && typeof latest.openFile === 'function') {
                     for (const path of ordered.slice(0, 10)) {
-                      try {
-                        await openFile(path)
-                      } catch {
-                        /* ignore */
-                      }
+                      try { await latest.openFile(path) } catch { /* ignore */ }
                     }
-                    await new Promise((resolve) => setTimeout(resolve, 250))
-                    const tabsNow = typeof G.floatGetTabs === 'function' ? G.floatGetTabs().length : -1
-                    if (tabsNow >= ordered.length) break
                   }
                   if (typeof state.sessionId === 'string' && state.sessionId !== '') {
                     try {

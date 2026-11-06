@@ -2,9 +2,9 @@
  * 开发/诊断信息：供客户端在启动时探测「Host 半是否为最新代码」。
  * 旧版本 Host（没有本方法）会让 api('dev.version') 返回 not-found，客户端据此提示重启 Harness。
  */
-import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, join } from 'node:path'
@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { ApiError } from './context.js'
 
 const DEBUG_LOG_PATH = '/tmp/gufa-code-debug.log'
+const FLOAT_PREFS_PATH = join(homedir(), '.dsh', 'gufa-float-prefs.json')
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 /* 悬浮层子进程放在 globalThis：host 模块热重载后仍能持有同一个句柄 */
 const floatState = globalThis.__gufaFloatState ?? (globalThis.__gufaFloatState = { child: null, startedAt: 0 })
@@ -261,11 +262,14 @@ export function register(router, env) {
     }
     const controlPath = join(tmpdir(), `gufa-float-exit-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
     try { await rm(controlPath, { force: true }) } catch { /* ignore */ }
+    const prefs = readFloatPrefs()
+    const alphaPref = Number(prefs.alpha)
     const payload = JSON.stringify({
       authUrl,
       appUrl: `${base}/`,
       follow: follow !== null && follow.pid > 0 ? follow : undefined,
       state: state ?? undefined,
+      alpha: Number.isFinite(alphaPref) && alphaPref >= 20 && alphaPref <= 100 ? Math.round(alphaPref) : undefined,
       controlPath,
     })
     floatState.controlPath = controlPath
@@ -297,6 +301,38 @@ export function register(router, env) {
     floatState.exitStateAt = 0
     if (state === null || Date.now() - at > 10 * 60 * 1000) return { state: null }
     return { state }
+  })
+
+  /* 悬浮层偏好（摸鱼界面透明度等）：存在 ~/.dsh/gufa-float-prefs.json，摸鱼窗口每次新建时沿用 */
+  const readFloatPrefs = () => {
+    try {
+      const raw = readFileSync(FLOAT_PREFS_PATH, 'utf8')
+      const parsed = JSON.parse(raw)
+      if (parsed !== null && typeof parsed === 'object') return parsed
+    } catch {
+      /* ignore */
+    }
+    return {}
+  }
+  const writeFloatPrefs = (patch) => {
+    try {
+      const next = { ...readFloatPrefs(), ...(patch !== null && typeof patch === 'object' ? patch : {}) }
+      writeFileSync(FLOAT_PREFS_PATH, JSON.stringify(next))
+      return next
+    } catch {
+      return readFloatPrefs()
+    }
+  }
+  router.method('float.getPrefs', async () => {
+    const prefs = readFloatPrefs()
+    const alpha = Number(prefs.alpha)
+    return { alpha: Number.isFinite(alpha) && alpha >= 20 && alpha <= 100 ? Math.round(alpha) : 55 }
+  })
+  router.method('float.setPrefs', async (body) => {
+    const alpha = Number(body?.alpha)
+    if (!Number.isFinite(alpha) || alpha < 20 || alpha > 100) throw new ApiError('bad-request', 'alpha 需在 20-100 之间', 400)
+    writeFloatPrefs({ alpha: Math.round(alpha) })
+    return { ok: true }
   })
 
   router.method('float.stop', async () => {

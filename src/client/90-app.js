@@ -177,7 +177,32 @@ G.GufaApp = function GufaApp(props) {
     } catch {
       /* ignore */
     }
-  }, [floatAlpha])
+    /* 摸鱼窗口里调整透明度时同步到 Host，下次新建摸鱼窗口沿用 */
+    if (moyuMode) {
+      const timer = window.setTimeout(() => {
+        void G.api('float.setPrefs', { alpha: floatAlpha }).catch(() => {})
+      }, 400)
+      return () => window.clearTimeout(timer)
+    }
+    return undefined
+  }, [floatAlpha, moyuMode])
+  /* 摸鱼窗口启动时优先使用 Host 偏好里的透明度 */
+  useEffect(() => {
+    if (!moyuMode) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const prefs = await G.api('float.getPrefs')
+        const alpha = Number(prefs?.alpha)
+        if (!cancelled && Number.isFinite(alpha) && alpha >= 20 && alpha <= 100) setFloatAlpha(Math.round(alpha))
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [moyuMode])
   /* 会话弹窗里选中的工作区（null = 跟随当前 IDE 项目） */
   const [sessionWorkspacePath, setSessionWorkspacePath] = useState(null)
   const [sessionWorkspacePicker, setSessionWorkspacePicker] = useState(false)
@@ -194,6 +219,11 @@ G.GufaApp = function GufaApp(props) {
 
   /* 摸鱼窗口：主窗口注入的状态（项目/UI/标签页/会话） */
   const floatState = G.floatState
+  const appInstanceId = useRef(0)
+  if (appInstanceId.current === 0) {
+    appInstanceId.current = Math.random().toString(36).slice(2, 8)
+    void G.api('dev.log', { message: `app-mount id=${appInstanceId.current} float=${G.isFloatMode()} href=${String(location.href).slice(0, 80)}` }).catch(() => {})
+  }
   const [ui, setUi] = useState(() => {
     const fromFloat = floatState !== null && floatState !== undefined && floatState.ui !== null && typeof floatState.ui === 'object' ? floatState.ui : null
     const saved = fromFloat ?? readJson(GUFA_LS.ui) ?? {}
@@ -368,12 +398,37 @@ G.GufaApp = function GufaApp(props) {
     }
     try {
       const doc = await G.api('fs.read', { root: project.root, path })
-      setTabs((current) => [...current, { ...doc, savedContent: doc.content, dirty: false, savedRevision: doc.revision }])
+      /* 用函数式更新去重：并发/恢复场景下闭包里的 tabs 可能还没刷新，直接追加会产生重复标签 */
+      setTabs((current) => (
+        current.some((tab) => tab.path === path)
+          ? current
+          : [...current, { ...doc, savedContent: doc.content, dirty: false, savedRevision: doc.revision }]
+      ))
       setActivePath(path)
     } catch (error) {
       setBanner(G.errorText(error))
     }
   }, [project, tabs])
+
+  /* 原子恢复标签集合：按快照顺序、去重、最后激活指定文件（避免 openFile 并发产生重复标签） */
+  const applyTabs = useCallback(async (paths, active) => {
+    if (project === null || !Array.isArray(paths)) return
+    const docs = []
+    const seen = new Set()
+    for (const path of paths.slice(0, 12)) {
+      if (typeof path !== 'string' || path === '' || seen.has(path)) continue
+      seen.add(path)
+      try {
+        const doc = await G.api('fs.read', { root: project.root, path })
+        docs.push({ ...doc, savedContent: doc.content, dirty: false, savedRevision: doc.revision })
+      } catch {
+        /* 快照里的文件可能已被删除：忽略 */
+      }
+    }
+    setTabs(docs)
+    const wanted = typeof active === 'string' && docs.some((doc) => doc.path === active) ? active : (docs.length > 0 ? docs[docs.length - 1].path : null)
+    setActivePath(wanted)
+  }, [project])
 
   const activeTab = useMemo(() => tabs.find((tab) => tab.path === activePath) ?? null, [tabs, activePath])
 
@@ -907,20 +962,25 @@ G.GufaApp = function GufaApp(props) {
   }, [floatBusy])
 
   /* 选中某个 App 窗口 → 启动悬浮层并吸附它 */
+  /* 当前编辑器状态快照（进出摸鱼都以它为准） */
+  const buildFloatSnapshot = useCallback(() => ({
+    /* 诊断：快照里项目字段 */
+    projectRoot: project !== null && typeof project.root === 'string' ? project.root : null,
+    activePath: typeof activePath === 'string' ? activePath : null,
+    tabs: tabs
+      .filter((tab) => tab !== null && tab !== undefined && typeof tab.path === 'string' && tab.kind !== 'diff' && tab.kind !== 'graph')
+      .map((tab) => tab.path)
+      .slice(0, 10),
+    ui: ui,
+    sessionId: typeof currentSessionId === 'string' ? currentSessionId : null,
+  }), [project, activePath, tabs, ui, currentSessionId])
+
   const startFloatForWindow = useCallback(async (target) => {
     if (floatBusy || target === null || target === undefined) return
     setFloatBusy(true)
     try {
-      const floatState = {
-        projectRoot: project !== null && typeof project.root === 'string' ? project.root : null,
-        activePath: typeof activePath === 'string' ? activePath : null,
-        tabs: tabs
-          .filter((tab) => tab !== null && tab !== undefined && typeof tab.path === 'string' && tab.kind !== 'diff' && tab.kind !== 'graph')
-          .map((tab) => tab.path)
-          .slice(0, 10),
-        ui: ui,
-        sessionId: typeof currentSessionId === 'string' ? currentSessionId : null,
-      }
+      const floatState = buildFloatSnapshot()
+      void G.api('dev.log', { message: `float-start-instance id=${appInstanceId.current} project=${String(floatState.projectRoot)} tabs=${floatState.tabs.length}` }).catch(() => {})
       const value = await G.api('float.start', {
         follow: {
           pid: Number(target.pid) || 0,
@@ -936,14 +996,14 @@ G.GufaApp = function GufaApp(props) {
     } finally {
       setFloatBusy(false)
     }
-  }, [floatBusy, project, activePath, tabs, ui, currentSessionId])
+  }, [floatBusy, buildFloatSnapshot])
 
-  /* 自由悬浮（不吸附窗口） */
+  /* 自由悬浮（不吸附窗口）：同样带上当前编辑器状态快照 */
   const startFloatFree = useCallback(async () => {
     if (floatBusy) return
     setFloatBusy(true)
     try {
-      const value = await G.api('float.start')
+      const value = await G.api('float.start', { state: buildFloatSnapshot() })
       setFloatRunning(value?.running === true)
       setFloatPicker(null)
     } catch (error) {
@@ -1023,22 +1083,14 @@ G.GufaApp = function GufaApp(props) {
           }
           await new Promise((resolve) => setTimeout(resolve, 500))
           const paths = Array.isArray(state.tabs) ? state.tabs.filter((path) => typeof path === 'string' && path !== '') : []
-          const ordered = typeof state.activePath === 'string' && state.activePath !== ''
-            ? paths.filter((path) => path !== state.activePath).concat([state.activePath])
-            : paths
-          /* applyProject 后 App 已重渲染：重新取 openFile（旧闭包里 project 可能是 null） */
-          let openedCount = 0
-          for (const path of ordered.slice(0, 10)) {
-            const latest = G.floatRestoreRef
-            const openFileFn = latest !== null && latest !== undefined && typeof latest.openFile === 'function' ? latest.openFile : null
-            if (openFileFn === null) break
-            try {
-              await openFileFn(path)
-              openedCount += 1
-            } catch {
-              /* ignore */
-            }
+          const ordered = paths
+          const activeOne = typeof state.activePath === 'string' && state.activePath !== '' ? state.activePath : null
+          /* applyProject 后 App 已重渲染：重新取恢复入口，原子恢复标签集合 */
+          const latest = G.floatRestoreRef
+          if (latest !== null && latest !== undefined && typeof latest.applyTabs === 'function') {
+            await latest.applyTabs(ordered, activeOne)
           }
+          const openedCount = ordered.length
           void G.api('dev.log', { message: `moyu-exit-applied project=${String(state.projectRoot)} tabs=${openedCount} ui=${JSON.stringify(state.ui ?? null)}` }).catch(() => {})
           if (typeof state.sessionId === 'string' && state.sessionId !== '') {
             try {
@@ -1706,7 +1758,7 @@ G.GufaApp = function GufaApp(props) {
 
   /* 悬浮层恢复入口：主窗口把状态带过来后，由 99-main 显式调用（不依赖 App 自己的启动时序） */
   useEffect(() => {
-    G.floatRestoreRef = { applyProject, openFile }
+    G.floatRestoreRef = { applyProject, openFile, applyTabs }
     G.floatGetTabs = () => tabs
     G.floatApplyUiRef = (nextUi) => {
       if (nextUi === null || nextUi === undefined || typeof nextUi !== 'object') return
@@ -1720,7 +1772,7 @@ G.GufaApp = function GufaApp(props) {
     return () => {
       if (G.floatRestoreRef !== undefined && G.floatRestoreRef !== null && G.floatRestoreRef.applyProject === applyProject) G.floatRestoreRef = null
     }
-  }, [applyProject, openFile, tabs])
+  }, [applyProject, openFile, applyTabs, tabs])
 
   const activeFileForChat = useMemo(() => {
     if (activeTab === null || activeTab.kind === 'diff' || activeTab.kind === 'graph') return null
