@@ -2,7 +2,7 @@
  * 开发/诊断信息：供客户端在启动时探测「Host 半是否为最新代码」。
  * 旧版本 Host（没有本方法）会让 api('dev.version') 返回 not-found，客户端据此提示重启 Harness。
  */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { homedir, release, tmpdir } from 'node:os'
 import { execFile, spawn } from 'node:child_process'
@@ -425,7 +425,7 @@ export function register(router, env) {
   })
 
   /** 摸鱼自检：返回平台/helper/运行时依赖/显示环境信息，供客户端「自检」按钮展示与用户反馈。 */
-  router.method('float.diagnostics', async () => {
+  const collectFloatDiagnostics = async () => {
     const support = floatSupportStatus()
     const result = {
       plugin: { version: PLUGIN_VERSION },
@@ -548,6 +548,50 @@ export function register(router, env) {
     }
     try { debugLog(`float-diagnostics platform=${process.platform} supported=${support.supported} helper=${binary ?? 'none'} notes=${result.notes.length}`) } catch { /* ignore */ }
     return result
+  }
+
+  router.method('float.diagnostics', collectFloatDiagnostics)
+
+  /** 保存自检报告（诊断 JSON + 日志尾部）到 ~/.dsh，并在文件管理器里选中，方便用户一次性发回。 */
+  router.method('float.saveReport', async () => {
+    const data = await collectFloatDiagnostics()
+    const reportDir = join(homedir(), '.dsh')
+    const reportPath = join(reportDir, `gufa-float-report-${Date.now()}.txt`)
+    const lines = [
+      '古法编程 · 摸鱼自检报告',
+      `generatedAt=${new Date().toISOString()}`,
+      '---- diagnostics JSON ----',
+      JSON.stringify(data, null, 2),
+      '',
+      '---- logs ----',
+    ]
+    const logCandidates = ['/tmp/gufa-code-debug.log', join(tmpdir(), 'gufa-float-debug.log'), '/tmp/gufa-float-debug.log']
+    for (const logPath of logCandidates) {
+      lines.push(`## ${logPath}`)
+      try {
+        const raw = readFileSync(logPath, 'utf8')
+        const tail = raw.split('\n').filter((line) => line !== '').slice(-300)
+        if (tail.length === 0) lines.push('(empty)')
+        else lines.push(...tail)
+      } catch (error) {
+        lines.push(`(unreadable: ${String(error?.code ?? error)})`)
+      }
+      lines.push('')
+    }
+    try {
+      mkdirSync(reportDir, { recursive: true })
+      writeFileSync(reportPath, lines.join('\n'), { mode: 0o600 })
+    } catch (error) {
+      throw new ApiError('save-failed', `保存自检报告失败：${String(error?.message ?? error)}`, 500)
+    }
+    try {
+      if (isMac) spawn('open', ['-R', reportPath], { detached: true, stdio: 'ignore' }).unref()
+      else if (isWin) spawn('explorer', ['/select,', reportPath], { detached: true, stdio: 'ignore' }).unref()
+      else spawn('xdg-open', [reportDir], { detached: true, stdio: 'ignore' }).unref()
+    } catch {
+      /* 打不开文件管理器不影响保存结果 */
+    }
+    return { ok: true, path: reportPath }
   })
 
   router.method('float.openPrivacy', async () => {

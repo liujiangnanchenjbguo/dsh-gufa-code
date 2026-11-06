@@ -161,6 +161,8 @@ G.GufaApp = function GufaApp(props) {
   const [floatPicker, setFloatPicker] = useState(null)
   /* 摸鱼自检：null | {status:'loading'|'ok'|'error', data:null|object, error:''} */
   const [floatDoctor, setFloatDoctor] = useState(null)
+  /* 自检「保存报告」的结果路径/错误（显示在弹窗底部） */
+  const [floatReport, setFloatReport] = useState('')
   /* 摸鱼模式（悬浮窗实例）与界面透明度 */
   const [moyuMode] = useState(() => G.isFloatMode())
   const [floatAlpha, setFloatAlpha] = useState(() => {
@@ -965,6 +967,7 @@ G.GufaApp = function GufaApp(props) {
 
   /* 摸鱼自检：平台/helper/WebView2/辅助功能/X11 等现场信息，方便真机反馈 */
   const openFloatDoctor = useCallback(async () => {
+    setFloatReport('')
     setFloatDoctor({ status: 'loading', data: null, error: '' })
     try {
       const value = await G.api('float.diagnostics')
@@ -2605,7 +2608,22 @@ G.GufaApp = function GufaApp(props) {
             h(
               'div',
               { className: 'gufa-modal-foot' },
-              h('span', { style: { flex: '1 1 auto' } }),
+              floatReport !== '' ? h('span', { className: 'gufa-hint', style: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, floatReport) : h('span', { style: { flex: '1 1 auto' } }),
+              floatDoctor.status === 'ok'
+                ? h(
+                    G.Button,
+                    {
+                      onClick: () => {
+                        void G.api('float.saveReport').then((value) => {
+                          setFloatReport(typeof value?.path === 'string' ? `已保存：${value.path}` : '已保存')
+                        }).catch((error) => {
+                          setFloatReport(`保存失败：${G.errorText(error)}`)
+                        })
+                      },
+                    },
+                    '保存报告',
+                  )
+                : null,
               floatDoctor.status === 'ok'
                 ? h(G.Button, { onClick: () => { void navigator.clipboard?.writeText(floatDoctorText) } }, '复制')
                 : null,
