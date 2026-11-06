@@ -97,7 +97,8 @@ dsh plugin add dsh-gufa-code
     列窗口可用 helper 自带 X11 实现，也可安装 `wmctrl` 兜底；
   - 其它平台（以及 helper 二进制缺失时）：摸鱼模式会给出版本/构建提示，其余 IDE 功能不受影响；
   - macOS helper 为 ad-hoc 签名；首次启动若被系统拦截，在「隐私与安全性」里允许一次即可。
-  - Windows/Linux helper 已通过 GitHub Actions 编译与 ciProbe 冒烟；**真机交互（吸附/隐藏/退出）仍在验收中**，遇到问题请把 `~/.dsh/gufa-code-debug.log`、helper 日志和系统信息发出来。
+  - **摸鱼选择器底部有「自检」按钮**：一键导出平台/helper/WebView2/辅助功能/X11 等现场信息，反馈问题时先复制它。
+  - Windows/Linux helper 已随包发布并通过 CI 编译 + ciProbe 冒烟；真机验收请按 [`docs/FLOAT-ACCEPTANCE.md`](docs/FLOAT-ACCEPTANCE.md) 走一遍，遇到问题把自检 JSON + 日志发出来。
 
 ### 外观
 

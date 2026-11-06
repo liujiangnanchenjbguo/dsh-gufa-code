@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.50'
+G.BUILD = '1.3.51'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1293,6 +1293,9 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-float-owner{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-float-title{font-size:11px;color:var(--gufa-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-float-size{flex:0 0 auto;font-size:10.5px;color:var(--gufa-text-dim);font-variant-numeric:tabular-nums}
+.gufa-doctor{width:min(760px,94vw);max-height:min(720px,86vh);display:flex;flex-direction:column}
+.gufa-doctor-pre{margin:0;padding:12px 14px;font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+  white-space:pre-wrap;word-break:break-all;background:transparent;color:var(--gufa-text);overflow:auto;flex:1 1 auto}
 .gufa-float-permission{padding:16px}
 .gufa-float-permission-title{font-size:13px;font-weight:600;margin-bottom:6px}
 .gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);
@@ -9721,6 +9724,8 @@ G.GufaApp = function GufaApp(props) {
   const [floatBusy, setFloatBusy] = useState(false)
   /* 摸鱼窗口选择器：null | {status:'loading'|'ready'|'permission'|'error', windows:[], error:''} */
   const [floatPicker, setFloatPicker] = useState(null)
+  /* 摸鱼自检：null | {status:'loading'|'ok'|'error', data:null|object, error:''} */
+  const [floatDoctor, setFloatDoctor] = useState(null)
   /* 摸鱼模式（悬浮窗实例）与界面透明度 */
   const [moyuMode] = useState(() => G.isFloatMode())
   const [floatAlpha, setFloatAlpha] = useState(() => {
@@ -10522,6 +10527,20 @@ G.GufaApp = function GufaApp(props) {
       setFloatPicker({ status: 'error', windows: [], error: G.errorText(error) })
     }
   }, [floatBusy])
+
+  /* 摸鱼自检：平台/helper/WebView2/辅助功能/X11 等现场信息，方便真机反馈 */
+  const openFloatDoctor = useCallback(async () => {
+    setFloatDoctor({ status: 'loading', data: null, error: '' })
+    try {
+      const value = await G.api('float.diagnostics')
+      setFloatDoctor({ status: 'ok', data: value ?? null, error: '' })
+    } catch (error) {
+      setFloatDoctor({ status: 'error', data: null, error: G.errorText(error) })
+    }
+  }, [])
+  const floatDoctorText = floatDoctor !== null && floatDoctor.data !== null
+    ? JSON.stringify(floatDoctor.data, null, 2)
+    : (floatDoctor !== null && typeof floatDoctor.error === 'string' ? floatDoctor.error : '')
 
   /* 选中某个 App 窗口 → 启动悬浮层并吸附它 */
   /* 当前编辑器状态快照（进出摸鱼都以它为准） */
@@ -12114,9 +12133,48 @@ G.GufaApp = function GufaApp(props) {
               'div',
               { className: 'gufa-modal-foot' },
               h(G.IconButton, { title: '刷新列表', onClick: () => void openFloatPicker() }, h(G.Icon, { name: 'refresh', size: 14 })),
+              h(G.Button, { onClick: () => void openFloatDoctor() }, '自检'),
               h('span', { style: { flex: '1 1 auto' } }),
               h(G.Button, { onClick: () => void startFloatFree() }, '自由悬浮（不吸附）'),
               h(G.Button, { onClick: () => setFloatPicker(null) }, t('common.close')),
+            ),
+          ),
+        )
+      : null),
+    G.portal(floatDoctor !== null
+      ? h(
+          'div',
+          {
+            className: 'gufa-float-backdrop',
+            onMouseDown: (event) => { if (event.target === event.currentTarget) setFloatDoctor(null) },
+          },
+          h(
+            'div',
+            { className: 'gufa-modal gufa-doctor', role: 'dialog', 'aria-modal': 'true', 'aria-label': '摸鱼自检' },
+            h(
+              'div',
+              { className: 'gufa-modal-head' },
+              h(G.Icon, { name: 'monitor', size: 15 }),
+              h('span', { style: { flex: '1 1 auto' } }, '摸鱼自检（复制发给开发者排查）'),
+              h(G.IconButton, { title: t('common.close'), onClick: () => setFloatDoctor(null) }, h(G.Icon, { name: 'close', size: 14 })),
+            ),
+            h(
+              'div',
+              { className: 'gufa-modal-body', style: { padding: 0 } },
+              floatDoctor.status === 'loading'
+                ? h('div', { className: 'gufa-graph-loading', style: { height: 90 } }, h(G.Spinner), '正在检查平台 / helper / 运行时…')
+                : floatDoctor.status === 'error'
+                  ? h('div', { className: 'gufa-float-permission' }, h('div', { className: 'gufa-error-banner' }, floatDoctor.error))
+                  : h('pre', { className: 'gufa-doctor-pre gufa-scroll' }, floatDoctorText),
+            ),
+            h(
+              'div',
+              { className: 'gufa-modal-foot' },
+              h('span', { style: { flex: '1 1 auto' } }),
+              floatDoctor.status === 'ok'
+                ? h(G.Button, { onClick: () => { void navigator.clipboard?.writeText(floatDoctorText) } }, '复制')
+                : null,
+              h(G.Button, { onClick: () => setFloatDoctor(null) }, t('common.close')),
             ),
           ),
         )

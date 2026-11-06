@@ -110,6 +110,50 @@ void WriteStdout(const std::wstring& text) {
   WriteFile(handle, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
 }
 
+/* 把文本以 UTF-8 覆盖写入文件（ciProbe 结果文件用）。写失败返回 false，不影响主流程。 */
+bool WriteFileUtf8(const std::wstring& path, const std::wstring& text) {
+  if (path.empty()) return false;
+  const std::string utf8 = WideToUtf8(text);
+  HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) return false;
+  DWORD written = 0;
+  const BOOL ok = WriteFile(handle, utf8.data(), static_cast<DWORD>(utf8.size()), &written,
+                            nullptr);
+  CloseHandle(handle);
+  return ok != FALSE && written == static_cast<DWORD>(utf8.size());
+}
+
+/* HRESULT -> 8 位大写十六进制（ASCII，可直接放进 JSON reason 字段）。 */
+std::wstring HexHresult(HRESULT value) {
+  wchar_t buffer[16];
+  buffer[0] = L'\0';
+  _snwprintf_s(buffer, _countof(buffer), _TRUNCATE, L"%08lX",
+               static_cast<unsigned long>(value));
+  return std::wstring(buffer);
+}
+
+/* ciProbe 结束时输出的单行 JSON（stdout 与 ciProbeOut 文件内容一致）。
+ * reason 仅用于失败诊断，先过滤成 JSON 安全字符。 */
+std::wstring BuildCiProbeLine(bool ok, bool urlLoaded, const std::wstring& reason) {
+  std::wstring sanitized;
+  for (const wchar_t c : reason) {
+    const bool safe = c >= 0x20 && c <= 0x7E && c != L'"' && c != L'\\';
+    sanitized.push_back(safe ? c : L'_');
+  }
+  std::wstring line = L"{\"ok\":";
+  line += ok ? L"true" : L"false";
+  line += L",\"platform\":\"win32\",\"urlLoaded\":";
+  line += urlLoaded ? L"true" : L"false";
+  if (!sanitized.empty()) {
+    line += L",\"reason\":\"";
+    line += sanitized;
+    line += L"\"";
+  }
+  line += L"}";
+  return line;
+}
+
 std::wstring GetTempDirectory() {
   wchar_t buffer[32768];
   buffer[0] = L'\0';
@@ -420,6 +464,7 @@ struct FloatPayload {
   std::wstring build;
   std::wstring selftest;
   std::wstring followTitle;
+  std::wstring ciProbeOut;
   bool hasFollow = false;
   DWORD followPid = 0;
   bool hasState = false;
@@ -457,6 +502,7 @@ bool ParsePayloadJson(const std::wstring& text, FloatPayload* payload, std::wstr
   readString(L"controlPath", &payload->controlPath);
   readString(L"build", &payload->build);
   readString(L"selftest", &payload->selftest);
+  readString(L"ciProbeOut", &payload->ciProbeOut);
 
   const gufa::JsonValue* follow = root.Find(L"follow");
   if (follow != nullptr && follow->IsObject()) {
@@ -697,6 +743,7 @@ class FloatApp {
   int RunMessageLoop();
   void RequestExit(int exitCode);
   bool IsCiProbe() const { return payload_.ciProbe; }
+  std::wstring CiProbeOutputPath() const { return payload_.ciProbeOut; }
 
   static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
   static LRESULT CALLBACK StripWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
@@ -746,7 +793,7 @@ class FloatApp {
   void OnSelftestTimer();
   void HandleWebViewEnvironmentFailure(HRESULT errorCode);
   void FinishProbe(bool loaded);
-  void FinishProbeFailure();
+  void FinishProbeFailure(const std::wstring& reason);
 
   void DoGracefulExit();
   void OnWindowDestroyed();
@@ -1239,7 +1286,7 @@ void FloatApp::OnTimer(UINT_PTR timerId) {
     case kTimerProbeWatchdog:
       KillTimer(hwnd_, kTimerProbeWatchdog);
       Log(L"ciprobe-watchdog-timeout");
-      FinishProbeFailure();
+      FinishProbeFailure(L"ci-probe-watchdog-timeout");
       break;
     case kTimerPageProbe:
       KillTimer(hwnd_, kTimerPageProbe);
@@ -1726,23 +1773,32 @@ void FloatApp::OnSelftestTimer() {
 void FloatApp::FinishProbe(bool loaded) {
   if (ciProbeFinished_) return;
   ciProbeFinished_ = true;
-  WriteStdout(loaded ? L"{\"ok\":true,\"platform\":\"win32\",\"urlLoaded\":true}\n"
-                     : L"{\"ok\":true,\"platform\":\"win32\",\"urlLoaded\":false}\n");
+  const std::wstring line = BuildCiProbeLine(true, loaded, std::wstring());
+  WriteStdout(line + L"\n");
+  if (!payload_.ciProbeOut.empty()) {
+    const bool wrote = WriteFileUtf8(payload_.ciProbeOut, line + L"\n");
+    LogFmt(L"ciprobe-out file=%s wrote=%d", payload_.ciProbeOut.c_str(), wrote ? 1 : 0);
+  }
   LogFmt(L"ciprobe-finished loaded=%d", loaded ? 1 : 0);
   RequestExit(0);
 }
 
-void FloatApp::FinishProbeFailure() {
+void FloatApp::FinishProbeFailure(const std::wstring& reason) {
   if (ciProbeFinished_) return;
   ciProbeFinished_ = true;
-  WriteStdout(L"{\"ok\":false,\"platform\":\"win32\",\"urlLoaded\":false}\n");
-  Log(L"ciprobe-failed");
+  const std::wstring line = BuildCiProbeLine(false, false, reason);
+  WriteStdout(line + L"\n");
+  if (!payload_.ciProbeOut.empty()) {
+    const bool wrote = WriteFileUtf8(payload_.ciProbeOut, line + L"\n");
+    LogFmt(L"ciprobe-out file=%s wrote=%d", payload_.ciProbeOut.c_str(), wrote ? 1 : 0);
+  }
+  LogFmt(L"ciprobe-failed reason=%s", reason.c_str());
   RequestExit(1);
 }
 
 void FloatApp::HandleWebViewEnvironmentFailure(HRESULT errorCode) {
   if (payload_.ciProbe) {
-    FinishProbeFailure();
+    FinishProbeFailure(L"webview2-environment-failed hr=0x" + HexHresult(errorCode));
     return;
   }
   if (exiting_) return;
@@ -1918,7 +1974,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previousInstance, PWSTR comman
       exitCode = 2;
     } else if (!app.CreateMainWindow()) {
       if (app.IsCiProbe()) {
-        WriteStdout(L"{\"ok\":false,\"platform\":\"win32\",\"urlLoaded\":false}\n");
+        const std::wstring line =
+            BuildCiProbeLine(false, false, L"create-main-window-failed");
+        WriteStdout(line + L"\n");
+        WriteFileUtf8(app.CiProbeOutputPath(), line + L"\n");
         exitCode = 1;
       } else {
         exitCode = 3;

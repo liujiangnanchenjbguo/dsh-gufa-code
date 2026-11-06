@@ -1285,6 +1285,9 @@ html[data-gufa-ide] [role="dialog"] {
 .gufa-float-owner{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-float-title{font-size:11px;color:var(--gufa-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gufa-float-size{flex:0 0 auto;font-size:10.5px;color:var(--gufa-text-dim);font-variant-numeric:tabular-nums}
+.gufa-doctor{width:min(760px,94vw);max-height:min(720px,86vh);display:flex;flex-direction:column}
+.gufa-doctor-pre{margin:0;padding:12px 14px;font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+  white-space:pre-wrap;word-break:break-all;background:transparent;color:var(--gufa-text);overflow:auto;flex:1 1 auto}
 .gufa-float-permission{padding:16px}
 .gufa-float-permission-title{font-size:13px;font-weight:600;margin-bottom:6px}
 .gufa-session-workspace-btn{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);

@@ -20,6 +20,7 @@ trap 'rm -f "$TMP_ARM" "$TMP_X64"' EXIT
 compile_arch() {
   local arch="$1" out="$2"
   clang -fobjc-arc -O2 -arch "$arch" \
+    -DGUFA_FLOAT_VERSION="\"${VERSION}\"" \
     -framework AppKit -framework WebKit -framework Carbon \
     -o "$out" "$SRC"
 }

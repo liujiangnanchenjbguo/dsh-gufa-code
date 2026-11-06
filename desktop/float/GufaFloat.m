@@ -39,6 +39,10 @@ static void GufaLog(NSString *format, ...) {
     }
 }
 static void GufaEmitJSON(NSDictionary *out);
+
+#ifndef GUFA_FLOAT_VERSION
+#define GUFA_FLOAT_VERSION "dev"
+#endif
 static BOOL GufaTrustedForAX(void);
 static NSArray<NSDictionary *> *GufaAXWindows(void);
 static AXUIElementRef GufaCopyAXWindow(pid_t pid, NSString *title);
@@ -1076,6 +1080,14 @@ static AXUIElementRef GufaCopyAXWindow(pid_t pid, NSString *title) {
 }
 
 int main(int argc, const char *argv[]) {
+    if (argc > 1 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
+        printf("gufa-float-macos %s\n", GUFA_FLOAT_VERSION);
+        return 0;
+    }
+    if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
+        printf("gufa-float-macos %s\n用法: gufa-float-macos '<payload-json>' | --list-windows --out <path> | --version\n", GUFA_FLOAT_VERSION);
+        return 0;
+    }
     if (argc > 1 && strcmp(argv[1], "--list-windows") == 0) {
         @autoreleasepool {
             for (int i = 2; i + 1 < argc; i++) {

@@ -82,6 +82,7 @@ struct _GufaApp {
     long owner_pid;
     int alpha;
     gboolean ci_probe;
+    char *ci_probe_out;
 
     /* ── GTK / WebKit ── */
     GtkWidget *window;
@@ -223,6 +224,7 @@ static gboolean gufa_payload_fill(GufaApp *app, GufaJson *payload) {
     app->selftest = gufa_json_dup_string(gufa_json_object_get(payload, "selftest"));
     app->alpha = (int)gufa_json_get_int64(gufa_json_object_get(payload, "alpha"), 55);
     app->ci_probe = gufa_json_get_bool(gufa_json_object_get(payload, "ciProbe"), FALSE);
+    app->ci_probe_out = gufa_json_dup_string(gufa_json_object_get(payload, "ciProbeOut"));
     app->owner_pid = gufa_json_get_int64(gufa_json_object_get(payload, "ownerPid"), 0);
     GufaJson *follow = gufa_json_object_get(payload, "follow");
     if (follow != NULL && gufa_json_get_type(follow) == GUFA_JSON_OBJECT) {
@@ -498,7 +500,8 @@ static void gufa_save_frame(GufaApp *app) {
 
 /* ── 鉴权 / 加载 ────────────────────────────────────────────────────── */
 
-static void gufa_emit_probe_result(GufaApp *app, gboolean url_loaded);
+static void gufa_emit_probe_result(GufaApp *app, gboolean ok, gboolean url_loaded, const char *reason);
+static void gufa_probe_fail_early(GufaApp *app, const char *reason);
 
 static void gufa_on_cookie_added(GObject *source_object, GAsyncResult *result, gpointer user_data) {
     GufaApp *app = (GufaApp *)user_data;
@@ -740,16 +743,74 @@ static void gufa_run_js(GufaApp *app, const char *label, const char *script) {
     webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(app->webview), script, NULL, gufa_on_js_finished, request);
 }
 
-static void gufa_emit_probe_result(GufaApp *app, gboolean url_loaded) {
+/** 把文本写到 path（覆盖写，UTF-8；父目录不存在时自动创建）。 */
+static gboolean gufa_write_text_file(const char *path, const char *text) {
+    if (path == NULL || *path == '\0' || text == NULL) return FALSE;
+    GError *error = NULL;
+    if (g_file_set_contents(path, text, -1, &error)) return TRUE;
+    g_clear_error(&error);
+    char *directory = g_path_get_dirname(path);
+    gboolean ok = FALSE;
+    if (directory != NULL && *directory != '\0' && strcmp(directory, ".") != 0) {
+        g_mkdir_with_parents(directory, 0755);
+        ok = g_file_set_contents(path, text, -1, &error);
+        if (!ok) g_clear_error(&error);
+    }
+    g_free(directory);
+    return ok;
+}
+
+/** 生成 ciProbe 结果行（不含换行）。 */
+static char *gufa_probe_line(gboolean ok, gboolean url_loaded, const char *reason) {
+    if (ok) {
+        return g_strdup("{\"ok\":true,\"platform\":\"linux\",\"urlLoaded\":true}");
+    }
+    if (reason != NULL && *reason != '\0') {
+        return g_strdup_printf(
+            "{\"ok\":false,\"platform\":\"linux\",\"urlLoaded\":%s,\"reason\":\"%s\"}",
+            url_loaded ? "true" : "false", reason);
+    }
+    return g_strdup_printf("{\"ok\":false,\"platform\":\"linux\",\"urlLoaded\":%s}",
+                           url_loaded ? "true" : "false");
+}
+
+/** 输出 ciProbe 结果：stdout 一行 + 覆盖写入 ciProbeOut（可选）。 */
+static void gufa_probe_emit(GufaApp *app, gboolean ok, gboolean url_loaded, const char *reason) {
+    char *line = gufa_probe_line(ok, url_loaded, reason);
+    g_print("%s\n", line);
+    fflush(stdout);
+    if (app != NULL && app->ci_probe_out != NULL && *app->ci_probe_out != '\0') {
+        char *with_newline = g_strdup_printf("%s\n", line);
+        if (gufa_write_text_file(app->ci_probe_out, with_newline)) {
+            gufa_log("ciProbe: 结果已写入 %s", app->ci_probe_out);
+        } else {
+            gufa_log("ciProbe: 写入 %s 失败", app->ci_probe_out);
+        }
+        g_free(with_newline);
+    }
+    g_free(line);
+}
+
+/** ciProbe 完成（加载成功/失败/超时都算完成；按协议退出码 0，成败看 JSON 的 ok）。 */
+static void gufa_emit_probe_result(GufaApp *app, gboolean ok, gboolean url_loaded, const char *reason) {
     if (app == NULL || app->probe_done) return;
     app->probe_done = TRUE;
     gufa_remove_timer(&app->probe_guard);
-    const char *uri = webkit_web_view_get_uri(WEBKIT_WEB_VIEW(app->webview));
-    gufa_log("ciProbe: urlLoaded=%s uri=%s", url_loaded ? "true" : "false", uri != NULL ? uri : "(none)");
-    g_print("{\"ok\":true,\"platform\":\"linux\",\"urlLoaded\":%s}\n", url_loaded ? "true" : "false");
-    fflush(stdout);
+    const char *uri = app->webview != NULL ? webkit_web_view_get_uri(WEBKIT_WEB_VIEW(app->webview)) : NULL;
+    gufa_log("ciProbe: ok=%s urlLoaded=%s reason=%s uri=%s", ok ? "true" : "false",
+             url_loaded ? "true" : "false", reason != NULL ? reason : "(none)",
+             uri != NULL ? uri : "(none)");
+    gufa_probe_emit(app, ok, url_loaded, reason);
     app->exit_code = 0;
     gufa_request_quit(app, "ciProbe");
+}
+
+/** ciProbe 在显示/窗口初始化阶段就失败：写好 ok:false，由 main 返回非 0。 */
+static void gufa_probe_fail_early(GufaApp *app, const char *reason) {
+    if (app == NULL || !app->ci_probe || app->probe_done) return;
+    app->probe_done = TRUE;
+    gufa_log("ciProbe: 初始化失败 reason=%s", reason != NULL ? reason : "?");
+    gufa_probe_emit(app, FALSE, FALSE, reason != NULL ? reason : "init-failed");
 }
 
 static gboolean gufa_on_probe_guard(gpointer user_data) {
@@ -758,7 +819,7 @@ static gboolean gufa_on_probe_guard(gpointer user_data) {
     app->probe_guard = 0;
     if (app->probe_done) return G_SOURCE_REMOVE;
     gufa_log("ciProbe: 8s 内页面未加载完成，按超时输出结果");
-    gufa_emit_probe_result(app, FALSE);
+    gufa_emit_probe_result(app, FALSE, FALSE, "load-timeout");
     return G_SOURCE_REMOVE;
 }
 
@@ -830,7 +891,11 @@ static void gufa_on_load_changed(WebKitWebView *web_view, WebKitLoadEvent load_e
                 app->loaded = TRUE;
                 gufa_remove_timer(&app->probe_guard);
                 if (app->ci_probe) {
-                    gufa_emit_probe_result(app, TRUE);
+                    if (app->loading_failed || uri == NULL) {
+                        gufa_emit_probe_result(app, FALSE, FALSE, "load-finished-without-page");
+                    } else {
+                        gufa_emit_probe_result(app, TRUE, TRUE, NULL);
+                    }
                     return;
                 }
                 app->page_probe_timer = g_timeout_add(6000, gufa_on_page_probe_timer, app);
@@ -854,7 +919,7 @@ static gboolean gufa_on_load_failed(WebKitWebView *web_view, WebKitLoadEvent loa
              failing_uri != NULL ? failing_uri : "(none)", error != NULL ? error->message : "?");
     app->loading_failed = TRUE;
     if (app->ci_probe) {
-        gufa_emit_probe_result(app, FALSE);
+        gufa_emit_probe_result(app, FALSE, FALSE, "load-failed");
         return FALSE;
     }
     if (app->stage == GUFA_STAGE_AUTH) {
@@ -868,13 +933,16 @@ static gboolean gufa_on_load_failed(WebKitWebView *web_view, WebKitLoadEvent loa
 static void gufa_on_web_process_terminated(WebKitWebView *web_view, WebKitWebProcessTerminationReason reason,
                                            gpointer user_data) {
     (void)web_view;
-    (void)user_data;
+    GufaApp *app = (GufaApp *)user_data;
     gufa_log("web: web process 终止 reason=%d", (int)reason);
+    if (app != NULL && app->ci_probe) {
+        gufa_emit_probe_result(app, FALSE, FALSE, "web-process-terminated");
+    }
 }
 
 /* ── 窗口构建 ───────────────────────────────────────────────────────── */
 
-static void gufa_build_window(GufaApp *app) {
+static gboolean gufa_build_window(GufaApp *app) {
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     app->window = window;
     gtk_window_set_title(GTK_WINDOW(window), "古法编程悬浮层");
@@ -909,6 +977,10 @@ static void gufa_build_window(GufaApp *app) {
 
     /* document-start 注入脚本：悬浮模式标记 + 主窗口状态快照 */
     app->content_manager = webkit_user_content_manager_new();
+    if (app->content_manager == NULL) {
+        gufa_log("window: WebKitUserContentManager 创建失败（WebKit 环境不可用）");
+        return FALSE;
+    }
     if (app->bootstrap_js != NULL && *app->bootstrap_js != '\0') {
         WebKitUserScript *script = webkit_user_script_new(app->bootstrap_js,
                                                           WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
@@ -920,6 +992,10 @@ static void gufa_build_window(GufaApp *app) {
         }
     }
     GtkWidget *webview = webkit_web_view_new_with_user_content_manager(app->content_manager);
+    if (webview == NULL) {
+        gufa_log("window: WebKitWebView 创建失败（WebKit 环境不可用）");
+        return FALSE;
+    }
     app->webview = webview;
     gtk_widget_set_size_request(webview, GUFA_MIN_WIDTH, GUFA_MIN_HEIGHT);
     if (app->transparent) {
@@ -977,6 +1053,7 @@ static void gufa_build_window(GufaApp *app) {
     app->own_xid = gufa_own_xid_from_widget(app);
     gufa_log("window: %d,%d %dx%d own_xid=0x%lx scale=%d", x, y, width, height,
              (unsigned long)app->own_xid, gtk_widget_get_scale_factor(window));
+    return TRUE;
 }
 
 /* ── --list-windows 模式 ────────────────────────────────────────────── */
@@ -1074,22 +1151,27 @@ int main(int argc, char **argv) {
     app.exit_code = 0;
     if (!gufa_payload_fill(&app, payload)) {
         g_printerr("gufa-float-linux: payload 缺少 appUrl，退出\n");
+        gufa_probe_fail_early(&app, "missing-appUrl");
         gufa_json_free(payload);
         g_free(app.app_url);
         return 2;
     }
-    gufa_log("start: version=%s build=%s appUrl=%s follow_pid=%ld ownerPid=%ld controlPath=%s ciProbe=%d alpha=%d",
+    gufa_log("start: version=%s build=%s appUrl=%s follow_pid=%ld ownerPid=%ld controlPath=%s ciProbe=%d alpha=%d ciProbeOut=%s",
              GUFA_FLOAT_VERSION, app.build != NULL ? app.build : "?", app.app_url, app.follow_pid,
              app.owner_pid, app.control_path != NULL ? app.control_path : "(none)", app.ci_probe ? 1 : 0,
-             app.alpha);
+             app.alpha, app.ci_probe_out != NULL ? app.ci_probe_out : "(none)");
 
-    if (!gufa_configure_backend(&app)) return 3;
+    if (!gufa_configure_backend(&app)) {
+        gufa_probe_fail_early(&app, "display-unavailable");
+        return 3;
+    }
     gufa_prepare_probe_env(&app);
 
     int gtk_argc = argc;
     char **gtk_argv = argv;
     if (!gtk_init_check(&gtk_argc, &gtk_argv)) {
         g_printerr("gufa-float-linux: GTK 初始化失败（图形显示不可用）。Linux 版需要 X11 桌面或 XWayland。\n");
+        gufa_probe_fail_early(&app, "gtk-init-failed");
         gufa_json_free(payload);
         return 3;
     }
@@ -1109,7 +1191,11 @@ int main(int argc, char **argv) {
     }
 
     gufa_install_css();
-    gufa_build_window(&app);
+    if (!gufa_build_window(&app)) {
+        gufa_probe_fail_early(&app, "window-init-failed");
+        gufa_json_free(payload);
+        return 3;
+    }
 
     if (!app.ci_probe) {
         if (app.x11_ok) {
@@ -1178,6 +1264,7 @@ int main(int argc, char **argv) {
     g_free(app.selftest);
     g_free(app.follow_title);
     g_free(app.bootstrap_js);
+    g_free(app.ci_probe_out);
     g_free(app.hidden_dsh.wins);
     gufa_json_free(app.payload);
     return app.exit_code;

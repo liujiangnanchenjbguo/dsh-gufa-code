@@ -4,13 +4,14 @@
  */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { homedir, release, tmpdir } from 'node:os'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ApiError } from './context.js'
 
+const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const DEBUG_LOG_PATH = '/tmp/gufa-code-debug.log'
 const FLOAT_PREFS_PATH = join(homedir(), '.dsh', 'gufa-float-prefs.json')
 const PLUGIN_VERSION = (() => {
@@ -21,7 +22,6 @@ const PLUGIN_VERSION = (() => {
     return 'dev'
   }
 })()
-const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 /* 悬浮层子进程放在 globalThis：host 模块热重载后仍能持有同一个句柄 */
 const floatState = globalThis.__gufaFloatState ?? (globalThis.__gufaFloatState = { child: null, startedAt: 0 })
 const runFile = promisify(execFile)
@@ -274,7 +274,9 @@ export function register(router, env) {
     if (parsed === null || parsed.ok !== true) throw new ApiError('list-failed', '读取 Windows 窗口列表失败', 500)
     let apps = parsed.apps
     if (!Array.isArray(apps)) apps = apps === null || apps === undefined ? [] : [apps]
-    apps = apps.filter((row) => row !== null && typeof row === 'object' && Number(row.pid) > 0 && typeof row.title === 'string' && row.title !== '')
+    const helperPids = new Set(await listFloatPids())
+    apps = apps.filter((row) => row !== null && typeof row === 'object' && Number(row.pid) > 0 && typeof row.title === 'string' && row.title !== '' && !helperPids.has(Number(row.pid)))
+    apps = apps.map((row) => ({ ...row, name: typeof row.name === 'string' && row.name !== '' ? row.name : row.owner }))
     return { ok: true, accessibility: true, apps }
   }
 
@@ -319,7 +321,7 @@ export function register(router, env) {
       } catch {
         /* ignore */
       }
-      apps.push({ pid, owner, title, bundleId: owner, windowNumber: apps.length + 1, frontmost: 0 })
+      apps.push({ pid, name: owner, owner, title, bundleId: owner, windowNumber: apps.length + 1, frontmost: 0 })
     }
     return { ok: true, accessibility: true, apps }
   }
@@ -420,6 +422,132 @@ export function register(router, env) {
         /* ignore */
       }
     }
+  })
+
+  /** 摸鱼自检：返回平台/helper/运行时依赖/显示环境信息，供客户端「自检」按钮展示与用户反馈。 */
+  router.method('float.diagnostics', async () => {
+    const support = floatSupportStatus()
+    const result = {
+      plugin: { version: PLUGIN_VERSION },
+      runtime: {
+        platform: process.platform,
+        arch: process.arch,
+        osRelease: release(),
+        execPath: process.execPath,
+        pid: process.pid,
+        ppid: process.ppid,
+        node: process.version,
+      },
+      float: {
+        supported: support.supported,
+        reason: support.reason,
+        hint: support.hint ?? '',
+        running: await floatRunningAsync(),
+        helper: null,
+        app: isMac ? appBundlePath() : support.binary,
+        controlPath: typeof floatState.controlPath === 'string' ? floatState.controlPath : '',
+      },
+      display: {},
+      deps: {},
+      tools: {},
+      notes: [],
+    }
+    /* helper 本身：路径 / 是否存在 / --version 输出 */
+    const binary = floatBinaryPath()
+    if (binary !== null) {
+      const helper = { path: binary, exists: existsSync(binary), version: '', versionError: '' }
+      try {
+        const { stdout, stderr } = await runFile(binary, ['--version'], { timeout: 6000 })
+        helper.version = String(stdout ?? '').trim().slice(0, 200)
+        if (helper.version === '') helper.version = String(stderr ?? '').trim().slice(0, 200)
+      } catch (error) {
+        helper.versionError = String(error?.message ?? error).slice(0, 200)
+      }
+      result.float.helper = helper
+    }
+    if (!support.supported) result.notes.push(support.hint ?? '悬浮层程序未构建')
+    if (isMac) {
+      result.display = { kind: 'macos' }
+      /* 辅助功能权限：helper --list-windows 会返回 accessibility 字段 */
+      let trusted = null
+      if (binary !== null) {
+        const outPath = join(tmpdir(), `gufa-float-doctor-${process.pid}-${Date.now()}.json`)
+        try {
+          await runFile(binary, ['--list-windows', '--out', outPath], { timeout: 10_000 })
+          const raw = await readFile(outPath, 'utf8')
+          const parsed = JSON.parse(raw.trim())
+          trusted = parsed !== null && typeof parsed === 'object'
+            ? (parsed.accessibility === true ? true : (parsed.accessibility === false ? false : null))
+            : null
+          result.display.accessibilityPermission = trusted
+          if (parsed !== null && typeof parsed.permissionError === 'string') result.display.permissionError = parsed.permissionError
+        } catch (error) {
+          result.display.accessibilityProbeError = String(error?.message ?? error).slice(0, 200)
+        } finally {
+          try { await rm(outPath, { force: true }) } catch { /* ignore */ }
+        }
+        if (trusted === false) result.notes.push('缺少「辅助功能」权限：系统设置 → 隐私与安全性 → 辅助功能 → 勾选 DeepSeek Harness，然后重启 DSH')
+      }
+    } else if (isWin) {
+      result.display = { sessionName: process.env.SESSIONNAME ?? '', windowStation: process.env.WINDOWSTATION ?? '' }
+      /* WebView2 Runtime：查注册表（HKLM WOW6432Node / HKLM / HKCU） */
+      const ps = [
+        "$paths = @('HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}','HKLM:\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}','HKCU:\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}')",
+        "$pv = ''; foreach ($p in $paths) { try { $v = (Get-ItemProperty -Path $p -Name pv -ErrorAction Stop).pv; if ($v) { $pv = $v; break } } catch {} }",
+        "Write-Output $pv",
+      ].join('\n')
+      try {
+        const { stdout } = await runFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { timeout: 15_000 })
+        result.deps.webview2Runtime = String(stdout ?? '').trim()
+      } catch (error) {
+        result.deps.webview2RuntimeError = String(error?.message ?? error).slice(0, 200)
+      }
+      if (result.deps.webview2Runtime === '') result.notes.push('未检测到 WebView2 Runtime（Win10/11 的 Edge 通常自带；缺失请从微软官网安装）')
+      try {
+        const { stdout } = await runFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], { timeout: 8000 })
+        result.tools.powershell = String(stdout ?? '').trim()
+      } catch { result.tools.powershell = 'missing' }
+    } else if (isLinux) {
+      result.display = {
+        DISPLAY: process.env.DISPLAY ?? '',
+        WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY ?? '',
+        XDG_SESSION_TYPE: process.env.XDG_SESSION_TYPE ?? '',
+        XDG_CURRENT_DESKTOP: process.env.XDG_CURRENT_DESKTOP ?? '',
+      }
+      if ((process.env.DISPLAY ?? '') === '' && (process.env.WAYLAND_DISPLAY ?? '') === '') {
+        result.notes.push('没有检测到 DISPLAY/WAYLAND_DISPLAY：请在图形桌面会话里启动 DSH')
+      } else if ((process.env.DISPLAY ?? '') === '' && (process.env.WAYLAND_DISPLAY ?? '') !== '') {
+        result.notes.push('当前是纯 Wayland 会话：摸鱼只能自由悬浮（无法跟随/隐藏其它窗口）；有 XWayland 时可用 GDK_BACKEND=x11 启动 DSH')
+      }
+      try {
+        const { stdout } = await runFile('ldconfig', ['-p'], { timeout: 8000, maxBuffer: 8 * 1024 * 1024 })
+        const text = String(stdout ?? '')
+        result.deps.gtk3 = /libgtk-3\.so/.test(text)
+        result.deps.webkit2gtk41 = /libwebkit2gtk-4\.1\.so/.test(text)
+        result.deps.webkit2gtk40 = /libwebkit2gtk-4\.0\.so/.test(text)
+        result.deps.libsoup3 = /libsoup-3\.0\.so/.test(text)
+        result.deps.libsoup24 = /libsoup-2\.4\.so/.test(text)
+      } catch (error) {
+        result.deps.ldconfigError = String(error?.message ?? error).slice(0, 200)
+      }
+      if (!result.deps.gtk3 || (!result.deps.webkit2gtk41 && !result.deps.webkit2gtk40)) {
+        result.notes.push('缺少 GTK3/WebKit2GTK 运行库：sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0 libsoup-3.0-0')
+      }
+      for (const tool of ['wmctrl', 'xdotool']) {
+        try {
+          const { stdout } = await runFile('sh', ['-c', `command -v ${tool}`], { timeout: 4000 })
+          result.tools[tool] = String(stdout ?? '').trim()
+        } catch {
+          result.tools[tool] = ''
+        }
+      }
+      if (result.tools.wmctrl === '') result.notes.push('未安装 wmctrl：列窗口会优先用 helper 自带实现；装 wmctrl 可作兜底（sudo apt install wmctrl）')
+    } else {
+      result.display = { kind: process.platform }
+      result.notes.push('当前平台暂不支持摸鱼模式')
+    }
+    try { debugLog(`float-diagnostics platform=${process.platform} supported=${support.supported} helper=${binary ?? 'none'} notes=${result.notes.length}`) } catch { /* ignore */ }
+    return result
   })
 
   router.method('float.openPrivacy', async () => {

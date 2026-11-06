@@ -63,8 +63,10 @@ Host 侧不需要为 helper 做额外适配：payload 里的 `appUrl` / `authUrl
 # 吸附某个 App（pid 来自 Host 的窗口列表；title 可空）
 ./gufa-float-linux '{"appUrl":"...","authUrl":"...","follow":{"pid":4242,"title":""},"controlPath":"/tmp/gufa-float-exit-xxx"}'
 
-# CI 冒烟：加载完成/失败后 stdout 打一行 JSON 并退出 0
-xvfb-run -a ./gufa-float-linux '{"appUrl":"http://127.0.0.1:1/","authUrl":"http://127.0.0.1:1/","ciProbe":true}'
+# CI 冒烟：加载完成/失败后 stdout 打一行 JSON 并退出 0；
+# ciProbeOut 可选：把同一行 JSON 覆盖写入该文件（CI 断言用，父目录不存在会自动创建）
+xvfb-run -a ./gufa-float-linux '{"appUrl":"http://127.0.0.1:1/","authUrl":"http://127.0.0.1:1/","ciProbe":true,"ciProbeOut":"/tmp/gufa-probe.json"}'
+cat /tmp/gufa-probe.json
 
 # 窗口列表（Host 目前用 wmctrl，这个模式是给真机排查用的）
 ./gufa-float-linux --list-windows --out /tmp/win.json
@@ -147,8 +149,12 @@ WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_
 
 ### 3. CI 冒烟（ciProbe）
 - [x] 创建窗口 + WebKit 环境并加载页面；页面 `LOAD_FINISHED` 或 `load-failed`/8s 超时后，
-      stdout 打一行 JSON：`{"ok":true,"platform":"linux","urlLoaded":true|false}`，随后恢复主窗口（若有）并 **退出码 0**。
-      `urlLoaded` 如实反映是否加载成功（CI 用 `http://127.0.0.1:1/` 时会是 false，但启动/webview 初始化成功仍算冒烟通过）。
+      stdout 打一行 JSON，随后恢复主窗口（若有）并退出（加载成功/失败/超时都算 probe 完成，**退出码 0**）：
+      - 成功：`{"ok":true,"platform":"linux","urlLoaded":true}`
+      - 失败（加载失败 / 8s 超时 / web process 崩溃 / 加载完成但没有页面）：`{"ok":false,"platform":"linux","urlLoaded":false,"reason":"load-failed|load-timeout|web-process-terminated|load-finished-without-page"}`
+      - 初始化失败（无显示 / GTK 初始化失败 / WebView 创建失败 / 缺 appUrl）也会写 `{"ok":false,...,"reason":"display-unavailable|gtk-init-failed|window-init-failed|missing-appUrl"}`（stdout + ciProbeOut），此时退出码非 0（2/3）。
+- [x] **`ciProbeOut`（可选字段）**：payload 里传字符串路径时，把和 stdout 完全相同的一行 JSON（含换行、UTF-8）
+      **覆盖写入**该文件（父目录不存在会自动创建）；stdout 输出保留。CI 可直接 `grep '"ok":true' /tmp/gufa-probe.json` 断言。
 - [x] ciProbe 模式不隐藏 DSH 主窗口、不保存窗口几何，且自动设置软件渲染环境变量（见上文）。
 
 ## CI 构建注意事项
@@ -159,9 +165,16 @@ WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_
 - `make -j"$(nproc)"` 在 `desktop/float/linux` 下执行；Makefile 用 pkg-config 探测
   `webkit2gtk-4.1`，没有时退回 `webkit2gtk-4.0`（分别对应 libsoup-3.0 / libsoup-2.4）。
 - 产物名固定 `gufa-float-linux`；workflow 会复制到 `desktop/float/bin/linux-x64/` 并上传 artifact。
-- 冒烟命令：`timeout 40 xvfb-run -a <binary> '{"appUrl":"http://127.0.0.1:1/","authUrl":"http://127.0.0.1:1/","ciProbe":true}'`。
+- 冒烟命令（可断言版本）：
+  ```bash
+  timeout 40 xvfb-run -a ./desktop/float/bin/linux-x64/gufa-float-linux \
+    '{"appUrl":"http://127.0.0.1:PORT/","authUrl":"http://127.0.0.1:PORT/","ciProbe":true,"ciProbeOut":"/tmp/gufa-probe.json"}'
+  grep -q '"ok":true' /tmp/gufa-probe.json
+  ```
   Xvfb 下没有合成器，窗口不透明但不影响 ciProbe；WebKit 需要的软件渲染兜底已由 helper 在 ciProbe 模式自动设置。
-- 若 CI 想验证「真能加载页面」，把 payload 换成 Host 实际地址或本地静态 HTTP 服务即可（`urlLoaded` 会变 true）。
+- **注意**：`http://127.0.0.1:1/` 是必然连不上的地址，按新语义会得到 `{"ok":false,...,"reason":"load-failed"}`；
+  如果 CI 要断言 `"ok":true`，需要先起一个可访问的本地 HTTP 服务（例如 `python3 -m http.server PORT`）并把 appUrl 指过去。
+- `./gufa-float-linux --version` 打印一行版本（stdout，exit 0），版本号来自 `GUFA_FLOAT_VERSION` 常量（同时出现在 payload 日志里）。
 - WebKit2GTK 4.1 会在 Ubuntu 小版本里持续升级（jammy 2.36 → 2.50，noble 2.52），
   代码只用了 2.36 起就存在的稳定 API（`webkit_cookie_manager_add_cookie`、`webkit_web_view_run_javascript` 等），
   并已分别用 Ubuntu 22.04 的 2.50.4 与 24.04 的 2.52.6 头文件做过交叉语法校验（`-Werror`，含 GTK3/libX11）。

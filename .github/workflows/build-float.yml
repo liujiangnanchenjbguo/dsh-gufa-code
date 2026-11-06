@@ -66,12 +66,23 @@ jobs:
           if ($exe -eq $null) { Write-Error 'built exe not found'; exit 1 }
           Copy-Item $exe.FullName desktop/float/bin/win-x64/gufa-float-win.exe -Force
           Get-Item desktop/float/bin/win-x64/gufa-float-win.exe | Select-Object Length
-      - name: Smoke test (ciProbe, non-interactive desktop may be unavailable)
+      - name: Smoke test (ciProbe + local HTTP page)
         shell: pwsh
-        continue-on-error: true
         run: |
-          $payload = '{"appUrl":"http://127.0.0.1:1/","authUrl":"http://127.0.0.1:1/","ciProbe":true}'
-          & desktop/float/bin/win-x64/gufa-float-win.exe $payload
+          $www = Join-Path $env:TEMP 'gufa-probe-www'
+          New-Item -ItemType Directory -Force $www | Out-Null
+          '<html><body>gufa-probe</body></html>' | Set-Content (Join-Path $www 'index.html') -Encoding UTF8
+          $http = Start-Process -FilePath 'python' -ArgumentList @('-m','http.server','8799','--bind','127.0.0.1') -WorkingDirectory $www -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $probe = Join-Path $env:TEMP 'gufa-win-probe.json'
+          Remove-Item $probe -ErrorAction SilentlyContinue
+          $payload = (@{ appUrl='http://127.0.0.1:8799/'; authUrl='http://127.0.0.1:8799/'; ciProbe=$true; ciProbeOut=$probe } | ConvertTo-Json -Compress)
+          $process = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -ArgumentList $payload -PassThru -WindowStyle Hidden
+          $process | Wait-Process -Timeout 30 -ErrorAction SilentlyContinue
+          for ($i = 0; $i -lt 40 -and -not (Test-Path $probe); $i++) { Start-Sleep -Milliseconds 500 }
+          if (Test-Path $probe) { Get-Content $probe }
+          Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
+          if (-not (Select-String -Path $probe -Pattern '"ok":true' -Quiet)) { throw 'ciProbe did not report ok:true' }
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-win-x64
@@ -94,10 +105,18 @@ jobs:
           mkdir -p desktop/float/bin/linux-x64
           cp desktop/float/linux/gufa-float-linux desktop/float/bin/linux-x64/gufa-float-linux
           file desktop/float/bin/linux-x64/gufa-float-linux
-      - name: Smoke test (ciProbe under Xvfb)
-        continue-on-error: true
+      - name: Smoke test (ciProbe + local HTTP page under Xvfb)
         run: |
-          timeout 40 xvfb-run -a ./desktop/float/bin/linux-x64/gufa-float-linux '{"appUrl":"http://127.0.0.1:1/","authUrl":"http://127.0.0.1:1/","ciProbe":true}'
+          mkdir -p /tmp/gufa-probe-www
+          printf '<html><body>gufa-probe</body></html>' > /tmp/gufa-probe-www/index.html
+          (cd /tmp/gufa-probe-www && python3 -m http.server 8799 --bind 127.0.0.1 >/tmp/gufa-probe-http.log 2>&1 &)
+          sleep 1
+          PROBE=/tmp/gufa-linux-probe.json
+          rm -f "$PROBE"
+          timeout 40 xvfb-run -a ./desktop/float/bin/linux-x64/gufa-float-linux "{\"appUrl\":\"http://127.0.0.1:8799/\",\"authUrl\":\"http://127.0.0.1:8799/\",\"ciProbe\":true,\"ciProbeOut\":\"$PROBE\"}" || true
+          for i in $(seq 1 40); do [ -s "$PROBE" ] && break; sleep 0.5; done
+          cat "$PROBE" 2>/dev/null || true
+          grep -q '"ok":true' "$PROBE"
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-linux-x64
