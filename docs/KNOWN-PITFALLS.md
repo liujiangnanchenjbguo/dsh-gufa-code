@@ -74,3 +74,16 @@
 - 原因：页面源是 `dsh-app://`，Monaco 默认 blob worker 里 `importScripts('/gufa-code/...')` 是非法 URL；
 - 修法：worker 用同源 `vendor/monaco/vs/worker-bootstrap.js` 作为入口，里面只做
   `MonacoEnvironment.baseUrl` + `importScripts(workerMain.js)`；**不要**先加载 AMD `loader.js`（模块系统冲突）。
+
+## 4. 性能：摸鱼窗口启动/资源占用（实测与原则）
+
+- **不要每次启动摸鱼都清空全部 Web 数据**：`WKWebsiteDataStore allWebsiteDataTypes` 会让整个 DSH 前端重新下载/编译，
+  实测启动到客户端 boot 由 **~14s 降到 ~1.1s**。正确做法：把插件版本随 payload 传入（`build`），
+  版本变化时清全部数据（保证客户端代码最新），同一版本只清 memory cache。
+- 摸鱼窗口是一个完整的第二个 DSH Web 客户端：打开时 WebKit 内容进程 **~600–650MB**、加载后空转 CPU ≈0%（已优化）；
+  关闭后进程与内存全部释放（实测 3 次开关无泄漏）。不要同时保留多个摸鱼窗口。
+- 摸鱼窗口里不挂载背景粒子（`G.BackdropParticles` 直接返回 null），并关闭皮肤插件动画
+  （`data-liang-skin=off` + 移除 `.liang-skin-*` 节点），否则看不见也会跑 rAF。
+- 主窗口背景粒子：30fps→24fps、dpr 上限 1.5→1.25、页面隐藏/窗口失焦时暂停。
+- 快捷键集成不要留常驻重试环：累加上限 40 次 + 只在签名变化时写诊断日志（曾出现 2Hz 常驻循环）。
+- 退出摸鱼状态轮询 5s 一次且页面不可见时跳过（原来 3s 且无条件请求 host）。

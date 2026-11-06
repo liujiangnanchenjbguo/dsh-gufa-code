@@ -1119,7 +1119,11 @@ G.GufaApp = function GufaApp(props) {
     const onFocus = () => { void syncFloatStatus(); void consume() }
     window.addEventListener('focus', onFocus)
     /* 摸鱼退出后主窗口可能因隐藏/恢复丢失 focus 事件，低频轮询兜底 */
-    const pollTimer = window.setInterval(() => { void consume(); void syncFloatStatus() }, 3000)
+    const pollTimer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void consume()
+      void syncFloatStatus()
+    }, 5000)
     const onVisible = () => { if (document.visibilityState === 'visible') { void syncFloatStatus(); void consume() } }
     document.addEventListener('visibilitychange', onVisible)
     if (consumeExitStateRef.current !== true) {

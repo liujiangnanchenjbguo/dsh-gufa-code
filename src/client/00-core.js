@@ -1109,10 +1109,11 @@ html[data-gufa-float] .gufa-overlay-root{background:transparent!important;paddin
 .gufa-root[data-backdrop="on"] .gufa-termhead{background:color-mix(in srgb, var(--gufa-layer) 64%, transparent)}
 html[data-gufa-float] .gufa-termpane{background:rgba(13,15,19,var(--gufa-float-alpha))!important}
 html[data-gufa-float] .gufa-termhead{background:rgba(20,22,27,var(--gufa-float-alpha))!important}
-/* 摸鱼：xterm 的内置黑色背景层（xterm.css 默认 #000）也要透明，否则终端永远不透 */
-html[data-gufa-float] .xterm,
-html[data-gufa-float] .xterm .xterm-viewport,
-html[data-gufa-float] .xterm .xterm-screen{background-color:transparent!important;background-image:none!important}
+/* xterm 自带的黑色底（xterm.css 默认 .xterm-viewport{background:#000}）必须清掉，
+   否则古法编程和摸鱼里的终端内容区永远是黑的（外层透明也没用） */
+.gufa-termview .xterm,
+.gufa-termview .xterm .xterm-viewport,
+.gufa-termview .xterm .xterm-screen{background-color:transparent!important;background-image:none!important}
 /* 摸鱼模式不显示皮肤（梁圣）背景：包括古法自己的复刻层和第三方皮肤插件在 body/html 上画的层 */
 html[data-gufa-float],
 html[data-gufa-float] body,

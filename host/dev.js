@@ -13,6 +13,14 @@ import { ApiError } from './context.js'
 
 const DEBUG_LOG_PATH = '/tmp/gufa-code-debug.log'
 const FLOAT_PREFS_PATH = join(homedir(), '.dsh', 'gufa-float-prefs.json')
+const PLUGIN_VERSION = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'package.json'), 'utf8'))
+    return typeof pkg.version === 'string' ? pkg.version : 'dev'
+  } catch {
+    return 'dev'
+  }
+})()
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 /* 悬浮层子进程放在 globalThis：host 模块热重载后仍能持有同一个句柄 */
 const floatState = globalThis.__gufaFloatState ?? (globalThis.__gufaFloatState = { child: null, startedAt: 0 })
@@ -270,6 +278,7 @@ export function register(router, env) {
       follow: follow !== null && follow.pid > 0 ? follow : undefined,
       state: state ?? undefined,
       alpha: Number.isFinite(alphaPref) && alphaPref >= 20 && alphaPref <= 100 ? Math.round(alphaPref) : undefined,
+      build: PLUGIN_VERSION,
       controlPath,
     })
     floatState.controlPath = controlPath

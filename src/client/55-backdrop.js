@@ -328,7 +328,10 @@ G.BackdropParticles = function BackdropParticles(props) {
   const canvasRef = useRef(null)
   const strengthRaw = typeof props.strength === 'number' && Number.isFinite(props.strength) ? props.strength : 1
   const strength = Math.max(0, Math.min(1, strengthRaw))
+  /* 摸鱼窗口里背景层是被 CSS 隐藏的：完全不要创建 canvas / 跑动画，省 CPU 与内存 */
+  const skipFloat = typeof G.isFloatMode === 'function' && G.isFloatMode() === true
   useEffect(() => {
+    if (skipFloat) return undefined
     const canvas = canvasRef.current
     if (canvas === null || canvas === undefined) return undefined
     const context = canvas.getContext('2d')
@@ -341,7 +344,7 @@ G.BackdropParticles = function BackdropParticles(props) {
     }
     if (reduced) return undefined
 
-    const dpr = Math.min(1.5, window.devicePixelRatio || 1)
+    const dpr = Math.min(1.25, window.devicePixelRatio || 1)
     let width = 0
     let height = 0
     const resize = () => {
@@ -397,9 +400,11 @@ G.BackdropParticles = function BackdropParticles(props) {
     const pointer = { x: -1e4, y: -1e4, down: false }
     let last = 0
     let raf = 0
+    let paused = document.visibilityState === 'hidden'
     const tick = (now) => {
+      if (paused) { raf = 0; return }
       raf = window.requestAnimationFrame(tick)
-      if (now - last < 33) return
+      if (now - last < 40) return
       const dt = Math.min(0.048, (last === 0 ? 0.016 : (now - last) / 1000))
       last = now
       context.clearRect(0, 0, width, height)
@@ -456,13 +461,28 @@ G.BackdropParticles = function BackdropParticles(props) {
     }
     const onPointerDown = () => { pointer.down = true }
     const onPointerUp = () => { pointer.down = false }
+    const resume = () => {
+      paused = false
+      last = 0
+      if (raf === 0) raf = window.requestAnimationFrame(tick)
+    }
+    const pause = () => {
+      paused = true
+      if (raf !== 0) { window.cancelAnimationFrame(raf); raf = 0 }
+    }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') pause(); else resume() }
+    const onBlur = () => pause()
+    const onFocus = () => resume()
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointerleave', onPointerLeave)
     window.addEventListener('resize', resize)
     resize()
-    raf = window.requestAnimationFrame(tick)
+    if (!paused) raf = window.requestAnimationFrame(tick)
     try {
       void G.api('dev.log', { message: `particles-start count=${activeCount} size=2-5.2css dpr=${dpr} canvas=${width}x${height}` }).catch(() => {})
     } catch {
@@ -470,13 +490,17 @@ G.BackdropParticles = function BackdropParticles(props) {
     }
     return () => {
       if (raf !== 0) window.cancelAnimationFrame(raf)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointerleave', onPointerLeave)
       window.removeEventListener('resize', resize)
     }
-  }, [strength])
+  }, [strength, skipFloat])
+  if (skipFloat) return null
   return h('canvas', { ref: canvasRef, className: 'gufa-backdrop-particles', 'aria-hidden': 'true', style: { mixBlendMode: 'screen' } })
 }
 

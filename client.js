@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.34'
+G.BUILD = '1.3.37'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1117,10 +1117,11 @@ html[data-gufa-float] .gufa-overlay-root{background:transparent!important;paddin
 .gufa-root[data-backdrop="on"] .gufa-termhead{background:color-mix(in srgb, var(--gufa-layer) 64%, transparent)}
 html[data-gufa-float] .gufa-termpane{background:rgba(13,15,19,var(--gufa-float-alpha))!important}
 html[data-gufa-float] .gufa-termhead{background:rgba(20,22,27,var(--gufa-float-alpha))!important}
-/* 摸鱼：xterm 的内置黑色背景层（xterm.css 默认 #000）也要透明，否则终端永远不透 */
-html[data-gufa-float] .xterm,
-html[data-gufa-float] .xterm .xterm-viewport,
-html[data-gufa-float] .xterm .xterm-screen{background-color:transparent!important;background-image:none!important}
+/* xterm 自带的黑色底（xterm.css 默认 .xterm-viewport{background:#000}）必须清掉，
+   否则古法编程和摸鱼里的终端内容区永远是黑的（外层透明也没用） */
+.gufa-termview .xterm,
+.gufa-termview .xterm .xterm-viewport,
+.gufa-termview .xterm .xterm-screen{background-color:transparent!important;background-image:none!important}
 /* 摸鱼模式不显示皮肤（梁圣）背景：包括古法自己的复刻层和第三方皮肤插件在 body/html 上画的层 */
 html[data-gufa-float],
 html[data-gufa-float] body,
@@ -7891,7 +7892,10 @@ G.BackdropParticles = function BackdropParticles(props) {
   const canvasRef = useRef(null)
   const strengthRaw = typeof props.strength === 'number' && Number.isFinite(props.strength) ? props.strength : 1
   const strength = Math.max(0, Math.min(1, strengthRaw))
+  /* 摸鱼窗口里背景层是被 CSS 隐藏的：完全不要创建 canvas / 跑动画，省 CPU 与内存 */
+  const skipFloat = typeof G.isFloatMode === 'function' && G.isFloatMode() === true
   useEffect(() => {
+    if (skipFloat) return undefined
     const canvas = canvasRef.current
     if (canvas === null || canvas === undefined) return undefined
     const context = canvas.getContext('2d')
@@ -7904,7 +7908,7 @@ G.BackdropParticles = function BackdropParticles(props) {
     }
     if (reduced) return undefined
 
-    const dpr = Math.min(1.5, window.devicePixelRatio || 1)
+    const dpr = Math.min(1.25, window.devicePixelRatio || 1)
     let width = 0
     let height = 0
     const resize = () => {
@@ -7960,9 +7964,11 @@ G.BackdropParticles = function BackdropParticles(props) {
     const pointer = { x: -1e4, y: -1e4, down: false }
     let last = 0
     let raf = 0
+    let paused = document.visibilityState === 'hidden'
     const tick = (now) => {
+      if (paused) { raf = 0; return }
       raf = window.requestAnimationFrame(tick)
-      if (now - last < 33) return
+      if (now - last < 40) return
       const dt = Math.min(0.048, (last === 0 ? 0.016 : (now - last) / 1000))
       last = now
       context.clearRect(0, 0, width, height)
@@ -8019,13 +8025,28 @@ G.BackdropParticles = function BackdropParticles(props) {
     }
     const onPointerDown = () => { pointer.down = true }
     const onPointerUp = () => { pointer.down = false }
+    const resume = () => {
+      paused = false
+      last = 0
+      if (raf === 0) raf = window.requestAnimationFrame(tick)
+    }
+    const pause = () => {
+      paused = true
+      if (raf !== 0) { window.cancelAnimationFrame(raf); raf = 0 }
+    }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') pause(); else resume() }
+    const onBlur = () => pause()
+    const onFocus = () => resume()
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointerleave', onPointerLeave)
     window.addEventListener('resize', resize)
     resize()
-    raf = window.requestAnimationFrame(tick)
+    if (!paused) raf = window.requestAnimationFrame(tick)
     try {
       void G.api('dev.log', { message: `particles-start count=${activeCount} size=2-5.2css dpr=${dpr} canvas=${width}x${height}` }).catch(() => {})
     } catch {
@@ -8033,13 +8054,17 @@ G.BackdropParticles = function BackdropParticles(props) {
     }
     return () => {
       if (raf !== 0) window.cancelAnimationFrame(raf)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointerleave', onPointerLeave)
       window.removeEventListener('resize', resize)
     }
-  }, [strength])
+  }, [strength, skipFloat])
+  if (skipFloat) return null
   return h('canvas', { ref: canvasRef, className: 'gufa-backdrop-particles', 'aria-hidden': 'true', style: { mixBlendMode: 'screen' } })
 }
 
@@ -9256,21 +9281,23 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
     try {
       if (typeof window !== 'undefined' && window !== null) {
         if (wrapped.length < expected) {
-          if (service.__gufaIntegrationTimer === undefined || service.__gufaIntegrationTimer === null) {
-            let attempts = 0
-            service.__gufaIntegrationTimer = window.setInterval(() => {
-              attempts += 1
-              if (attempts > 40) {
-                window.clearInterval(service.__gufaIntegrationTimer)
-                service.__gufaIntegrationTimer = null
-                return
-              }
-              try {
-                G.installShortcutIntegration(service)
-              } catch {
-                /* ignore */
-              }
-            }, 500)
+          /* 累计尝试次数上限：配置变更会反复触发安装，不能每次都重新开 40 次重试（之前会变成常驻 2Hz 循环） */
+          if ((service.__gufaIntegrationAttempts ?? 0) < 40) {
+            if (service.__gufaIntegrationTimer === undefined || service.__gufaIntegrationTimer === null) {
+              service.__gufaIntegrationTimer = window.setInterval(() => {
+                service.__gufaIntegrationAttempts = (service.__gufaIntegrationAttempts ?? 0) + 1
+                if (service.__gufaIntegrationAttempts > 40) {
+                  window.clearInterval(service.__gufaIntegrationTimer)
+                  service.__gufaIntegrationTimer = null
+                  return
+                }
+                try {
+                  G.installShortcutIntegration(service)
+                } catch {
+                  /* ignore */
+                }
+              }, 500)
+            }
           }
         } else {
           if (service.__gufaIntegrationTimer !== undefined && service.__gufaIntegrationTimer !== null) {
@@ -9392,7 +9419,11 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
       } catch {
         edrvIds = []
       }
-      void G.api('dev.log', { message: `shortcut-integration wrapped=${JSON.stringify(wrapped)} total=${totalCommands} configStatus=${configStatus} edrv=${JSON.stringify(edrvIds).slice(0, 1500)} edrvBindings=${JSON.stringify(edrvBindings).slice(0, 2500)}` }).catch(() => {})
+      const signature = `${JSON.stringify(wrapped)}|${totalCommands}|${configStatus}|${edrvIds.length}|${edrvBindings.length}`
+      if (service.__gufaLastIntegrationSignature !== signature) {
+        service.__gufaLastIntegrationSignature = signature
+        void G.api('dev.log', { message: `shortcut-integration wrapped=${JSON.stringify(wrapped)} total=${totalCommands} configStatus=${configStatus} edrv=${JSON.stringify(edrvIds).slice(0, 1500)} edrvBindings=${JSON.stringify(edrvBindings).slice(0, 2500)}` }).catch(() => {})
+      }
     } catch {
       /* ignore */
     }
@@ -10616,7 +10647,11 @@ G.GufaApp = function GufaApp(props) {
     const onFocus = () => { void syncFloatStatus(); void consume() }
     window.addEventListener('focus', onFocus)
     /* 摸鱼退出后主窗口可能因隐藏/恢复丢失 focus 事件，低频轮询兜底 */
-    const pollTimer = window.setInterval(() => { void consume(); void syncFloatStatus() }, 3000)
+    const pollTimer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void consume()
+      void syncFloatStatus()
+    }, 5000)
     const onVisible = () => { if (document.visibilityState === 'visible') { void syncFloatStatus(); void consume() } }
     document.addEventListener('visibilitychange', onVisible)
     if (consumeExitStateRef.current !== true) {
@@ -12648,6 +12683,23 @@ const GUFA_PLUGIN = {
       if (floatMode) {
         document.documentElement.setAttribute('data-gufa-float', '1')
         document.documentElement.setAttribute('data-gufa-booting', '1')
+        /* 摸鱼窗口不需要皮肤：关掉皮肤插件的动画开关并移除其背景节点，
+           否则它仍在 rAF 里持续写 body.style / 画 canvas（看不见但耗 CPU、占内存） */
+        const disableSkin = () => {
+          try {
+            const root = document.documentElement
+            if (root.getAttribute('data-liang-skin') === 'on') root.setAttribute('data-liang-skin', 'off')
+            root.removeAttribute('data-liang-stage')
+            root.removeAttribute('data-gufa-skin-live')
+            for (const node of document.querySelectorAll('.liang-skin-backdrop, .liang-ambient, .liang-skin-portrait, .liang-skin-root')) {
+              node.remove()
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        disableSkin()
+        for (const delay of [400, 1200, 2600, 5000]) window.setTimeout(disableSkin, delay)
         let attempts = 0
         const timer = window.setInterval(() => {
           attempts += 1

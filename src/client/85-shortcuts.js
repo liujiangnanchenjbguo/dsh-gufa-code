@@ -278,21 +278,23 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
     try {
       if (typeof window !== 'undefined' && window !== null) {
         if (wrapped.length < expected) {
-          if (service.__gufaIntegrationTimer === undefined || service.__gufaIntegrationTimer === null) {
-            let attempts = 0
-            service.__gufaIntegrationTimer = window.setInterval(() => {
-              attempts += 1
-              if (attempts > 40) {
-                window.clearInterval(service.__gufaIntegrationTimer)
-                service.__gufaIntegrationTimer = null
-                return
-              }
-              try {
-                G.installShortcutIntegration(service)
-              } catch {
-                /* ignore */
-              }
-            }, 500)
+          /* 累计尝试次数上限：配置变更会反复触发安装，不能每次都重新开 40 次重试（之前会变成常驻 2Hz 循环） */
+          if ((service.__gufaIntegrationAttempts ?? 0) < 40) {
+            if (service.__gufaIntegrationTimer === undefined || service.__gufaIntegrationTimer === null) {
+              service.__gufaIntegrationTimer = window.setInterval(() => {
+                service.__gufaIntegrationAttempts = (service.__gufaIntegrationAttempts ?? 0) + 1
+                if (service.__gufaIntegrationAttempts > 40) {
+                  window.clearInterval(service.__gufaIntegrationTimer)
+                  service.__gufaIntegrationTimer = null
+                  return
+                }
+                try {
+                  G.installShortcutIntegration(service)
+                } catch {
+                  /* ignore */
+                }
+              }, 500)
+            }
           }
         } else {
           if (service.__gufaIntegrationTimer !== undefined && service.__gufaIntegrationTimer !== null) {
@@ -414,7 +416,11 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
       } catch {
         edrvIds = []
       }
-      void G.api('dev.log', { message: `shortcut-integration wrapped=${JSON.stringify(wrapped)} total=${totalCommands} configStatus=${configStatus} edrv=${JSON.stringify(edrvIds).slice(0, 1500)} edrvBindings=${JSON.stringify(edrvBindings).slice(0, 2500)}` }).catch(() => {})
+      const signature = `${JSON.stringify(wrapped)}|${totalCommands}|${configStatus}|${edrvIds.length}|${edrvBindings.length}`
+      if (service.__gufaLastIntegrationSignature !== signature) {
+        service.__gufaLastIntegrationSignature = signature
+        void G.api('dev.log', { message: `shortcut-integration wrapped=${JSON.stringify(wrapped)} total=${totalCommands} configStatus=${configStatus} edrv=${JSON.stringify(edrvIds).slice(0, 1500)} edrvBindings=${JSON.stringify(edrvBindings).slice(0, 2500)}` }).catch(() => {})
+      }
     } catch {
       /* ignore */
     }

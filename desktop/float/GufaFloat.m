@@ -449,9 +449,16 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 - (void)clearWebCachesThenLoad {
     if (self.cachesCleared) return;
     self.cachesCleared = YES;
-    /* 清掉全部 Web 数据（含 cookies——随后用 token URL 重新种 cookie），确保拿到最新客户端代码 */
-    NSSet<NSString *> *types = [WKWebsiteDataStore allWebsiteDataTypes];
+    /* 版本变了才清全部 Web 数据（保证客户端代码最新）；
+       同一版本重复打开摸鱼只清缓存（或干脆不清），避免每次重新编译整个前端（慢且耗内存） */
+    NSString *build = [self.options[@"build"] isKindOfClass:[NSString class]] ? self.options[@"build"] : @"";
+    NSString *lastBuild = [[NSUserDefaults standardUserDefaults] stringForKey:@"gufa-float-build"];
+    BOOL versionChanged = build.length == 0 || lastBuild == nil || ![lastBuild isEqualToString:build];
+    NSSet<NSString *> *types = versionChanged
+      ? [WKWebsiteDataStore allWebsiteDataTypes]
+      : [NSSet setWithObjects:WKWebsiteDataTypeMemoryCache, nil];
     [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:types modifiedSince:[NSDate dateWithTimeIntervalSince1970:0] completionHandler:^{
+        if (build.length > 0) [[NSUserDefaults standardUserDefaults] setObject:build forKey:@"gufa-float-build"];
         dispatch_async(dispatch_get_main_queue(), ^{
             [self performInitialLoad];
         });

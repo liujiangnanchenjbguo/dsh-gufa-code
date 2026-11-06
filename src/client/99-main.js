@@ -231,6 +231,23 @@ const GUFA_PLUGIN = {
       if (floatMode) {
         document.documentElement.setAttribute('data-gufa-float', '1')
         document.documentElement.setAttribute('data-gufa-booting', '1')
+        /* 摸鱼窗口不需要皮肤：关掉皮肤插件的动画开关并移除其背景节点，
+           否则它仍在 rAF 里持续写 body.style / 画 canvas（看不见但耗 CPU、占内存） */
+        const disableSkin = () => {
+          try {
+            const root = document.documentElement
+            if (root.getAttribute('data-liang-skin') === 'on') root.setAttribute('data-liang-skin', 'off')
+            root.removeAttribute('data-liang-stage')
+            root.removeAttribute('data-gufa-skin-live')
+            for (const node of document.querySelectorAll('.liang-skin-backdrop, .liang-ambient, .liang-skin-portrait, .liang-skin-root')) {
+              node.remove()
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        disableSkin()
+        for (const delay of [400, 1200, 2600, 5000]) window.setTimeout(disableSkin, delay)
         let attempts = 0
         const timer = window.setInterval(() => {
           attempts += 1
