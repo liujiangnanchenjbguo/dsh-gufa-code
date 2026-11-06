@@ -15,8 +15,12 @@
  * WS_EX_NOREDIRECTIONBITMAP 的 visual hosting，见 README-WIN.md 的 TODO）。
  */
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 
 #include <windows.h>
 #include <windowsx.h>
@@ -557,17 +561,6 @@ void AppendUniqueWindow(std::vector<HWND>* windows, HWND hwnd) {
     if (existing == hwnd) return;
   }
   windows->push_back(hwnd);
-}
-
-/* 回调里拿到的 COM 指针是「借」的：先 AddRef，再交给 ComPtr 接管。 */
-template <typename T>
-void AttachOwned(ComPtr<T>* target, T* raw) {
-  if (target == nullptr) return;
-  target->Reset();
-  if (raw != nullptr) {
-    raw->AddRef();
-    target->Attach(raw);
-  }
 }
 
 bool IsShellLikeProcess(const std::wstring& imageName) {
@@ -1445,7 +1438,13 @@ void FloatApp::OnEnvironmentCreated(HRESULT errorCode, ICoreWebView2Environment*
     HandleWebViewEnvironmentFailure(errorCode);
     return;
   }
-  AttachOwned(&environment_, environment);
+  // 回调传进来的是「借」的 COM 指针：显式 AddRef 后再由 ComPtr 接管，
+  // 避免依赖 ComPtr 的隐式转换/模板推导（MSVC 下 &ComPtr 是 ComPtrRef）。
+  environment_.Reset();
+  if (environment != nullptr) {
+    environment->AddRef();
+    environment_.Attach(environment);
+  }
   Log(L"webview2-env-ready");
   const HRESULT hr = environment_->CreateCoreWebView2Controller(
       hwnd_,
@@ -1468,7 +1467,11 @@ void FloatApp::OnControllerCreated(HRESULT errorCode, ICoreWebView2Controller* c
     HandleWebViewEnvironmentFailure(errorCode);
     return;
   }
-  AttachOwned(&controller_, controller);
+  controller_.Reset();
+  if (controller != nullptr) {
+    controller->AddRef();
+    controller_.Attach(controller);
+  }
   const HRESULT hr = controller_->get_CoreWebView2(webView_.GetAddressOf());
   if (FAILED(hr) || webView_.Get() == nullptr) {
     LogFmt(L"get-core-webview-failed hr=%08lX", static_cast<unsigned long>(hr));
