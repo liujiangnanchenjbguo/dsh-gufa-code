@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.27'
+G.BUILD = '1.3.28'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1096,6 +1096,16 @@ html[data-gufa-float] .gufa-root{
   --gufa-solid-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;--gufa-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;
   --gufa-solid-overlay:rgba(30,33,40,calc(var(--gufa-float-alpha) + 0.17))!important;
   --gufa-solid-sidebar:rgba(18,20,24,var(--gufa-float-alpha))!important;
+  /* 官方组件用 --dsw-alias-*：在覆盖层内也统一成同一个透明度，100% 时完全遮住底层 */
+  --dsw-alias-bg-base:rgba(13,15,19,var(--gufa-float-alpha))!important;
+  --dsw-alias-bg-layer-1:rgba(20,22,27,var(--gufa-float-alpha))!important;
+  --dsw-alias-bg-layer-2:rgba(26,28,34,var(--gufa-float-alpha))!important;
+  --dsw-alias-bg-overlay:rgba(30,33,40,calc(var(--gufa-float-alpha) + 0.17))!important;
+}
+/* 顶部 22px 拖动条区域也跟随透明度，否则 100% 时仍能透出被吸附 App（实测 1.3.27 的破绽） */
+html[data-gufa-float] .gufa-overlay-root::before{
+  content:'';position:fixed;top:0;left:0;right:0;height:22px;pointer-events:none;
+  background:rgba(13,15,19,var(--gufa-float-alpha));z-index:1;
 }
 html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
 /* 摸鱼模式不显示皮肤（梁圣）背景：包括古法自己的复刻层和第三方皮肤插件在 body/html 上画的层 */
