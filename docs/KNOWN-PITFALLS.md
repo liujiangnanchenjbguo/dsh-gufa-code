@@ -88,6 +88,15 @@
 - 快捷键集成不要留常驻重试环：累加上限 40 次 + 只在签名变化时写诊断日志（曾出现 2Hz 常驻循环）。
 - 退出摸鱼状态轮询 5s 一次且页面不可见时跳过（原来 3s 且无条件请求 host）。
 
+## 6. 摸鱼吸附全屏 App（QQ音乐等占满整屏的窗口）
+
+- 现象：目标 App 窗口占满一整个屏（或原生全屏 Space）时，去掉 canJoinAllSpaces 后悬浮窗"没浮动过去"。
+- 原因：悬浮窗创建在用户当前 Space，仅靠 setFrame 移动坐标不会把窗口带进目标 App 的 Space/全屏 Space。
+- 定案：找到目标 AX 窗口并贴好 frame 后调用 `attachToFollowedSpace`：
+  1) collectionBehavior 临时加 `MoveToActiveSpace` 并 `orderFrontRegardless`（此时目标 App 已激活，其 Space 即活动 Space）；
+  2) 0.9s 后恢复 `FullScreenAuxiliary | IgnoresCycle`，窗口稳定留在该 Space，后续用户滑屏不会跟随。
+- 验证：QQ音乐占满主屏时，悬浮窗覆盖整屏且 `own-window onscreen=1`；退出后主窗口恢复。
+
 ## 5. 摸鱼窗口的 Space 固定（不要用 canJoinAllSpaces）
 
 - 现象：摸鱼窗吸附第二屏的 App，用户在主屏滑动切 Space 时，摸鱼窗也跟着出现在当前屏。

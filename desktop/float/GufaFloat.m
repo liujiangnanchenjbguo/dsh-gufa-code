@@ -43,6 +43,8 @@ static NSArray<NSDictionary *> *GufaAXWindows(void);
 static AXUIElementRef GufaCopyAXWindow(pid_t pid, NSString *title);
 static BOOL GufaRectFromAX(AXUIElementRef element, NSRect *out);
 static void GufaActivateBundle(NSString *bundleId);
+static BOOL GufaAXWindowFullScreen(AXUIElementRef window);
+static void GufaLogOwnWindowState(NSString *tag);
 static void GufaSetMainAppHidden(BOOL hidden);
 static NSArray<NSDictionary *> *GufaAXApps(void);
 static AXUIElementRef GufaCopyAppWindow(pid_t pid);
@@ -132,6 +134,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 - (void)clearWebCachesThenLoad;
 - (void)performInitialLoad;
 - (void)applySpaceBehaviorFollowing:(BOOL)following;
+- (void)attachToFollowedSpace;
 - (void)watchControlFile;
 - (void)gracefulExit;
 - (void)toggleClickThrough:(id)sender;
@@ -223,7 +226,8 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     }
     NSRect rect = NSZeroRect;
     GufaRectFromAX(window, &rect);
-    GufaLog(@"follow-window-found pid=%d rect=%.0f,%.0f %.0fx%.0f attempt=%ld", self.followPid, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, (long)attempt);
+    BOOL fullScreen = GufaAXWindowFullScreen(window);
+    GufaLog(@"follow-window-found pid=%d rect=%.0f,%.0f %.0fx%.0f fullscreen=%d attempt=%ld", self.followPid, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, fullScreen ? 1 : 0, (long)attempt);
     if (self.followWindowRef != NULL) CFRelease(self.followWindowRef);
     self.followWindowRef = window;
     self.following = YES;
@@ -231,6 +235,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [self applySpaceBehaviorFollowing:YES];
     [self startFollowTimer];
     [self applyFollowFrame];
+    [self attachToFollowedSpace];
     self.statusItem.button.title = @"古法·摸鱼";
 }
 
@@ -255,6 +260,26 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [self saveFrame];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [NSApp terminate:nil];
+    });
+}
+
+/* 把悬浮窗挪到「被跟随 App 当前所在的 Space」：
+   先 MoveToActiveSpace 排序到前台（目标 App 已被激活，其全屏 Space 即当前活动 Space），
+   再恢复为固定 Space 行为，这样之后用户滑屏不会把它带走。 */
+- (void)attachToFollowedSpace {
+    if (self.window == nil) return;
+    NSWindowCollectionBehavior base = (NSWindowCollectionBehaviorFullScreenAuxiliary
+                                      | NSWindowCollectionBehaviorIgnoresCycle);
+    self.window.collectionBehavior = base | NSWindowCollectionBehaviorMoveToActiveSpace;
+    [self.window orderFrontRegardless];
+    GufaLog(@"space-jump moveToActiveSpace screen=%@", self.window.screen == nil ? @"nil" : NSStringFromRect(self.window.screen.frame));
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        if (self == nil || self.window == nil) return;
+        self.window.collectionBehavior = base;
+        GufaLog(@"space-attached screen=%@", self.window.screen == nil ? @"nil" : NSStringFromRect(self.window.screen.frame));
+        GufaLogOwnWindowState(@"space-attached");
     });
 }
 
@@ -518,6 +543,19 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 - (void)saveFrame {
     if (self.window == nil) return;
     [[NSUserDefaults standardUserDefaults] setObject:NSStringFromRect(self.window.frame) forKey:self.frameKey];
+}
+
+/* 自身窗口在 WindowServer 里是否 onscreen / 在哪块屏幕（Space 占用排查用） */
+static void GufaLogOwnWindowState(NSString *tag) {
+    NSArray<NSDictionary *> *windows = (__bridge_transfer NSArray *)CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID);
+    pid_t selfPid = NSProcessInfo.processInfo.processIdentifier;
+    for (NSDictionary *info in windows) {
+        NSNumber *owner = info[(__bridge NSString *)kCGWindowOwnerPID];
+        if (owner == nil || owner.intValue != selfPid) continue;
+        NSNumber *onscreen = info[(__bridge NSString *)kCGWindowIsOnscreen];
+        NSDictionary *bounds = info[(__bridge NSString *)kCGWindowBounds];
+        GufaLog(@"%@ own-window onscreen=%d bounds=%@ layer=%@", tag, onscreen == nil ? -1 : onscreen.intValue, bounds ?: @{}, info[(__bridge NSString *)kCGWindowLayer] ?: @"?");
+    }
 }
 
 /* ── 跟随选中的 App 窗口（Accessibility API） ─────────────────────── */
@@ -904,6 +942,16 @@ static void GufaActivateBundle(NSString *bundleId) {
     } @catch (NSException *exception) {
         /* ignore */
     }
+}
+
+static BOOL GufaAXWindowFullScreen(AXUIElementRef window) {
+    if (window == NULL) return NO;
+    CFTypeRef value = NULL;
+    if (AXUIElementCopyAttributeValue(window, CFSTR("AXFullScreen"), &value) != kAXErrorSuccess || value == NULL) return NO;
+    BOOL full = NO;
+    if (CFGetTypeID(value) == CFBooleanGetTypeID()) full = CFBooleanGetValue((CFBooleanRef)value);
+    CFRelease(value);
+    return full;
 }
 
 /** 按 pid + title 查找对应 AX window（follow 用）。 */
