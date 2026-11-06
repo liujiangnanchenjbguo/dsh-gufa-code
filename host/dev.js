@@ -655,7 +655,14 @@ export function register(router, env) {
     floatState.controlPath = controlPath
     const binary = floatBinaryPath()
     if (binary === null) throw new ApiError('missing-helper', '悬浮层程序未构建', 500)
-    const child = spawn(binary, [payload], { detached: true, stdio: 'ignore', windowsHide: false })
+    /* Windows 下 argv 里带引号的 JSON 在极少数启动器/杀软注入场景可能被改写；
+       同时通过环境变量传一份 payload，helper 会优先用能解析的那一份（Windows helper 支持 env 兜底）。 */
+    const child = spawn(binary, [payload], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+      env: { ...process.env, GUFA_FLOAT_PAYLOAD: payload },
+    })
     child.unref()
     floatState.child = child
     floatState.startedAt = Date.now()
