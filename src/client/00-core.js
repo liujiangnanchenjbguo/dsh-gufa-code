@@ -1120,6 +1120,10 @@ html[data-gufa-float] .gufa-tabs,
 html[data-gufa-float] .gufa-statusbar,
 html[data-gufa-float] [data-gufa-dock],
 html[data-gufa-float] [data-gufa-dock] > *{background:transparent!important}
+/* 官方会话停靠层（toolbar/host）自带底色，摸鱼里一并透明，避免会话框叠两层 */
+html[data-gufa-float] .gufa-dock-toolbar,
+html[data-gufa-float] .gufa-dock-host,
+html[data-gufa-float] .gufa-chatdock{background:transparent!important}
 /* 官方会话/组件在摸鱼里也用透明 token，避免和覆盖层底叠成两层 */
 html[data-gufa-float] .gufa-root,
 html[data-gufa-float] .gufa-overlay-root,

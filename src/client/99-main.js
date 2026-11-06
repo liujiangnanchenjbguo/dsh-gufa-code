@@ -261,6 +261,23 @@ const GUFA_PLUGIN = {
             window.clearInterval(timer)
             /* 显式恢复主窗口状态（项目 → 标签页 → 会话），避免依赖 Web 版 App 的启动时序 */
             try {
+              /* 诊断：找出会话框里非透明的背景元素（排查透明度不一致） */
+              try {
+                const chat = document.querySelector('.gufa-chatpane')
+                const found = []
+                if (chat !== null) {
+                  for (const el of chat.querySelectorAll('*')) {
+                    const bg = window.getComputedStyle(el).backgroundColor
+                    if (bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+                      found.push(`${el.tagName.toLowerCase()}.${String(el.className || '').replace(/\s+/g, '.').slice(0, 60)}=${bg}`)
+                      if (found.length >= 10) break
+                    }
+                  }
+                }
+                void G.api('dev.log', { message: `float-chat-bgs ${found.join(' | ') || 'none'}` }).catch(() => {})
+              } catch {
+                /* ignore */
+              }
               /* 诊断：摸鱼窗口里各面板的实际底色（排查透明度不一致） */
               try {
                 const pick = (sel) => {
