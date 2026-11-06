@@ -77,12 +77,17 @@ jobs:
           $probe = Join-Path $env:TEMP 'gufa-win-probe.json'
           Remove-Item $probe -ErrorAction SilentlyContinue
           $payload = (@{ appUrl='http://127.0.0.1:8799/'; authUrl='http://127.0.0.1:8799/'; ciProbe=$true; ciProbeOut=$probe } | ConvertTo-Json -Compress)
-          $process = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -ArgumentList $payload -PassThru -WindowStyle Hidden
+          $env:GUFA_FLOAT_PAYLOAD = $payload
+          $process = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -PassThru -WindowStyle Hidden
           $process | Wait-Process -Timeout 30 -ErrorAction SilentlyContinue
           for ($i = 0; $i -lt 40 -and -not (Test-Path $probe); $i++) { Start-Sleep -Milliseconds 500 }
           if (Test-Path $probe) { Get-Content $probe }
           Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
-          if (-not (Select-String -Path $probe -Pattern '"ok":true' -Quiet)) { throw 'ciProbe did not report ok:true' }
+          if (-not (Select-String -Path $probe -Pattern '"ok":true' -Quiet)) {
+            $log = Join-Path $env:TEMP 'gufa-float-debug.log'
+            if (Test-Path $log) { Write-Host '--- helper debug log ---'; Get-Content $log -Tail 80 }
+            throw 'ciProbe did not report ok:true'
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-win-x64

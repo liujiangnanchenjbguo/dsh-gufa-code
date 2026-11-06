@@ -102,6 +102,19 @@ std::string WideToUtf8(const std::wstring& text) {
   return result;
 }
 
+std::wstring Utf8ToWide(const std::string& text) {
+  if (text.empty()) return std::wstring();
+  const int length = MultiByteToWideChar(CP_UTF8, 0, text.c_str(),
+                                         static_cast<int>(text.size()), nullptr, 0);
+  if (length <= 0) return std::wstring();
+  std::wstring result(static_cast<std::size_t>(length), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()),
+                      &result[0], length);
+  return result;
+}
+
+void LogFmt(const wchar_t* format, ...);  // 定义在后面；WriteFileUtf8 诊断用
+
 void WriteStdout(const std::wstring& text) {
   const std::string utf8 = WideToUtf8(text);
   HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -112,16 +125,29 @@ void WriteStdout(const std::wstring& text) {
 
 /* 把文本以 UTF-8 覆盖写入文件（ciProbe 结果文件用）。写失败返回 false，不影响主流程。 */
 bool WriteFileUtf8(const std::wstring& path, const std::wstring& text) {
-  if (path.empty()) return false;
+  if (path.empty()) {
+    LogFmt(L"write-file-utf8 skipped: empty path");
+    return false;
+  }
   const std::string utf8 = WideToUtf8(text);
   HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (handle == INVALID_HANDLE_VALUE) return false;
+  if (handle == INVALID_HANDLE_VALUE) {
+    LogFmt(L"write-file-utf8 open-failed path=%s err=%lu", path.c_str(),
+           static_cast<unsigned long>(GetLastError()));
+    return false;
+  }
   DWORD written = 0;
   const BOOL ok = WriteFile(handle, utf8.data(), static_cast<DWORD>(utf8.size()), &written,
                             nullptr);
+  const DWORD writeError = ok != FALSE ? 0 : GetLastError();
   CloseHandle(handle);
-  return ok != FALSE && written == static_cast<DWORD>(utf8.size());
+  if (ok == FALSE || written != static_cast<DWORD>(utf8.size())) {
+    LogFmt(L"write-file-utf8 write-failed path=%s err=%lu written=%lu", path.c_str(),
+           static_cast<unsigned long>(writeError), static_cast<unsigned long>(written));
+    return false;
+  }
+  return true;
 }
 
 /* HRESULT -> 8 位大写十六进制（ASCII，可直接放进 JSON reason 字段）。 */
@@ -152,6 +178,146 @@ std::wstring BuildCiProbeLine(bool ok, bool urlLoaded, const std::wstring& reaso
   }
   line += L"}";
   return line;
+}
+
+/* 读取环境变量 GUFA_FLOAT_PAYLOAD（优先 Unicode 环境块；失败再按 UTF-8 读 ANSI 版）。
+ * CI 可用 Start-Process + 环境变量传 payload，绕开 PowerShell 对含引号参数的拼接问题。 */
+std::wstring ReadEnvironmentPayload() {
+  const wchar_t* kName = L"GUFA_FLOAT_PAYLOAD";
+  wchar_t wideBuffer[32768];
+  wideBuffer[0] = L'\0';
+  const DWORD wideLength =
+      GetEnvironmentVariableW(kName, wideBuffer, static_cast<DWORD>(_countof(wideBuffer)));
+  if (wideLength > 0 && wideLength < _countof(wideBuffer)) {
+    return std::wstring(wideBuffer, wideLength);
+  }
+  char narrowBuffer[32768];
+  narrowBuffer[0] = '\0';
+  const DWORD narrowLength =
+      GetEnvironmentVariableA(kName, narrowBuffer, static_cast<DWORD>(_countof(narrowBuffer)));
+  if (narrowLength > 0 && narrowLength < _countof(narrowBuffer)) {
+    return Utf8ToWide(std::string(narrowBuffer, narrowLength));
+  }
+  return std::wstring();
+}
+
+std::wstring ToLowerCopy(const std::wstring& text) {
+  std::wstring result = text;
+  for (wchar_t& c : result) c = static_cast<wchar_t>(std::towlower(c));
+  return result;
+}
+
+bool IsAsciiWhitespace(wchar_t c) {
+  return c == L' ' || c == L'\t' || c == L'\r' || c == L'\n';
+}
+
+bool HexValue(wchar_t c, unsigned int* value) {
+  if (value == nullptr) return false;
+  if (c >= L'0' && c <= L'9') {
+    *value = static_cast<unsigned int>(c - L'0');
+    return true;
+  }
+  if (c >= L'a' && c <= L'f') {
+    *value = static_cast<unsigned int>(c - L'a' + 10);
+    return true;
+  }
+  if (c >= L'A' && c <= L'F') {
+    *value = static_cast<unsigned int>(c - L'A' + 10);
+    return true;
+  }
+  return false;
+}
+
+/* 从可能被 shell 拼坏（引号被吃掉）的 JSON 文本里宽松提取一个字符串字段。
+ * 只用于 ciProbeOut 兜底：合法 JSON 走正常解析，这里只是保证失败时也能留下探针文件。 */
+std::wstring ExtractStringFieldLoose(const std::wstring& text, const std::wstring& key) {
+  if (text.empty() || key.empty()) return std::wstring();
+  const std::size_t found = ToLowerCopy(text).find(ToLowerCopy(key));
+  if (found == std::wstring::npos) return std::wstring();
+  std::size_t position = found + key.size();
+  while (position < text.size() && IsAsciiWhitespace(text[position])) ++position;
+  if (position < text.size() && text[position] == L'"') ++position;  // 合法 JSON 里键的收尾引号
+  while (position < text.size() && IsAsciiWhitespace(text[position])) ++position;
+  if (position < text.size() && (text[position] == L':' || text[position] == L'=')) ++position;
+  while (position < text.size() && IsAsciiWhitespace(text[position])) ++position;
+  if (position < text.size() && text[position] == L'"') {
+    ++position;
+    std::wstring result;
+    while (position < text.size()) {
+      const wchar_t c = text[position++];
+      if (c == L'"') return result;
+      if (c != L'\\' || position >= text.size()) {
+        result.push_back(c);
+        continue;
+      }
+      const wchar_t escape = text[position++];
+      switch (escape) {
+        case L'\\':
+          result.push_back(L'\\');
+          break;
+        case L'"':
+          result.push_back(L'"');
+          break;
+        case L'/':
+          result.push_back(L'/');
+          break;
+        case L'b':
+          result.push_back(L'\b');
+          break;
+        case L'f':
+          result.push_back(L'\f');
+          break;
+        case L'n':
+          result.push_back(L'\n');
+          break;
+        case L'r':
+          result.push_back(L'\r');
+          break;
+        case L't':
+          result.push_back(L'\t');
+          break;
+        case L'u': {
+          unsigned int code = 0;
+          bool ok = position + 4 <= text.size();
+          for (int i = 0; ok && i < 4; ++i) {
+            unsigned int digit = 0;
+            ok = HexValue(text[position + static_cast<std::size_t>(i)], &digit);
+            code = (code << 4) | digit;
+          }
+          if (ok) {
+            position += 4;
+            result.push_back(static_cast<wchar_t>(code));
+          } else {
+            result.push_back(L'u');
+          }
+          break;
+        }
+        default:
+          result.push_back(escape);
+          break;
+      }
+    }
+    return result;
+  }
+  // 引号已被 shell 吃掉：读到 JSON 分隔符为止；若原文是 JSON 转义（\\）则还原。
+  const std::size_t start = position;
+  while (position < text.size()) {
+    const wchar_t c = text[position];
+    if (c == L',' || c == L'}' || c == L']' || IsAsciiWhitespace(c)) break;
+    ++position;
+  }
+  const std::wstring raw = text.substr(start, position - start);
+  if (raw.find(L"\\\\") == std::wstring::npos) return raw;
+  std::wstring unescaped;
+  for (std::size_t i = 0; i < raw.size(); ++i) {
+    if (raw[i] == L'\\' && i + 1 < raw.size()) {
+      unescaped.push_back(raw[i + 1]);
+      ++i;
+    } else {
+      unescaped.push_back(raw[i]);
+    }
+  }
+  return unescaped;
 }
 
 std::wstring GetTempDirectory() {
@@ -744,6 +910,8 @@ class FloatApp {
   void RequestExit(int exitCode);
   bool IsCiProbe() const { return payload_.ciProbe; }
   std::wstring CiProbeOutputPath() const { return payload_.ciProbeOut; }
+  /* 兜底：ciProbe 进程即将结束但还没写结果时，补写一个 ok:false 的探针文件。 */
+  void EnsureCiProbeResultWritten(const std::wstring& reason);
 
   static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
   static LRESULT CALLBACK StripWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
@@ -792,6 +960,7 @@ class FloatApp {
   void OnPageProbeTimer();
   void OnSelftestTimer();
   void HandleWebViewEnvironmentFailure(HRESULT errorCode);
+  void WriteCiProbeOutput(bool ok, bool urlLoaded, const std::wstring& reason);
   void FinishProbe(bool loaded);
   void FinishProbeFailure(const std::wstring& reason);
 
@@ -1129,8 +1298,12 @@ int FloatApp::RunMessageLoop() {
 
 void FloatApp::RequestExit(int exitCode) {
   exitCode_ = exitCode;
-  if (exiting_) return;
+  if (exiting_) {
+    LogFmt(L"request-exit-ignored code=%d", exitCode);
+    return;
+  }
   exiting_ = true;
+  LogFmt(L"request-exit code=%d", exitCode);
   if (hwnd_ != nullptr) {
     PostMessageW(hwnd_, kMsgExitGraceful, 0, 0);
   } else {
@@ -1770,29 +1943,39 @@ void FloatApp::OnSelftestTimer() {
           .Get());
 }
 
+void FloatApp::WriteCiProbeOutput(bool ok, bool urlLoaded, const std::wstring& reason) {
+  const std::wstring line = BuildCiProbeLine(ok, urlLoaded, reason);
+  WriteStdout(line + L"\n");
+  LogFmt(L"ciprobe-result ok=%d urlLoaded=%d reason=%s", ok ? 1 : 0, urlLoaded ? 1 : 0,
+         reason.c_str());
+  if (payload_.ciProbeOut.empty()) {
+    Log(L"ciprobe-out path-empty");
+    return;
+  }
+  const bool wrote = WriteFileUtf8(payload_.ciProbeOut, line + L"\n");
+  LogFmt(L"ciprobe-out file=%s wrote=%d", payload_.ciProbeOut.c_str(), wrote ? 1 : 0);
+}
+
+void FloatApp::EnsureCiProbeResultWritten(const std::wstring& reason) {
+  if (!payload_.ciProbe || ciProbeFinished_) return;
+  ciProbeFinished_ = true;
+  LogFmt(L"ciprobe-result-missing reason=%s", reason.c_str());
+  WriteCiProbeOutput(false, false, reason);
+}
+
 void FloatApp::FinishProbe(bool loaded) {
   if (ciProbeFinished_) return;
   ciProbeFinished_ = true;
-  const std::wstring line = BuildCiProbeLine(true, loaded, std::wstring());
-  WriteStdout(line + L"\n");
-  if (!payload_.ciProbeOut.empty()) {
-    const bool wrote = WriteFileUtf8(payload_.ciProbeOut, line + L"\n");
-    LogFmt(L"ciprobe-out file=%s wrote=%d", payload_.ciProbeOut.c_str(), wrote ? 1 : 0);
-  }
   LogFmt(L"ciprobe-finished loaded=%d", loaded ? 1 : 0);
+  WriteCiProbeOutput(true, loaded, std::wstring());
   RequestExit(0);
 }
 
 void FloatApp::FinishProbeFailure(const std::wstring& reason) {
   if (ciProbeFinished_) return;
   ciProbeFinished_ = true;
-  const std::wstring line = BuildCiProbeLine(false, false, reason);
-  WriteStdout(line + L"\n");
-  if (!payload_.ciProbeOut.empty()) {
-    const bool wrote = WriteFileUtf8(payload_.ciProbeOut, line + L"\n");
-    LogFmt(L"ciprobe-out file=%s wrote=%d", payload_.ciProbeOut.c_str(), wrote ? 1 : 0);
-  }
   LogFmt(L"ciprobe-failed reason=%s", reason.c_str());
+  WriteCiProbeOutput(false, false, reason);
   RequestExit(1);
 }
 
@@ -1928,42 +2111,99 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previousInstance, PWSTR comman
   InstallCrashHandlers();
 
   int argumentCount = 0;
-  LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount);
-  if (arguments == nullptr) {
-    Log(L"commandline-parse-failed");
-    return 2;
+  LPWSTR* rawArguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount);
+  std::wstring firstArgument;
+  if (rawArguments == nullptr) {
+    Log(L"commandline-parse-failed (will try GUFA_FLOAT_PAYLOAD)");
+  } else {
+    if (argumentCount > 1) firstArgument = std::wstring(rawArguments[1]);
+    LocalFree(rawArguments);
+    rawArguments = nullptr;
   }
-  const std::wstring firstArgument =
-      argumentCount > 1 ? std::wstring(arguments[1]) : std::wstring();
+
   if (firstArgument == L"--version" || firstArgument == L"-v") {
-    WriteStdout(L"gufa-float-win 1.0.0\n");
-    LocalFree(arguments);
+    const std::wstring version = L"gufa-float-win 1.0.0";
+    WriteStdout(version + L"\n");
+    LogFmt(L"--version %s", version.c_str());
     return 0;
   }
   if (firstArgument == L"--help" || firstArgument == L"-h" || firstArgument == L"/?") {
     WriteStdout(L"gufa-float-win — Windows 悬浮层 helper（由 DSH Host 自动启动）\n"
                 L"用法: gufa-float-win '<payload-json>'\n"
-                L"      gufa-float-win --version\n");
-    LocalFree(arguments);
+                L"      gufa-float-win --version\n"
+                L"环境变量: GUFA_FLOAT_PAYLOAD=<payload-json>（无参数时的 payload 兜底）\n");
+    Log(L"--help");
     return 0;
   }
-  if (firstArgument.empty()) {
-    Log(L"missing-payload-argument");
-    LocalFree(arguments);
-    return 2;
+
+  // payload 来源：argv[1] 优先；没有或解析失败时回退环境变量 GUFA_FLOAT_PAYLOAD。
+  // CI 用 Start-Process + 环境变量传 JSON，可绕开 PowerShell 对含引号参数的拼接问题。
+  std::wstring argumentPayload = firstArgument;
+  if (argumentPayload == L"--ci-probe") argumentPayload = L"{\"ciProbe\":true}";
+  const std::wstring environmentPayload = ReadEnvironmentPayload();
+
+  FloatPayload selectedPayload;
+  std::wstring payloadText;
+  std::wstring payloadSource;
+  if (!argumentPayload.empty()) {
+    FloatPayload candidate;
+    std::wstring parseError;
+    if (ParsePayloadJson(argumentPayload, &candidate, &parseError) &&
+        ValidatePayload(candidate, &parseError)) {
+      selectedPayload = candidate;
+      payloadText = argumentPayload;
+      payloadSource = L"argv";
+    } else {
+      LogFmt(L"payload-argv-invalid reason=%s", parseError.c_str());
+    }
+  }
+  if (payloadText.empty() && !environmentPayload.empty()) {
+    FloatPayload candidate;
+    std::wstring parseError;
+    if (ParsePayloadJson(environmentPayload, &candidate, &parseError) &&
+        ValidatePayload(candidate, &parseError)) {
+      selectedPayload = candidate;
+      payloadText = environmentPayload;
+      payloadSource = L"env:GUFA_FLOAT_PAYLOAD";
+    } else {
+      LogFmt(L"payload-env-invalid reason=%s", parseError.c_str());
+    }
   }
 
-  // payload 是 argv[1] 的完整拷贝；CommandLineToArgvW 的内存可以提前释放。
-  std::wstring payloadText = firstArgument;
-  if (firstArgument == L"--ci-probe") payloadText = L"{\"ciProbe\":true}";
-  LocalFree(arguments);
-  arguments = nullptr;
+  if (payloadText.empty()) {
+    const bool nothingProvided = argumentPayload.empty() && environmentPayload.empty();
+    const std::wstring reason = nothingProvided ? std::wstring(L"missing-payload")
+                                                : std::wstring(L"invalid-payload");
+    if (nothingProvided) Log(L"missing-payload-argument");
+    LogFmt(L"payload-unusable reason=%s", reason.c_str());
+    // 参数可能被 shell 拼坏：尽量从原始文本里救出 ciProbeOut，先落一个 ok:false 的探针文件。
+    std::wstring probePath = ExtractStringFieldLoose(environmentPayload, L"ciProbeOut");
+    if (probePath.empty()) probePath = ExtractStringFieldLoose(argumentPayload, L"ciProbeOut");
+    if (!probePath.empty()) {
+      const std::wstring line = BuildCiProbeLine(false, false, reason);
+      WriteStdout(line + L"\n");
+      const bool wrote = WriteFileUtf8(probePath, line + L"\n");
+      LogFmt(L"ciprobe-out-early path=%s wrote=%d reason=%s", probePath.c_str(),
+             wrote ? 1 : 0, reason.c_str());
+    }
+    return 2;
+  }
+  LogFmt(L"payload-source=%s length=%zu ciProbe=%d ciProbeOut=%s", payloadSource.c_str(),
+         payloadText.size(), selectedPayload.ciProbe ? 1 : 0,
+         selectedPayload.ciProbeOut.c_str());
 
   EnableDpiAwareness();
 
   const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   if (FAILED(comResult)) {
     LogFmt(L"com-init-failed hr=%08lX", static_cast<unsigned long>(comResult));
+    if (selectedPayload.ciProbe && !selectedPayload.ciProbeOut.empty()) {
+      const std::wstring line = BuildCiProbeLine(false, false, L"com-init-failed");
+      WriteStdout(line + L"\n");
+      const bool wrote = WriteFileUtf8(selectedPayload.ciProbeOut, line + L"\n");
+      LogFmt(L"ciprobe-out-early path=%s wrote=%d reason=com-init-failed",
+             selectedPayload.ciProbeOut.c_str(), wrote ? 1 : 0);
+    }
     return 1;
   }
 
@@ -1971,13 +2211,23 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previousInstance, PWSTR comman
   {
     FloatApp app;
     if (!app.ParseCommandLine(payloadText)) {
+      Log(L"payload-parse-failed-after-preselect");
+      if (selectedPayload.ciProbe && !selectedPayload.ciProbeOut.empty()) {
+        const std::wstring line = BuildCiProbeLine(false, false, L"invalid-payload");
+        WriteStdout(line + L"\n");
+        const bool wrote = WriteFileUtf8(selectedPayload.ciProbeOut, line + L"\n");
+        LogFmt(L"ciprobe-out-early path=%s wrote=%d reason=invalid-payload",
+               selectedPayload.ciProbeOut.c_str(), wrote ? 1 : 0);
+      }
       exitCode = 2;
     } else if (!app.CreateMainWindow()) {
       if (app.IsCiProbe()) {
-        const std::wstring line =
-            BuildCiProbeLine(false, false, L"create-main-window-failed");
+        const std::wstring probePath = app.CiProbeOutputPath();
+        const std::wstring line = BuildCiProbeLine(false, false, L"create-main-window-failed");
         WriteStdout(line + L"\n");
-        WriteFileUtf8(app.CiProbeOutputPath(), line + L"\n");
+        const bool wrote = WriteFileUtf8(probePath, line + L"\n");
+        LogFmt(L"ciprobe-out-early path=%s wrote=%d reason=create-main-window-failed",
+               probePath.c_str(), wrote ? 1 : 0);
         exitCode = 1;
       } else {
         exitCode = 3;
@@ -1985,6 +2235,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previousInstance, PWSTR comman
     } else {
       app.Start();
       exitCode = app.RunMessageLoop();
+      // 兜底：ciProbe 进程结束了但没写结果（例如 WebView2 回调一直没来）也要留下探针文件。
+      app.EnsureCiProbeResultWritten(L"exited-without-probe-result");
     }
   }
 
