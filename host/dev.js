@@ -255,7 +255,7 @@ export function register(router, env) {
     const authUrl = connection.authenticatedUrl(`${base}/`)
     const state = body !== null && typeof body === 'object' && body.state !== null && typeof body.state === 'object' ? body.state : null
     try {
-      debugLog(`float-start-state project=${String(state !== null && state.projectRoot) } tabs=${state !== null && Array.isArray(state.tabs) ? state.tabs.length : 'none'} active=${state !== null && typeof state.activePath === 'string' ? state.activePath : 'none'} session=${state !== null && typeof state.sessionId === 'string' ? state.sessionId : 'none'}`)
+      debugLog(`float-start-state project=${String(state !== null && state.projectRoot) } tabs=${state !== null && Array.isArray(state.tabs) ? state.tabs.length : 'none'} active=${state !== null && typeof state.activePath === 'string' ? state.activePath : 'none'} ui=${state !== null && state.ui !== null && typeof state.ui === 'object' ? JSON.stringify(state.ui) : 'none'} session=${state !== null && typeof state.sessionId === 'string' ? state.sessionId : 'none'}`)
     } catch {
       /* ignore */
     }

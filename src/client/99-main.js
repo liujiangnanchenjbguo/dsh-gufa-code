@@ -265,12 +265,21 @@ const GUFA_PLUGIN = {
                   } else {
                     void G.api('dev.log', { message: `float-restore-failed projectValue=${projectValue === null ? 'null' : 'ok'} ref=${restore !== null && restore !== undefined}` }).catch(() => {})
                   }
-                  await new Promise((resolve) => setTimeout(resolve, 350))
+                  /* 先恢复 UI 面板状态（终端/视图等） */
+                  try {
+                    if (typeof G.floatApplyUiRef === 'function' && state.ui !== null && typeof state.ui === 'object') G.floatApplyUiRef(state.ui)
+                  } catch {
+                    /* ignore */
+                  }
+                  await new Promise((resolve) => setTimeout(resolve, 500))
                   const ordered = typeof state.activePath === 'string' && state.activePath !== ''
                     ? paths.filter((path) => path !== state.activePath).concat([state.activePath])
                     : paths
-                  const openFile = restore !== null && restore !== undefined && typeof restore.openFile === 'function' ? restore.openFile : null
-                  if (openFile !== null) {
+                  /* 关键：applyProject 之后 App 已重渲染，必须重新取最新的 openFile（旧闭包里 project 还是 null） */
+                  for (let attempt = 0; attempt < 3 && ordered.length > 0; attempt += 1) {
+                    const latest = G.floatRestoreRef
+                    const openFile = latest !== null && latest !== undefined && typeof latest.openFile === 'function' ? latest.openFile : null
+                    if (openFile === null) break
                     for (const path of ordered.slice(0, 10)) {
                       try {
                         await openFile(path)
@@ -278,6 +287,9 @@ const GUFA_PLUGIN = {
                         /* ignore */
                       }
                     }
+                    await new Promise((resolve) => setTimeout(resolve, 250))
+                    const tabsNow = typeof G.floatGetTabs === 'function' ? G.floatGetTabs().length : -1
+                    if (tabsNow >= ordered.length) break
                   }
                   if (typeof state.sessionId === 'string' && state.sessionId !== '') {
                     try {

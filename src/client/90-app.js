@@ -1016,21 +1016,30 @@ G.GufaApp = function GufaApp(props) {
           if (projectValue !== null && restore !== null && restore !== undefined && typeof restore.applyProject === 'function') {
             restore.applyProject(projectValue)
           }
-          await new Promise((resolve) => setTimeout(resolve, 350))
+          try {
+            if (typeof G.floatApplyUiRef === 'function' && state.ui !== null && typeof state.ui === 'object') G.floatApplyUiRef(state.ui)
+          } catch {
+            /* ignore */
+          }
+          await new Promise((resolve) => setTimeout(resolve, 500))
           const paths = Array.isArray(state.tabs) ? state.tabs.filter((path) => typeof path === 'string' && path !== '') : []
           const ordered = typeof state.activePath === 'string' && state.activePath !== ''
             ? paths.filter((path) => path !== state.activePath).concat([state.activePath])
             : paths
-          const openFileFn = restore !== null && restore !== undefined && typeof restore.openFile === 'function' ? restore.openFile : null
-          if (openFileFn !== null) {
-            for (const path of ordered.slice(0, 10)) {
-              try {
-                await openFileFn(path)
-              } catch {
-                /* ignore */
-              }
+          /* applyProject 后 App 已重渲染：重新取 openFile（旧闭包里 project 可能是 null） */
+          let openedCount = 0
+          for (const path of ordered.slice(0, 10)) {
+            const latest = G.floatRestoreRef
+            const openFileFn = latest !== null && latest !== undefined && typeof latest.openFile === 'function' ? latest.openFile : null
+            if (openFileFn === null) break
+            try {
+              await openFileFn(path)
+              openedCount += 1
+            } catch {
+              /* ignore */
             }
           }
+          void G.api('dev.log', { message: `moyu-exit-applied project=${String(state.projectRoot)} tabs=${openedCount} ui=${JSON.stringify(state.ui ?? null)}` }).catch(() => {})
           if (typeof state.sessionId === 'string' && state.sessionId !== '') {
             try {
               const workspace = G.ctx === null || G.ctx === undefined ? undefined : G.ctx.get('uiWorkspace')
@@ -1698,10 +1707,20 @@ G.GufaApp = function GufaApp(props) {
   /* 悬浮层恢复入口：主窗口把状态带过来后，由 99-main 显式调用（不依赖 App 自己的启动时序） */
   useEffect(() => {
     G.floatRestoreRef = { applyProject, openFile }
+    G.floatGetTabs = () => tabs
+    G.floatApplyUiRef = (nextUi) => {
+      if (nextUi === null || nextUi === undefined || typeof nextUi !== 'object') return
+      patchUi({
+        view: typeof nextUi.view === 'string' ? nextUi.view : undefined,
+        chatOpen: typeof nextUi.chatOpen === 'boolean' ? nextUi.chatOpen : undefined,
+        terminalOpen: typeof nextUi.terminalOpen === 'boolean' ? nextUi.terminalOpen : undefined,
+        sidebarOpen: typeof nextUi.sidebarOpen === 'boolean' ? nextUi.sidebarOpen : undefined,
+      })
+    }
     return () => {
       if (G.floatRestoreRef !== undefined && G.floatRestoreRef !== null && G.floatRestoreRef.applyProject === applyProject) G.floatRestoreRef = null
     }
-  }, [applyProject, openFile])
+  }, [applyProject, openFile, tabs])
 
   const activeFileForChat = useMemo(() => {
     if (activeTab === null || activeTab.kind === 'diff' || activeTab.kind === 'graph') return null
