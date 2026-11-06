@@ -108,6 +108,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 @property (nonatomic, strong) NSStatusItem *statusItem;
 @property (nonatomic, strong) NSMenu *mainMenu;
 @property (nonatomic, strong) GufaDragStrip *dragStrip;
+@property (nonatomic, assign) BOOL cachesCleared;
 @property (nonatomic, strong) NSString *controlPath;
 @property (nonatomic, strong) NSTimer *controlTimer;
 @property (nonatomic, assign) BOOL clickThrough;
@@ -128,6 +129,8 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 - (void)findFollowWindowWithRetries:(NSInteger)attempt;
 - (void)exitMoyu:(id)sender;
 - (void)restoreMainWindow;
+- (void)clearWebCachesThenLoad;
+- (void)performInitialLoad;
 - (void)watchControlFile;
 - (void)gracefulExit;
 - (void)toggleClickThrough:(id)sender;
@@ -281,9 +284,9 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.window.hasShadow = YES;
     /* 高于普通浮动窗口（歌词、置顶小工具等），确保真正盖住被跟随的 App */
     self.window.level = NSStatusWindowLevel;
+    /* 不要 Stationary：它会让窗口停在原来的 Space，摸鱼的 App 在别的 Space 时窗口看不见 */
     self.window.collectionBehavior = (NSWindowCollectionBehaviorCanJoinAllSpaces
                                       | NSWindowCollectionBehaviorFullScreenAuxiliary
-                                      | NSWindowCollectionBehaviorStationary
                                       | NSWindowCollectionBehaviorIgnoresCycle);
     self.window.minSize = NSMakeSize(520, 360);
     self.window.title = @"古法编程悬浮层";
@@ -346,8 +349,17 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.dragStrip = strip;
 
     self.window.contentView = container;
+    if (self.window.frame.size.width < 400 || self.window.frame.size.height < 300) {
+        NSRect visible = NSScreen.mainScreen.visibleFrame;
+        CGFloat width = MIN(1180, visible.size.width * 0.86);
+        CGFloat height = MIN(820, visible.size.height * 0.86);
+        [self.window setFrame:NSMakeRect(visible.origin.x + (visible.size.width - width) / 2.0,
+                                        visible.origin.y + (visible.size.height - height) / 2.0,
+                                        width, height) display:YES];
+    }
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+    GufaLog(@"window-frame %@ visible=%d level=%ld activeSpace=%d screen=%@ alpha=%.2f", NSStringFromRect(self.window.frame), self.window.isVisible ? 1 : 0, (long)self.window.level, self.window.isOnActiveSpace ? 1 : 0, self.window.screen == nil ? @"nil" : NSStringFromRect(self.window.screen.frame), self.window.alphaValue);
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveFrame) name:NSWindowDidEndLiveResizeNotification object:self.window];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveFrame) name:NSWindowDidMoveNotification object:self.window];
 }
@@ -405,6 +417,49 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         [js appendString:@"localStorage.setItem('gufa-code:float','1');location.href='/?gufa-float=1';}catch(e){}"];
         [self.webView evaluateJavaScript:js completionHandler:nil];
     };
+    [self clearWebCachesThenLoad];
+
+    /* 诊断：6 秒后记录页面地址/标题/正文摘要，便于定位空白窗口 */
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSString *probe = @"(function(){try{var o=document.querySelector('.gufa-overlay-root');var g=(window.__GUFA_CODE__&&window.__GUFA_CODE__.G)||null;return JSON.stringify({href:location.href,build:g?g.BUILD:null,overlay:!!o,vis:o?getComputedStyle(o).visibility:'',body:(document.body?document.body.innerText:'').slice(0,260),tabs:Array.prototype.map.call(document.querySelectorAll('.gufa-tab'),function(n){return (n.textContent||'').trim();}).slice(0,8)});}catch(e){return 'probe-error:'+e;}})()";
+        [self.webView evaluateJavaScript:probe completionHandler:^(id result, NSError *error) {
+            GufaLog(@"page-probe %@ err=%@", result ?: @"nil", error.localizedDescription ?: @"none");
+        }];
+    });
+
+    /* 内部 QA：payload.selftest 是一段 JS，页面打开后在悬浮窗里跑一遍并写回诊断日志（仅开发用，不影响 UI） */
+    NSString *selftest = [self.options[@"selftest"] isKindOfClass:[NSString class]] ? self.options[@"selftest"] : nil;
+    if (selftest.length > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self.webView evaluateJavaScript:selftest completionHandler:^(id result, NSError *error) {
+                if (error != nil) GufaLog(@"selftest-script-error %@", error.localizedDescription ?: @"?");
+            }];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self.webView evaluateJavaScript:@"JSON.stringify(window.__gufaSelftest||{step:'none'})" completionHandler:^(id result, NSError *error) {
+                    GufaLog(@"selftest %@", result ?: @"nil");
+                }];
+            });
+        });
+    }
+
+}
+
+/* 清 Web 缓存（保留 cookie/localStorage 不行——要清 localStorage 才能保证状态注入生效）。
+   完成后再真正加载页面。 */
+- (void)clearWebCachesThenLoad {
+    if (self.cachesCleared) return;
+    self.cachesCleared = YES;
+    /* 清掉全部 Web 数据（含 cookies——随后用 token URL 重新种 cookie），确保拿到最新客户端代码 */
+    NSSet<NSString *> *types = [WKWebsiteDataStore allWebsiteDataTypes];
+    [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:types modifiedSince:[NSDate dateWithTimeIntervalSince1970:0] completionHandler:^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self performInitialLoad];
+        });
+    }];
+}
+
+- (void)performInitialLoad {
+    NSString *authUrl = self.options[@"authUrl"];
     NSString *cookie = [self.options[@"cookie"] isKindOfClass:[NSString class]] ? self.options[@"cookie"] : nil;
     if (cookie.length > 0) {
         NSRange eq = [cookie rangeOfString:@"="];
@@ -426,26 +481,11 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
                     components.queryItems = @[[NSURLQueryItem queryItemWithName:@"gufa-float" value:@"1"]];
                     [self.webView loadRequest:[NSURLRequest requestWithURL:components.URL]];
                 }];
+                return;
             }
         }
-    } else {
-        [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:authUrl]]];
     }
-    /* 内部 QA：payload.selftest 是一段 JS，页面打开后在悬浮窗里跑一遍并写回诊断日志（仅开发用，不影响 UI） */
-    NSString *selftest = [self.options[@"selftest"] isKindOfClass:[NSString class]] ? self.options[@"selftest"] : nil;
-    if (selftest.length > 0) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self.webView evaluateJavaScript:selftest completionHandler:^(id result, NSError *error) {
-                if (error != nil) GufaLog(@"selftest-script-error %@", error.localizedDescription ?: @"?");
-            }];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [self.webView evaluateJavaScript:@"JSON.stringify(window.__gufaSelftest||{step:'none'})" completionHandler:^(id result, NSError *error) {
-                    GufaLog(@"selftest %@", result ?: @"nil");
-                }];
-            });
-        });
-    }
-
+    [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:authUrl ?: @""]]];
 }
 
 - (void)saveFrame {

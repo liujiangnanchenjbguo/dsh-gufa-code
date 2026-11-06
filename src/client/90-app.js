@@ -192,8 +192,11 @@ G.GufaApp = function GufaApp(props) {
     return Array.isArray(parsed) ? parsed : []
   }, [recentSessionsJson])
 
+  /* 摸鱼窗口：主窗口注入的状态（项目/UI/标签页/会话） */
+  const floatState = G.floatState
   const [ui, setUi] = useState(() => {
-    const saved = readJson(GUFA_LS.ui) ?? {}
+    const fromFloat = floatState !== null && floatState !== undefined && floatState.ui !== null && typeof floatState.ui === 'object' ? floatState.ui : null
+    const saved = fromFloat ?? readJson(GUFA_LS.ui) ?? {}
     return {
       view: typeof saved.view === 'string' ? saved.view : 'explorer',
       chatOpen: saved.chatOpen !== false,
@@ -915,7 +918,7 @@ G.GufaApp = function GufaApp(props) {
           .filter((tab) => tab !== null && tab !== undefined && typeof tab.path === 'string' && tab.kind !== 'diff' && tab.kind !== 'graph')
           .map((tab) => tab.path)
           .slice(0, 10),
-        ui: readJson(GUFA_LS.ui) ?? {},
+        ui: ui,
         sessionId: typeof currentSessionId === 'string' ? currentSessionId : null,
       }
       const value = await G.api('float.start', {
@@ -965,7 +968,7 @@ G.GufaApp = function GufaApp(props) {
           .filter((tab) => tab !== null && tab !== undefined && typeof tab.path === 'string' && tab.kind !== 'diff' && tab.kind !== 'graph')
           .map((tab) => tab.path)
           .slice(0, 10),
-        ui: readJson(GUFA_LS.ui) ?? {},
+        ui: ui,
         sessionId: typeof currentSessionId === 'string' ? currentSessionId : null,
       }
       await G.api('float.saveExitState', { state })
@@ -976,7 +979,7 @@ G.GufaApp = function GufaApp(props) {
     } finally {
       setFloatBusy(false)
     }
-  }, [floatBusy, project, activePath, tabs, currentSessionId])
+  }, [floatBusy, project, activePath, tabs, currentSessionId, ui])
 
   /* 主窗口回到前台时：取回退出摸鱼时的状态（项目/标签页/会话） */
   const consumeExitStateRef = useRef(false)

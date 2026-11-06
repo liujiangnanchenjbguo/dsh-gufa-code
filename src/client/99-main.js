@@ -244,10 +244,12 @@ const GUFA_PLUGIN = {
             window.clearInterval(timer)
             /* 显式恢复主窗口状态（项目 → 标签页 → 会话），避免依赖 Web 版 App 的启动时序 */
             try {
+              void G.api('dev.log', { message: `float-boot hasState=${G.floatState !== null && G.floatState !== undefined} restoreRef=${G.floatRestoreRef !== null && G.floatRestoreRef !== undefined} state=${G.floatState === null || G.floatState === undefined ? 'null' : JSON.stringify({ projectRoot: G.floatState.projectRoot, tabs: Array.isArray(G.floatState.tabs) ? G.floatState.tabs.length : 0, activePath: G.floatState.activePath })}` }).catch(() => {})
               if (window.__gufaFloatRestored !== true && G.floatState !== null && G.floatState !== undefined) {
                 window.__gufaFloatRestored = true
                 void (async () => {
                   const state = G.floatState
+                  const paths = Array.isArray(state.tabs) ? state.tabs.filter((path) => typeof path === 'string' && path !== '') : []
                   let projectValue = null
                   if (typeof state.projectRoot === 'string' && state.projectRoot !== '') {
                     try {
@@ -259,9 +261,11 @@ const GUFA_PLUGIN = {
                   const restore = G.floatRestoreRef
                   if (projectValue !== null && restore !== null && restore !== undefined && typeof restore.applyProject === 'function') {
                     restore.applyProject(projectValue)
+                    void G.api('dev.log', { message: `float-restore project=${String(projectValue.root)} tabs=${paths.length}` }).catch(() => {})
+                  } else {
+                    void G.api('dev.log', { message: `float-restore-failed projectValue=${projectValue === null ? 'null' : 'ok'} ref=${restore !== null && restore !== undefined}` }).catch(() => {})
                   }
                   await new Promise((resolve) => setTimeout(resolve, 350))
-                  const paths = Array.isArray(state.tabs) ? state.tabs.filter((path) => typeof path === 'string' && path !== '') : []
                   const ordered = typeof state.activePath === 'string' && state.activePath !== ''
                     ? paths.filter((path) => path !== state.activePath).concat([state.activePath])
                     : paths

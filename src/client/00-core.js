@@ -1090,6 +1090,15 @@ html[data-gufa-float] .gufa-root{
   --gufa-solid-sidebar:rgba(18,20,24,var(--gufa-float-alpha))!important;
 }
 html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
+/* 摸鱼模式不显示皮肤（梁圣）背景：包括古法自己的复刻层和第三方皮肤插件在 body/html 上画的层 */
+html[data-gufa-float] body,
+html[data-gufa-float] #root{background-image:none!important;background-color:transparent!important}
+html[data-gufa-float] .liang-skin-backdrop,
+html[data-gufa-float] .liang-ambient,
+html[data-gufa-float] .liang-skin-portrait,
+html[data-gufa-float] .liang-skin-root,
+html[data-gufa-float] #root>[class*="skin"],
+html[data-gufa-float] #root>[class*="backdrop"]{display:none!important}
 /* 摸鱼模式不显示皮肤（梁圣）背景 */
 html[data-gufa-float] .gufa-backdrop,
 html[data-gufa-float] .gufa-backdrop-page,
