@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.44'
+G.BUILD = '1.3.48'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1173,13 +1173,14 @@ html[data-gufa-float] .gufa-backdrop,
 html[data-gufa-float] .gufa-backdrop-page,
 html[data-gufa-float] .gufa-backdrop-glow,
 html[data-gufa-float] .gufa-backdrop-portrait{display:none!important}
-/* 悬浮模式：右侧停靠的官方会话内部也跟随透明度滑块 */
+/* 悬浮模式：右侧停靠的官方会话根节点不再自己画底（整窗只有覆盖层那一层），
+   否则会和覆盖层叠成两层，会话框看起来明显更黑更实 */
 html[data-gufa-float] [data-gufa-dock]{
-  --dsw-alias-bg-base:rgba(13,15,19,var(--gufa-float-alpha));
-  --dsw-alias-bg-layer-1:rgba(20,22,27,var(--gufa-float-alpha));
-  --dsw-alias-bg-layer-2:rgba(26,28,34,var(--gufa-float-alpha));
-  --dsw-alias-bg-overlay:rgba(30,33,40,calc(var(--gufa-float-alpha) + 0.17));
-  background:rgba(13,15,19,var(--gufa-float-alpha))!important;
+  --dsw-alias-bg-base:transparent!important;
+  --dsw-alias-bg-layer-1:transparent!important;
+  --dsw-alias-bg-layer-2:transparent!important;
+  --dsw-alias-bg-overlay:transparent!important;
+  background:transparent!important;
 }
 html[data-gufa-float] [data-gufa-dock] [data-conversation-scroll],
 html[data-gufa-float] [data-gufa-dock] [data-conversation-content]{background:transparent!important}
@@ -12746,6 +12747,62 @@ const GUFA_PLUGIN = {
             window.clearInterval(timer)
             /* 显式恢复主窗口状态（项目 → 标签页 → 会话），避免依赖 Web 版 App 的启动时序 */
             try {
+              /* 诊断：找出某个点上所有「会画背景」的元素（含 pointer-events:none 的覆盖层） */
+              try {
+                const describe = (el) => {
+                  const cs = window.getComputedStyle(el)
+                  const cls = typeof el.className === 'string' ? el.className.replace(/\s+/g, '.').slice(0, 32) : ''
+                  const r = el.getBoundingClientRect()
+                  return `${el.tagName.toLowerCase()}.${cls}[bg=${cs.backgroundColor} op=${cs.opacity} z=${cs.zIndex} pe=${cs.pointerEvents} bf=${cs.backdropFilter !== 'none' ? 'Y' : ''} img=${cs.backgroundImage !== 'none' ? 'Y' : ''}]@${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`
+                }
+                const paintersAt = (x, y) => {
+                  const out = []
+                  for (const el of document.querySelectorAll('body *')) {
+                    const r = el.getBoundingClientRect()
+                    if (!(x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) continue
+                    const cs = window.getComputedStyle(el)
+                    if (cs.backgroundColor !== 'rgba(0, 0, 0, 0)' || cs.backgroundImage !== 'none' || cs.backdropFilter !== 'none') {
+                      out.push(describe(el) + (el.closest('.gufa-overlay-root') === null ? ' [OUTSIDE]' : ''))
+                      if (out.length >= 18) break
+                    }
+                  }
+                  return out.join(' || ')
+                }
+                const w = window.innerWidth
+                const h = window.innerHeight
+                void G.api('dev.log', { message: `float-painters chat=[${paintersAt(Math.round(w * 0.92), Math.round(h * 0.35))}]` }).catch(() => {})
+              } catch {
+                /* ignore */
+              }
+              /* 诊断：从像素点反查元素链，找出右侧会话框多出来的深色层 */
+              try {
+                const desc = (el) => {
+                  if (el === null || el === undefined) return 'null'
+                  const cs = window.getComputedStyle(el)
+                  const cls = typeof el.className === 'string' ? el.className.replace(/\s+/g, '.').slice(0, 40) : ''
+                  const img = cs.backgroundImage === 'none' ? '' : ` img=${cs.backgroundImage.slice(0, 50)}`
+                  const bf = cs.backdropFilter === 'none' ? '' : ` bf=${cs.backdropFilter}`
+                  return `${el.tagName.toLowerCase()}.${cls}[bg=${cs.backgroundColor} op=${cs.opacity}${img}${bf}]`
+                }
+                const chain = (x, y) => {
+                  let el = document.elementFromPoint(x, y)
+                  const parts = []
+                  for (let i = 0; i < 7 && el !== null; i += 1) {
+                    parts.push(desc(el))
+                    const before = window.getComputedStyle(el, '::before').backgroundColor
+                    if (before !== 'rgba(0, 0, 0, 0)' && before !== 'transparent') parts.push(`::before=${before}`)
+                    el = el.parentElement
+                  }
+                  return parts.join(' <- ')
+                }
+                const w = window.innerWidth
+                const h = window.innerHeight
+                void G.api('dev.log', {
+                  message: `float-probe editor=[${chain(Math.round(w * 0.45), Math.round(h * 0.55))}] chat=[${chain(Math.round(w * 0.92), Math.round(h * 0.4))}]`,
+                }).catch(() => {})
+              } catch {
+                /* ignore */
+              }
               /* 诊断：找出会话框里非透明的背景元素（排查透明度不一致） */
               try {
                 const chat = document.querySelector('.gufa-chatpane')

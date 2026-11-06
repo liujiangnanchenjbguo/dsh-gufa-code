@@ -1165,13 +1165,14 @@ html[data-gufa-float] .gufa-backdrop,
 html[data-gufa-float] .gufa-backdrop-page,
 html[data-gufa-float] .gufa-backdrop-glow,
 html[data-gufa-float] .gufa-backdrop-portrait{display:none!important}
-/* 悬浮模式：右侧停靠的官方会话内部也跟随透明度滑块 */
+/* 悬浮模式：右侧停靠的官方会话根节点不再自己画底（整窗只有覆盖层那一层），
+   否则会和覆盖层叠成两层，会话框看起来明显更黑更实 */
 html[data-gufa-float] [data-gufa-dock]{
-  --dsw-alias-bg-base:rgba(13,15,19,var(--gufa-float-alpha));
-  --dsw-alias-bg-layer-1:rgba(20,22,27,var(--gufa-float-alpha));
-  --dsw-alias-bg-layer-2:rgba(26,28,34,var(--gufa-float-alpha));
-  --dsw-alias-bg-overlay:rgba(30,33,40,calc(var(--gufa-float-alpha) + 0.17));
-  background:rgba(13,15,19,var(--gufa-float-alpha))!important;
+  --dsw-alias-bg-base:transparent!important;
+  --dsw-alias-bg-layer-1:transparent!important;
+  --dsw-alias-bg-layer-2:transparent!important;
+  --dsw-alias-bg-overlay:transparent!important;
+  background:transparent!important;
 }
 html[data-gufa-float] [data-gufa-dock] [data-conversation-scroll],
 html[data-gufa-float] [data-gufa-dock] [data-conversation-content]{background:transparent!important}

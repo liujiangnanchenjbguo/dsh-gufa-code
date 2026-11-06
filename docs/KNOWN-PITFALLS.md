@@ -104,6 +104,16 @@
      `SLSAddWindowsToSpaces` 把自己的窗口加进去（实测 `use-active-space=8234 err=0`）。
   3. 私有 API 全部 dlsym，符号缺失时只记日志不影响主流程。
 
+## 5.1 摸鱼会话框比编辑器黑：官方会话根节点自己又画了一层底
+
+- 现象：摸鱼里编辑器/终端都统一了，右侧会话框看起来明显更黑更实。
+- 实测（同屏同底层对比法）：编辑器有效 alpha=0.570，会话框=0.878 → 会话框多叠了一层 ~0.72 的暗底。
+- 根因：官方会话根节点（被 60-dock 停靠的 `div.kiGsTW_root`）带 `[data-gufa-dock]` 且自带 `background`（旧规则
+  `html[data-gufa-float] [data-gufa-dock]{background:rgba(13,15,19,var(--gufa-float-alpha))!important}` 在样式表**后面**，
+  覆盖了前面的 transparent 规则）。
+- 定案：该规则改为 `background:transparent!important` + `--dsw-alias-bg-*` 全 transparent；
+  摸鱼整窗只允许 `.gufa-overlay-root` 一层底色。验证：`float-painters` 只剩 overlay-root 一个绘制者，实测会话框 alpha=0.570。
+
 ## 5. 摸鱼窗口的 Space 固定（不要用 canJoinAllSpaces）
 
 - 现象：摸鱼窗吸附第二屏的 App，用户在主屏滑动切 Space 时，摸鱼窗也跟着出现在当前屏。
