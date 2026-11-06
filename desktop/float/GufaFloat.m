@@ -11,6 +11,7 @@
  */
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
+#include <dlfcn.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <Carbon/Carbon.h>
@@ -44,6 +45,8 @@ static AXUIElementRef GufaCopyAXWindow(pid_t pid, NSString *title);
 static BOOL GufaRectFromAX(AXUIElementRef element, NSRect *out);
 static void GufaActivateBundle(NSString *bundleId);
 static BOOL GufaAXWindowFullScreen(AXUIElementRef window);
+static CGWindowID GufaAXWindowNumber(AXUIElementRef window);
+static int GufaMoveWindowToTargetSpace(NSWindow *window, AXUIElementRef targetWindow);
 static void GufaLogOwnWindowState(NSString *tag);
 static void GufaSetMainAppHidden(BOOL hidden);
 static NSArray<NSDictionary *> *GufaAXApps(void);
@@ -164,16 +167,25 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [self parseOptions];
     if ([self.options[@"controlPath"] isKindOfClass:[NSString class]]) self.controlPath = self.options[@"controlPath"];
     [self watchControlFile];
-    [self buildWindow];
-    [self buildStatusItem];
-    [self registerToggleHotKey];
+    /* 先激活目标 App：等它切到自己的 Space/全屏 Space 后再创建悬浮窗，
+       窗口就会直接创建在目标 Space 里（全屏 App 吸附的关键）。 */
+    BOOL hasFollow = [self.options[@"follow"] isKindOfClass:[NSDictionary class]];
     [self activateTargetApp];
-    /* 摸鱼：等目标 App 到前台后隐藏 DSH 主窗口（⌘H 效果） */
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        GufaSetMainAppHidden(YES);
+    NSTimeInterval delay = hasFollow ? 0.9 : 0.0;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        if (self == nil) return;
+        [self buildWindow];
+        [self buildStatusItem];
+        [self registerToggleHotKey];
+        /* 摸鱼：等目标 App 到前台后隐藏 DSH 主窗口（⌘H 效果） */
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            GufaSetMainAppHidden(YES);
+        });
+        [self beginningFollowFromOptions];
+        [self loadWebContent];
     });
-    [self beginningFollowFromOptions];
-    [self loadWebContent];
 }
 
 /** 吸附目标 App：把它切到前台（主窗口自然被盖住 + 切到它所在的 Space）。 */
@@ -270,8 +282,13 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     if (self.window == nil) return;
     NSWindowCollectionBehavior base = (NSWindowCollectionBehaviorFullScreenAuxiliary
                                       | NSWindowCollectionBehaviorIgnoresCycle);
+    /* 首选：SkyLight 直接把窗口放进目标 App 窗口所在的 Space（全屏/多屏最可靠） */
+    int moveErr = GufaMoveWindowToTargetSpace(self.window, self.followWindowRef);
+    (void)moveErr;
+    /* 兜底：MoveToActiveSpace 排序到前台 */
     self.window.collectionBehavior = base | NSWindowCollectionBehaviorMoveToActiveSpace;
     [self.window orderFrontRegardless];
+    [self.window makeKeyWindow];
     GufaLog(@"space-jump moveToActiveSpace screen=%@", self.window.screen == nil ? @"nil" : NSStringFromRect(self.window.screen.frame));
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -543,6 +560,74 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 - (void)saveFrame {
     if (self.window == nil) return;
     [[NSUserDefaults standardUserDefaults] setObject:NSStringFromRect(self.window.frame) forKey:self.frameKey];
+}
+
+static CGWindowID GufaAXWindowNumber(AXUIElementRef window) {
+    if (window == NULL) return 0;
+    CFTypeRef value = NULL;
+    if (AXUIElementCopyAttributeValue(window, CFSTR("AXWindowNumber"), &value) != kAXErrorSuccess || value == NULL) return 0;
+    CGWindowID number = 0;
+    if (CFGetTypeID(value) == CFNumberGetTypeID()) CFNumberGetValue((CFNumberRef)value, kCFNumberSInt32Type, &number);
+    CFRelease(value);
+    return number;
+}
+
+/* 用 SkyLight 私有 API 把窗口移动/加入到目标窗口所在的 Space。
+   这比 collectionBehavior 的 MoveToActiveSpace 可靠（全屏 Space / 多屏下窗口不动的问题）。 */
+static int GufaMoveWindowToTargetSpace(NSWindow *window, AXUIElementRef targetWindow) {
+    if (window == nil || targetWindow == NULL) return -1;
+    CGWindowID targetWid = GufaAXWindowNumber(targetWindow);
+    CGWindowID ownWid = (CGWindowID)window.windowNumber;
+    if (ownWid == 0) {
+        GufaLog(@"space-move skip ownWid=0");
+        return -2;
+    }
+    GufaLog(@"space-move start targetWid=%u ownWid=%u", targetWid, ownWid);
+    void *handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY);
+    if (handle == NULL) {
+        GufaLog(@"space-move dlopen-failed %s", dlerror());
+        return -3;
+    }
+    typedef int (*MainConnectionFn)(void);
+    typedef uint64_t (*GetActiveSpaceFn)(int);
+    typedef int (*GetWindowWorkspaceFn)(int, CGWindowID, uint64_t *);
+    typedef int (*AddWindowsToSpacesFn)(int, CFArrayRef, CFArrayRef);
+    MainConnectionFn mainConn = (MainConnectionFn)dlsym(handle, "SLSMainConnectionID");
+    if (mainConn == NULL) mainConn = (MainConnectionFn)dlsym(handle, "CGSMainConnectionID");
+    GetWindowWorkspaceFn getWorkspace = (GetWindowWorkspaceFn)dlsym(handle, "SLSGetWindowWorkspace");
+    if (getWorkspace == NULL) getWorkspace = (GetWindowWorkspaceFn)dlsym(handle, "CGSGetWindowWorkspace");
+    GetActiveSpaceFn getActiveSpace = (GetActiveSpaceFn)dlsym(handle, "SLSGetActiveSpace");
+    if (getActiveSpace == NULL) getActiveSpace = (GetActiveSpaceFn)dlsym(handle, "CGSGetActiveSpace");
+    AddWindowsToSpacesFn addWindows = (AddWindowsToSpacesFn)dlsym(handle, "SLSAddWindowsToSpaces");
+    if (addWindows == NULL) addWindows = (AddWindowsToSpacesFn)dlsym(handle, "CGSAddWindowsToSpaces");
+    if (mainConn == NULL || getWorkspace == NULL || addWindows == NULL) {
+        GufaLog(@"space-move symbols missing main=%d get=%d add=%d", mainConn != NULL, getWorkspace != NULL, addWindows != NULL);
+        dlclose(handle);
+        return -4;
+    }
+    int cid = mainConn();
+    uint64_t targetSpace = 0;
+    if (targetWid != 0 && getWorkspace != NULL) {
+        int getErr = getWorkspace(cid, targetWid, &targetSpace);
+        if (getErr != 0) GufaLog(@"space-move target-workspace failed err=%d", getErr);
+    }
+    if (targetSpace == 0 && getActiveSpace != NULL) {
+        /* 拿不到目标窗口 id（AX 不暴露 AXWindowNumber）时，目标 App 已激活，
+           直接把我们的窗口加进当前活动 Space（= 目标 App 的 Space） */
+        targetSpace = getActiveSpace(cid);
+        GufaLog(@"space-move use-active-space=%llu", (unsigned long long)targetSpace);
+    }
+    if (targetSpace == 0) {
+        GufaLog(@"space-move no-target-space (targetWid=%u activeSpaceApi=%d)", targetWid, getActiveSpace != NULL);
+        dlclose(handle);
+        return -5;
+    }
+    CFArrayRef windows = (__bridge CFArrayRef)@[@(ownWid)];
+    CFArrayRef spaces = (__bridge CFArrayRef)@[@(targetSpace)];
+    int addErr = addWindows(cid, windows, spaces);
+    dlclose(handle);
+    GufaLog(@"space-move ownWid=%u targetWid=%u space=%llu err=%d", ownWid, targetWid, (unsigned long long)targetSpace, addErr);
+    return addErr;
 }
 
 /* 自身窗口在 WindowServer 里是否 onscreen / 在哪块屏幕（Space 占用排查用） */

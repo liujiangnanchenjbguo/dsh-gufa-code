@@ -96,6 +96,13 @@
   1) collectionBehavior 临时加 `MoveToActiveSpace` 并 `orderFrontRegardless`（此时目标 App 已激活，其 Space 即活动 Space）；
   2) 0.9s 后恢复 `FullScreenAuxiliary | IgnoresCycle`，窗口稳定留在该 Space，后续用户滑屏不会跟随。
 - 验证：QQ音乐占满主屏时，悬浮窗覆盖整屏且 `own-window onscreen=1`；退出后主窗口恢复。
+- 补充（真机点击复现后的最终定案）：
+  1. **必须先激活目标 App、等它切完 Space（~0.9s）再创建悬浮窗**，否则窗口创建在 DSH 原来的 Space 里，
+     后续 `MoveToActiveSpace` 也不生效（实测 onscreen=-1，用户看到"没浮动过去"）。
+  2. QQ音乐的 AX window 不暴露 `AXWindowNumber`（返回 0），拿不到目标窗口 CGWindowID；
+     此时用 SkyLight 私有 API 兜底：`SLSGetActiveSpace`（目标 App 已激活 → 活动 Space 即其 Space）+
+     `SLSAddWindowsToSpaces` 把自己的窗口加进去（实测 `use-active-space=8234 err=0`）。
+  3. 私有 API 全部 dlsym，符号缺失时只记日志不影响主流程。
 
 ## 5. 摸鱼窗口的 Space 固定（不要用 canJoinAllSpaces）
 
