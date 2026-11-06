@@ -87,3 +87,10 @@
 - 主窗口背景粒子：30fps→24fps、dpr 上限 1.5→1.25、页面隐藏/窗口失焦时暂停。
 - 快捷键集成不要留常驻重试环：累加上限 40 次 + 只在签名变化时写诊断日志（曾出现 2Hz 常驻循环）。
 - 退出摸鱼状态轮询 5s 一次且页面不可见时跳过（原来 3s 且无条件请求 host）。
+
+## 5. 摸鱼窗口的 Space 固定（不要用 canJoinAllSpaces）
+
+- 现象：摸鱼窗吸附第二屏的 App，用户在主屏滑动切 Space 时，摸鱼窗也跟着出现在当前屏。
+- 原因：`NSWindowCollectionBehaviorCanJoinAllSpaces` 会让窗口出现在所有 Space。
+- 定案：吸附模式 collectionBehavior = `FullScreenAuxiliary | IgnoresCycle`（raw=320）；
+  自由悬浮模式才追加 `CanJoinAllSpaces`（raw=321）。停止跟随/自由悬浮时恢复跨 Space。

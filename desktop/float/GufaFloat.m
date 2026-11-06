@@ -131,6 +131,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 - (void)restoreMainWindow;
 - (void)clearWebCachesThenLoad;
 - (void)performInitialLoad;
+- (void)applySpaceBehaviorFollowing:(BOOL)following;
 - (void)watchControlFile;
 - (void)gracefulExit;
 - (void)toggleClickThrough:(id)sender;
@@ -190,9 +191,16 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 /** 启动就进入「吸附跟随」模式（摸鱼列表选好 App 后直接启动）。 */
 - (void)beginningFollowFromOptions {
     NSDictionary *follow = self.options[@"follow"];
-    if (![follow isKindOfClass:[NSDictionary class]]) return;
+    if (![follow isKindOfClass:[NSDictionary class]]) {
+        /* 自由悬浮：没有吸附目标，允许出现在所有 Space */
+        [self applySpaceBehaviorFollowing:NO];
+        return;
+    }
     NSNumber *pid = follow[@"pid"];
-    if (![pid isKindOfClass:[NSNumber class]]) return;
+    if (![pid isKindOfClass:[NSNumber class]]) {
+        [self applySpaceBehaviorFollowing:NO];
+        return;
+    }
     self.followPid = (pid_t)pid.intValue;
     self.followTitle = [follow[@"title"] isKindOfClass:[NSString class]] ? follow[@"title"] : @"";
     GufaLog(@"follow-start pid=%d bundle=%@ axTrusted=%d", self.followPid, follow[@"bundleId"] ?: @"", GufaTrustedForAX() ? 1 : 0);
@@ -219,6 +227,8 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     if (self.followWindowRef != NULL) CFRelease(self.followWindowRef);
     self.followWindowRef = window;
     self.following = YES;
+    /* 吸附模式：窗口只留在「被跟随 App 所在的 Space」，用户切屏不跟过去 */
+    [self applySpaceBehaviorFollowing:YES];
     [self startFollowTimer];
     [self applyFollowFrame];
     self.statusItem.button.title = @"古法·摸鱼";
@@ -246,6 +256,16 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [NSApp terminate:nil];
     });
+}
+
+/* Space 行为：跟随 App 时固定在其 Space；自由悬浮时允许出现在所有 Space。 */
+- (void)applySpaceBehaviorFollowing:(BOOL)following {
+    if (self.window == nil) return;
+    NSWindowCollectionBehavior behavior = (NSWindowCollectionBehaviorFullScreenAuxiliary
+                                          | NSWindowCollectionBehaviorIgnoresCycle);
+    if (!following) behavior |= NSWindowCollectionBehaviorCanJoinAllSpaces;
+    self.window.collectionBehavior = behavior;
+    GufaLog(@"space-behavior following=%d raw=%lu", following ? 1 : 0, (unsigned long)behavior);
 }
 
 - (void)parseOptions {
@@ -284,9 +304,9 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.window.hasShadow = YES;
     /* 高于普通浮动窗口（歌词、置顶小工具等），确保真正盖住被跟随的 App */
     self.window.level = NSStatusWindowLevel;
-    /* 不要 Stationary：它会让窗口停在原来的 Space，摸鱼的 App 在别的 Space 时窗口看不见 */
-    self.window.collectionBehavior = (NSWindowCollectionBehaviorCanJoinAllSpaces
-                                      | NSWindowCollectionBehaviorFullScreenAuxiliary
+    /* 固定吸附：默认不加入所有 Space（否则用户滑动切屏时摸鱼窗会跟着跑到当前屏）；
+       只有「自由悬浮」模式才允许出现在所有 Space。 */
+    self.window.collectionBehavior = (NSWindowCollectionBehaviorFullScreenAuxiliary
                                       | NSWindowCollectionBehaviorIgnoresCycle);
     self.window.minSize = NSMakeSize(520, 360);
     self.window.title = @"古法编程悬浮层";
@@ -543,6 +563,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         self.followWindowRef = GufaCopyAppWindow(self.followPid);
         if (self.followWindowRef == NULL) return;
         self.following = YES;
+        [self applySpaceBehaviorFollowing:YES];
         [self startFollowTimer];
         [self applyFollowFrame];
         self.statusItem.button.title = @"古法·摸鱼";
@@ -551,6 +572,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 
 - (void)stopFollow:(id)sender {
     [self stopFollowTimer];
+    [self applySpaceBehaviorFollowing:NO];
     self.statusItem.button.title = self.clickThrough ? @"古法·穿透" : @"古法";
 }
 
