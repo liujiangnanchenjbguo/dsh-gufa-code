@@ -29,7 +29,7 @@ const runFile = promisify(execFile)
 /** 查找当前平台编译好的悬浮层 helper（P0 只支持 macOS）。 */
 function floatBinaryPath() {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  const candidates = [`gufa-float-macos-${arch}`, 'gufa-float-macos-arm64', 'gufa-float-macos-x64']
+  const candidates = [`gufa-float-macos-${arch}`, 'gufa-float-macos-universal', 'gufa-float-macos-arm64', 'gufa-float-macos-x64']
   for (const name of candidates) {
     const full = join(PLUGIN_ROOT, 'desktop', 'float', 'bin', name)
     if (existsSync(full)) return full

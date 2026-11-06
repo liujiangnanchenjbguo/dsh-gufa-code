@@ -86,8 +86,7 @@ dsh plugin add dsh-gufa-code
   - 菜单栏「古法」图标 / 拖动条右键：也能退出摸鱼。
 - 选择器底部还有「自由悬浮（不吸附）」：不绑定窗口，自己拖拽缩放（同样带状态、同样可调透明度）。
 - 平台限制：
-  - **macOS arm64（Apple Silicon）开箱可用**；
-  - Intel Mac 需自行编译 helper：`./scripts/build-float-macos.sh`（需要 Xcode Command Line Tools），编译后放在 `desktop/float/bin/`；
+  - **macOS Apple Silicon / Intel 都开箱可用**：npm 包内带的是 universal helper（arm64 + x86_64），无需自己编译；
   - Windows / Linux 暂无悬浮层（其余 IDE 功能正常）；
   - helper 为 ad-hoc 签名；首次启动若被系统拦截，在「隐私与安全性」里允许一次即可。
 
