@@ -43,6 +43,7 @@ static NSArray<NSDictionary *> *GufaAXWindows(void);
 static AXUIElementRef GufaCopyAXWindow(pid_t pid, NSString *title);
 static BOOL GufaRectFromAX(AXUIElementRef element, NSRect *out);
 static void GufaActivateBundle(NSString *bundleId);
+static void GufaSetMainAppHidden(BOOL hidden);
 static NSArray<NSDictionary *> *GufaAXApps(void);
 static AXUIElementRef GufaCopyAppWindow(pid_t pid);
 
@@ -107,6 +108,8 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 @property (nonatomic, strong) NSStatusItem *statusItem;
 @property (nonatomic, strong) NSMenu *mainMenu;
 @property (nonatomic, strong) GufaDragStrip *dragStrip;
+@property (nonatomic, strong) NSString *controlPath;
+@property (nonatomic, strong) NSTimer *controlTimer;
 @property (nonatomic, assign) BOOL clickThrough;
 @property (nonatomic, strong) NSString *frameKey;
 @property (nonatomic, strong) GufaNavigationDelegate *navigation;
@@ -125,6 +128,8 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 - (void)findFollowWindowWithRetries:(NSInteger)attempt;
 - (void)exitMoyu:(id)sender;
 - (void)restoreMainWindow;
+- (void)watchControlFile;
+- (void)gracefulExit;
 - (void)toggleClickThrough:(id)sender;
 - (void)resetFrame:(id)sender;
 - (void)quitApp:(id)sender;
@@ -150,10 +155,16 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.frameKey = @"gufa-float-frame-v1";
     self.clickThrough = NO;
     [self parseOptions];
+    if ([self.options[@"controlPath"] isKindOfClass:[NSString class]]) self.controlPath = self.options[@"controlPath"];
+    [self watchControlFile];
     [self buildWindow];
     [self buildStatusItem];
     [self registerToggleHotKey];
     [self activateTargetApp];
+    /* 摸鱼：等目标 App 到前台后隐藏 DSH 主窗口（⌘H 效果） */
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        GufaSetMainAppHidden(YES);
+    });
     [self beginningFollowFromOptions];
     [self loadWebContent];
 }
@@ -208,6 +219,30 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [self startFollowTimer];
     [self applyFollowFrame];
     self.statusItem.button.title = @"古法·摸鱼";
+}
+
+/* Host 的 float.stop 通过「控制文件」通知退出：写入文件 → helper 恢复主窗口后自行退出。
+   （SIGTERM 在该 AppKit 进程里不可靠，实测 dispatch signal source 不触发） */
+- (void)watchControlFile {
+    if (self.controlPath.length == 0) return;
+    self.controlTimer = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:YES block:^(NSTimer *timer) {
+        if (self.controlPath.length == 0) return;
+        if (![[NSFileManager defaultManager] fileExistsAtPath:self.controlPath]) return;
+        [timer invalidate];
+        self.controlTimer = nil;
+        [[NSFileManager defaultManager] removeItemAtPath:self.controlPath error:NULL];
+        [self gracefulExit];
+    }];
+}
+
+- (void)gracefulExit {
+    GufaLog(@"graceful-exit path=%@", self.controlPath ?: @"");
+    [self restoreMainWindow];
+    [self stopFollowTimer];
+    [self saveFrame];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [NSApp terminate:nil];
+    });
 }
 
 - (void)parseOptions {
@@ -564,7 +599,12 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 }
 
 - (void)restoreMainWindow {
+    GufaSetMainAppHidden(NO);
     GufaActivateBundle(@"com.deepseek.dsh");
+}
+
+- (void)applicationWillTerminate:(NSNotification *)notification {
+    GufaSetMainAppHidden(NO);
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
@@ -576,6 +616,7 @@ static void GufaInstallTermHandler(void) {
     signal(SIGTERM, SIG_IGN);
     dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, dispatch_get_main_queue());
     dispatch_source_set_event_handler(source, ^{
+        GufaSetMainAppHidden(NO);
         GufaActivateBundle(@"com.deepseek.dsh");
         [NSApp terminate:nil];
     });
@@ -772,6 +813,17 @@ static int GufaListWindowsMode(void) {
     return 0;
 }
 
+/** 隐藏/恢复 DSH 主窗口（AXHidden，等价 ⌘H）。 */
+static void GufaSetMainAppHidden(BOOL hidden) {
+    NSRunningApplication *app = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.deepseek.dsh"].firstObject;
+    if (app == nil) return;
+    AXUIElementRef ax = AXUIElementCreateApplication(app.processIdentifier);
+    if (ax == NULL) return;
+    AXError error = AXUIElementSetAttributeValue(ax, (CFStringRef)CFSTR("AXHidden"), hidden ? kCFBooleanTrue : kCFBooleanFalse);
+    GufaLog(@"main-window-hidden set=%d err=%d", hidden ? 1 : 0, (int)error);
+    CFRelease(ax);
+}
+
 /** 激活目标 App（LaunchServices open -b，能切到它的 Space）。 */
 static void GufaActivateBundle(NSString *bundleId) {
     if (bundleId.length == 0) return;
@@ -831,9 +883,9 @@ int main(int argc, const char *argv[]) {
         }
     }
     @autoreleasepool {
-        GufaInstallTermHandler();
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        GufaInstallTermHandler();
         GufaAppDelegate *delegate = [[GufaAppDelegate alloc] init];
         NSApp.delegate = delegate;
         [NSApp run];

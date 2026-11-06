@@ -50,6 +50,15 @@
   2. `60-dock.js` 的 `applyPalette` 把 `--gufa-solid-*` 同步写入 portal host；
   3. 新增/修改弹窗时，样式尽量只依赖这套变量，不要假设能继承 `.gufa-root` 的其它属性。
 
+## 1.2 悬浮层退出：不要依赖 SIGTERM（实测不可靠）
+
+- 现象：`kill -TERM` 后 helper 不退出、或退出后 DSH 主窗口仍是隐藏状态（`visible=false`）。
+- 原因：AppKit 进程里 `DISPATCH_SOURCE_TYPE_SIGNAL` 的 SIGTERM 源实测不触发（即使 `signal(SIG_IGN)` + 主队列正确配置）。
+- 定案：Host 的 `float.stop` 用**控制文件**退出——`float.start` 时生成唯一 `controlPath` 传给 helper，
+  helper 每 0.3s 轮询；Host 写文件 → helper 恢复主窗口（AXHidden=false + 激活 DSH）后自行退出。
+  兜底：若 helper 被强杀，Host 用 `osascript`（System Events）把 DSH 设为 visible，并 `open -b com.deepseek.dsh`。
+- 主窗口「⌘H 效果」= helper 启动 0.45s 后对 DSH 应用 `AXHidden=true`；退出时改回 false。
+
 ## 2. macOS 屏幕录制权限 + 悬浮层 helper
 
 - helper 每次重新编译（代码签名变化）后，TCC 里旧的「屏幕录制」授权可能失效；

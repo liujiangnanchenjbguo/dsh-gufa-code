@@ -1076,24 +1076,30 @@ G.errorText = (error) => {
 G.CSS = `
 .gufa-overlay-root{position:fixed;inset:0;z-index:1;display:flex;box-sizing:border-box;background:var(--gufa-solid-bg, var(--dsw-alias-bg-base));pointer-events:auto;overflow:hidden}
 .gufa-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
-/* 桌面悬浮层模式：整窗半透明（0.55），顶部留出 22px 拖动条 */
+/* 桌面悬浮层（摸鱼）模式：整窗半透明，透明度由 --gufa-float-alpha 控制（标题栏滑块） */
+html[data-gufa-float]{--gufa-float-alpha:0.55}
 html[data-gufa-float] body{background:transparent!important}
 html[data-gufa-float] .gufa-overlay-root,
 html[data-gufa-float] .gufa-root{
-  --gufa-solid-bg:rgba(13,15,19,0.55);--gufa-bg:rgba(13,15,19,0.55);
-  --gufa-solid-layer:rgba(20,22,27,0.55);--gufa-layer:rgba(20,22,27,0.55);
-  --gufa-solid-layer2:rgba(26,28,34,0.55);--gufa-layer2:rgba(26,28,34,0.55);
-  --gufa-solid-overlay:rgba(30,33,40,0.72);
+  --gufa-solid-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;--gufa-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;
+  --gufa-solid-layer:rgba(20,22,27,var(--gufa-float-alpha))!important;--gufa-layer:rgba(20,22,27,var(--gufa-float-alpha))!important;
+  --gufa-solid-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;--gufa-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;
+  --gufa-solid-overlay:rgba(30,33,40,calc(var(--gufa-float-alpha) + 0.17))!important;
+  --gufa-solid-sidebar:rgba(18,20,24,var(--gufa-float-alpha))!important;
 }
 html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
-html[data-gufa-float] .gufa-backdrop{opacity:0.5}
-/* 悬浮模式：右侧停靠的官方会话内部也半透明（DSH 主题变量在停靠根上覆盖） */
+/* 摸鱼模式不显示皮肤（梁圣）背景 */
+html[data-gufa-float] .gufa-backdrop,
+html[data-gufa-float] .gufa-backdrop-page,
+html[data-gufa-float] .gufa-backdrop-glow,
+html[data-gufa-float] .gufa-backdrop-portrait{display:none!important}
+/* 悬浮模式：右侧停靠的官方会话内部也跟随透明度滑块 */
 html[data-gufa-float] [data-gufa-dock]{
-  --dsw-alias-bg-base:rgba(13,15,19,0.55);
-  --dsw-alias-bg-layer-1:rgba(20,22,27,0.55);
-  --dsw-alias-bg-layer-2:rgba(26,28,34,0.55);
-  --dsw-alias-bg-overlay:rgba(30,33,40,0.72);
-  background:rgba(13,15,19,0.55)!important;
+  --dsw-alias-bg-base:rgba(13,15,19,var(--gufa-float-alpha));
+  --dsw-alias-bg-layer-1:rgba(20,22,27,var(--gufa-float-alpha));
+  --dsw-alias-bg-layer-2:rgba(26,28,34,var(--gufa-float-alpha));
+  --dsw-alias-bg-overlay:rgba(30,33,40,calc(var(--gufa-float-alpha) + 0.17));
+  background:rgba(13,15,19,var(--gufa-float-alpha))!important;
 }
 html[data-gufa-float] [data-gufa-dock] [data-conversation-scroll],
 html[data-gufa-float] [data-gufa-dock] [data-conversation-content]{background:transparent!important}
@@ -1416,6 +1422,25 @@ html[data-windows-titlebar] .gufa-overlay-root{padding-top:var(--dsh-windows-tit
 html[data-platform=darwin] .gufa-titlebar{height:48px;padding-left:86px}
 html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-left:16px}
 .gufa-titlebar button,.gufa-titlebar input,.gufa-titlebar .gufa-project,.gufa-titlebar-action{-webkit-app-region:no-drag}
+/* 摸鱼入口按钮：带框的两个字 */
+.gufa-moyu-btn{display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 12px;border-radius:8px;
+  border:1px solid var(--gufa-border-strong);background:color-mix(in srgb, var(--gufa-accent) 14%, transparent);
+  color:var(--gufa-text);font-size:12px;font-weight:600;letter-spacing:1px;cursor:pointer;white-space:nowrap}
+.gufa-moyu-btn:hover{background:color-mix(in srgb, var(--gufa-accent) 24%, transparent);border-color:var(--gufa-accent)}
+.gufa-moyu-btn:disabled{opacity:.55;cursor:default}
+/* 退出摸鱼按钮（原「返回经典模式」位置） */
+.gufa-moyu-exit{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 14px;border-radius:8px;
+  border:1px solid color-mix(in srgb, var(--gufa-accent) 60%, transparent);
+  background:color-mix(in srgb, var(--gufa-accent) 20%, transparent);color:var(--gufa-text);
+  font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.gufa-moyu-exit:hover{background:color-mix(in srgb, var(--gufa-accent) 34%, transparent)}
+.gufa-moyu-exit:disabled{opacity:.55;cursor:default}
+/* 摸鱼界面透明度滑块 */
+.gufa-moyu-alpha{display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 10px;border-radius:8px;
+  border:1px solid var(--gufa-border);background:color-mix(in srgb, var(--gufa-layer2) 70%, transparent);font-size:11.5px;color:var(--gufa-text-dim)}
+.gufa-moyu-alpha-label{white-space:nowrap}
+.gufa-moyu-alpha-range{width:120px;accent-color:var(--gufa-accent);cursor:pointer}
+.gufa-moyu-alpha-value{min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
 .gufa-brand{display:flex;align-items:center;gap:8px;min-width:0}
 .gufa-brand-logo{width:24px;height:24px;flex:0 0 auto}
 .gufa-brand-name{font-weight:650;font-size:14px;letter-spacing:.02em;white-space:nowrap}

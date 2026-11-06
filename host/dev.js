@@ -2,7 +2,7 @@
  * 开发/诊断信息：供客户端在启动时探测「Host 半是否为最新代码」。
  * 旧版本 Host（没有本方法）会让 api('dev.version') 返回 not-found，客户端据此提示重启 Harness。
  */
-import { appendFileSync, existsSync } from 'node:fs'
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { execFile, spawn } from 'node:child_process'
@@ -96,14 +96,53 @@ export function register(router, env) {
 
   const killFloat = async () => {
     const pids = await listFloatPids()
-    for (const pid of pids) {
+    if (pids.length === 0) {
+      floatState.child = null
+      floatState.controlPath = null
+      return
+    }
+    /* 优先用控制文件让 helper 优雅退出（它会先恢复 DSH 主窗口） */
+    if (typeof floatState.controlPath === 'string' && floatState.controlPath !== '') {
       try {
-        process.kill(pid, 'SIGTERM')
+        writeFileSync(floatState.controlPath, 'exit')
+      } catch {
+        /* ignore */
+      }
+      const deadline = Date.now() + 4000
+      while (Date.now() < deadline) {
+        if ((await listFloatPids()).length === 0) break
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      }
+    }
+    /* 兜底：还在就 SIGTERM/SIGKILL；被强杀时用 osascript 把 DSH 主窗口恢复显示 */
+    let forced = false
+    for (const pid of await listFloatPids()) {
+      forced = true
+      try { process.kill(pid, 'SIGTERM') } catch { /* ignore */ }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    for (const pid of await listFloatPids()) {
+      forced = true
+      try { process.kill(pid, 'SIGKILL') } catch { /* ignore */ }
+    }
+    if (forced) {
+      try {
+        spawn('/usr/bin/osascript', ['-e', 'tell application "System Events" to set visible of process "DeepSeek Harness" to true'], { detached: true, stdio: 'ignore' }).unref()
+      } catch {
+        /* ignore */
+      }
+      try {
+        spawn('open', ['-b', 'com.deepseek.dsh'], { detached: true, stdio: 'ignore' }).unref()
       } catch {
         /* ignore */
       }
     }
-    if (pids.length > 0) await new Promise((resolve) => setTimeout(resolve, 400))
+    try {
+      if (typeof floatState.controlPath === 'string' && floatState.controlPath !== '') await rm(floatState.controlPath, { force: true })
+    } catch {
+      /* ignore */
+    }
+    floatState.controlPath = null
     floatState.child = null
   }
 
@@ -215,12 +254,16 @@ export function register(router, env) {
     const base = `${webServer.protocol}//127.0.0.1:${String(webServer.port)}`
     const authUrl = connection.authenticatedUrl(`${base}/`)
     const state = body !== null && typeof body === 'object' && body.state !== null && typeof body.state === 'object' ? body.state : null
+    const controlPath = join(tmpdir(), `gufa-float-exit-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+    try { await rm(controlPath, { force: true }) } catch { /* ignore */ }
     const payload = JSON.stringify({
       authUrl,
       appUrl: `${base}/`,
       follow: follow !== null && follow.pid > 0 ? follow : undefined,
       state: state ?? undefined,
+      controlPath,
     })
+    floatState.controlPath = controlPath
     const binary = floatBinaryPath()
     if (binary === null) throw new ApiError('missing-helper', '悬浮层程序未构建', 500)
     const child = spawn(binary, [payload], { detached: true, stdio: 'ignore' })
@@ -230,6 +273,25 @@ export function register(router, env) {
     await new Promise((resolve) => setTimeout(resolve, 300))
     const pids = await listFloatPids()
     return { running: pids.length > 0 || child.exitCode === null, pid: child.pid ?? pids[0] ?? null }
+  })
+
+  /** 悬浮层退出摸鱼：把当前状态（项目/标签页/UI/会话）暂存给主窗口。 */
+  router.method('float.saveExitState', async (body) => {
+    const state = body !== null && typeof body === 'object' && body.state !== null && typeof body.state === 'object' ? body.state : null
+    if (state === null) throw badRequest('state is required')
+    floatState.exitState = state
+    floatState.exitStateAt = Date.now()
+    return { ok: true }
+  })
+
+  /** 主窗口取回退出摸鱼时的状态（取一次即清空，10 分钟内有效）。 */
+  router.method('float.consumeExitState', async () => {
+    const state = floatState.exitState ?? null
+    const at = floatState.exitStateAt ?? 0
+    floatState.exitState = null
+    floatState.exitStateAt = 0
+    if (state === null || Date.now() - at > 10 * 60 * 1000) return { state: null }
+    return { state }
   })
 
   router.method('float.stop', async () => {

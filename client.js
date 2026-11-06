@@ -1084,24 +1084,30 @@ G.errorText = (error) => {
 G.CSS = `
 .gufa-overlay-root{position:fixed;inset:0;z-index:1;display:flex;box-sizing:border-box;background:var(--gufa-solid-bg, var(--dsw-alias-bg-base));pointer-events:auto;overflow:hidden}
 .gufa-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
-/* 桌面悬浮层模式：整窗半透明（0.55），顶部留出 22px 拖动条 */
+/* 桌面悬浮层（摸鱼）模式：整窗半透明，透明度由 --gufa-float-alpha 控制（标题栏滑块） */
+html[data-gufa-float]{--gufa-float-alpha:0.55}
 html[data-gufa-float] body{background:transparent!important}
 html[data-gufa-float] .gufa-overlay-root,
 html[data-gufa-float] .gufa-root{
-  --gufa-solid-bg:rgba(13,15,19,0.55);--gufa-bg:rgba(13,15,19,0.55);
-  --gufa-solid-layer:rgba(20,22,27,0.55);--gufa-layer:rgba(20,22,27,0.55);
-  --gufa-solid-layer2:rgba(26,28,34,0.55);--gufa-layer2:rgba(26,28,34,0.55);
-  --gufa-solid-overlay:rgba(30,33,40,0.72);
+  --gufa-solid-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;--gufa-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;
+  --gufa-solid-layer:rgba(20,22,27,var(--gufa-float-alpha))!important;--gufa-layer:rgba(20,22,27,var(--gufa-float-alpha))!important;
+  --gufa-solid-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;--gufa-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;
+  --gufa-solid-overlay:rgba(30,33,40,calc(var(--gufa-float-alpha) + 0.17))!important;
+  --gufa-solid-sidebar:rgba(18,20,24,var(--gufa-float-alpha))!important;
 }
 html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
-html[data-gufa-float] .gufa-backdrop{opacity:0.5}
-/* 悬浮模式：右侧停靠的官方会话内部也半透明（DSH 主题变量在停靠根上覆盖） */
+/* 摸鱼模式不显示皮肤（梁圣）背景 */
+html[data-gufa-float] .gufa-backdrop,
+html[data-gufa-float] .gufa-backdrop-page,
+html[data-gufa-float] .gufa-backdrop-glow,
+html[data-gufa-float] .gufa-backdrop-portrait{display:none!important}
+/* 悬浮模式：右侧停靠的官方会话内部也跟随透明度滑块 */
 html[data-gufa-float] [data-gufa-dock]{
-  --dsw-alias-bg-base:rgba(13,15,19,0.55);
-  --dsw-alias-bg-layer-1:rgba(20,22,27,0.55);
-  --dsw-alias-bg-layer-2:rgba(26,28,34,0.55);
-  --dsw-alias-bg-overlay:rgba(30,33,40,0.72);
-  background:rgba(13,15,19,0.55)!important;
+  --dsw-alias-bg-base:rgba(13,15,19,var(--gufa-float-alpha));
+  --dsw-alias-bg-layer-1:rgba(20,22,27,var(--gufa-float-alpha));
+  --dsw-alias-bg-layer-2:rgba(26,28,34,var(--gufa-float-alpha));
+  --dsw-alias-bg-overlay:rgba(30,33,40,calc(var(--gufa-float-alpha) + 0.17));
+  background:rgba(13,15,19,var(--gufa-float-alpha))!important;
 }
 html[data-gufa-float] [data-gufa-dock] [data-conversation-scroll],
 html[data-gufa-float] [data-gufa-dock] [data-conversation-content]{background:transparent!important}
@@ -1424,6 +1430,25 @@ html[data-windows-titlebar] .gufa-overlay-root{padding-top:var(--dsh-windows-tit
 html[data-platform=darwin] .gufa-titlebar{height:48px;padding-left:86px}
 html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-left:16px}
 .gufa-titlebar button,.gufa-titlebar input,.gufa-titlebar .gufa-project,.gufa-titlebar-action{-webkit-app-region:no-drag}
+/* 摸鱼入口按钮：带框的两个字 */
+.gufa-moyu-btn{display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 12px;border-radius:8px;
+  border:1px solid var(--gufa-border-strong);background:color-mix(in srgb, var(--gufa-accent) 14%, transparent);
+  color:var(--gufa-text);font-size:12px;font-weight:600;letter-spacing:1px;cursor:pointer;white-space:nowrap}
+.gufa-moyu-btn:hover{background:color-mix(in srgb, var(--gufa-accent) 24%, transparent);border-color:var(--gufa-accent)}
+.gufa-moyu-btn:disabled{opacity:.55;cursor:default}
+/* 退出摸鱼按钮（原「返回经典模式」位置） */
+.gufa-moyu-exit{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 14px;border-radius:8px;
+  border:1px solid color-mix(in srgb, var(--gufa-accent) 60%, transparent);
+  background:color-mix(in srgb, var(--gufa-accent) 20%, transparent);color:var(--gufa-text);
+  font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.gufa-moyu-exit:hover{background:color-mix(in srgb, var(--gufa-accent) 34%, transparent)}
+.gufa-moyu-exit:disabled{opacity:.55;cursor:default}
+/* 摸鱼界面透明度滑块 */
+.gufa-moyu-alpha{display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 10px;border-radius:8px;
+  border:1px solid var(--gufa-border);background:color-mix(in srgb, var(--gufa-layer2) 70%, transparent);font-size:11.5px;color:var(--gufa-text-dim)}
+.gufa-moyu-alpha-label{white-space:nowrap}
+.gufa-moyu-alpha-range{width:120px;accent-color:var(--gufa-accent);cursor:pointer}
+.gufa-moyu-alpha-value{min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
 .gufa-brand{display:flex;align-items:center;gap:8px;min-width:0}
 .gufa-brand-logo{width:24px;height:24px;flex:0 0 auto}
 .gufa-brand-name{font-weight:650;font-size:14px;letter-spacing:.02em;white-space:nowrap}
@@ -9549,6 +9574,25 @@ G.GufaApp = function GufaApp(props) {
   const [floatBusy, setFloatBusy] = useState(false)
   /* 摸鱼窗口选择器：null | {status:'loading'|'ready'|'permission'|'error', windows:[], error:''} */
   const [floatPicker, setFloatPicker] = useState(null)
+  /* 摸鱼模式（悬浮窗实例）与界面透明度 */
+  const [moyuMode] = useState(() => G.isFloatMode())
+  const [floatAlpha, setFloatAlpha] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem('gufa-code:float-alpha'))
+      if (Number.isFinite(saved) && saved >= 20 && saved <= 100) return Math.round(saved)
+    } catch {
+      /* ignore */
+    }
+    return 55
+  })
+  useEffect(() => {
+    try {
+      document.documentElement.style.setProperty('--gufa-float-alpha', String(floatAlpha / 100))
+      localStorage.setItem('gufa-code:float-alpha', String(floatAlpha))
+    } catch {
+      /* ignore */
+    }
+  }, [floatAlpha])
   /* 会话弹窗里选中的工作区（null = 跟随当前 IDE 项目） */
   const [sessionWorkspacePath, setSessionWorkspacePath] = useState(null)
   const [sessionWorkspacePicker, setSessionWorkspacePicker] = useState(false)
@@ -10247,7 +10291,6 @@ G.GufaApp = function GufaApp(props) {
     try {
       await G.api('float.stop')
       setFloatRunning(false)
-      setBanner('已退出摸鱼：主窗口已恢复')
     } catch (error) {
       setBanner(G.errorText(error))
     } finally {
@@ -10300,8 +10343,6 @@ G.GufaApp = function GufaApp(props) {
       })
       setFloatRunning(value?.running === true)
       setFloatPicker(null)
-      const name = typeof target.owner === 'string' && target.owner !== '' ? target.owner : '所选窗口'
-      setBanner(`摸鱼模式已开启：已吸附 ${name}；⌃⌥⌘G 切换点击穿透，菜单栏「古法」可退出`)
     } catch (error) {
       setBanner(G.errorText(error))
     } finally {
@@ -10317,7 +10358,6 @@ G.GufaApp = function GufaApp(props) {
       const value = await G.api('float.start')
       setFloatRunning(value?.running === true)
       setFloatPicker(null)
-      setBanner('悬浮层已启动（自由悬浮）')
     } catch (error) {
       setBanner(G.errorText(error))
     } finally {
@@ -10327,6 +10367,100 @@ G.GufaApp = function GufaApp(props) {
 
   /* 内部 QA：允许自动化脚本在悬浮窗里打开摸鱼列表（仅供自测，不影响正常交互） */
   G.debugOpenFloatPicker = openFloatPicker
+
+  /* 悬浮窗里点「退出摸鱼」：把当前状态交还主窗口，再关闭悬浮层 */
+  const exitMoyu = useCallback(async () => {
+    if (floatBusy) return
+    setFloatBusy(true)
+    try {
+      const state = {
+        projectRoot: project !== null && typeof project.root === 'string' ? project.root : null,
+        activePath: typeof activePath === 'string' ? activePath : null,
+        tabs: tabs
+          .filter((tab) => tab !== null && tab !== undefined && typeof tab.path === 'string' && tab.kind !== 'diff' && tab.kind !== 'graph')
+          .map((tab) => tab.path)
+          .slice(0, 10),
+        ui: readJson(GUFA_LS.ui) ?? {},
+        sessionId: typeof currentSessionId === 'string' ? currentSessionId : null,
+      }
+      await G.api('float.saveExitState', { state })
+      await G.api('float.stop')
+      setFloatRunning(false)
+    } catch (error) {
+      setBanner(G.errorText(error))
+    } finally {
+      setFloatBusy(false)
+    }
+  }, [floatBusy, project, activePath, tabs, currentSessionId])
+
+  /* 主窗口回到前台时：取回退出摸鱼时的状态（项目/标签页/会话） */
+  const consumeExitStateRef = useRef(false)
+  useEffect(() => {
+    if (G.isFloatMode()) return undefined
+    let running = false
+    const consume = async () => {
+      if (running) return
+      running = true
+      try {
+        const value = await G.api('float.consumeExitState')
+        const state = value?.state ?? null
+        if (state !== null && typeof state === 'object') {
+          void G.api('dev.log', { message: `moyu-exit-state consume project=${String(state.projectRoot)} tabs=${Array.isArray(state.tabs) ? state.tabs.length : 0} session=${String(state.sessionId)}` }).catch(() => {})
+          const restore = G.floatRestoreRef
+          let projectValue = null
+          if (typeof state.projectRoot === 'string' && state.projectRoot !== '') {
+            try {
+              projectValue = await G.api('project.open', { path: state.projectRoot })
+            } catch {
+              projectValue = null
+            }
+          }
+          if (projectValue !== null && restore !== null && restore !== undefined && typeof restore.applyProject === 'function') {
+            restore.applyProject(projectValue)
+          }
+          await new Promise((resolve) => setTimeout(resolve, 350))
+          const paths = Array.isArray(state.tabs) ? state.tabs.filter((path) => typeof path === 'string' && path !== '') : []
+          const ordered = typeof state.activePath === 'string' && state.activePath !== ''
+            ? paths.filter((path) => path !== state.activePath).concat([state.activePath])
+            : paths
+          const openFileFn = restore !== null && restore !== undefined && typeof restore.openFile === 'function' ? restore.openFile : null
+          if (openFileFn !== null) {
+            for (const path of ordered.slice(0, 10)) {
+              try {
+                await openFileFn(path)
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+          if (typeof state.sessionId === 'string' && state.sessionId !== '') {
+            try {
+              const workspace = G.ctx === null || G.ctx === undefined ? undefined : G.ctx.get('uiWorkspace')
+              if (workspace !== undefined && workspace !== null && typeof workspace.openSession === 'function') workspace.openSession(state.sessionId)
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        running = false
+      }
+    }
+    const onFocus = () => { void consume() }
+    window.addEventListener('focus', onFocus)
+    const onVisible = () => { if (document.visibilityState === 'visible') void consume() }
+    document.addEventListener('visibilitychange', onVisible)
+    if (consumeExitStateRef.current !== true) {
+      consumeExitStateRef.current = true
+      void consume()
+    }
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
 
   const toggleFloatWindow = useCallback(() => {
     if (floatRequested === true || floatRunning) void stopFloatWindow()
@@ -11264,8 +11398,24 @@ G.GufaApp = function GufaApp(props) {
       h(
         'div',
         { className: 'gufa-titlebar-actions' },
-        h(G.Button, { icon: 'plus', title: t('app.newWorkspace'), disabled: workspaceBusy, onClick: () => void createWorkspace() }, t('app.newWorkspace')),
-        skinBackdrop.available === true && backdropActive
+        moyuMode
+          ? h(
+              'label',
+              { className: 'gufa-moyu-alpha', title: '摸鱼界面透明度' },
+              h('span', { className: 'gufa-moyu-alpha-label' }, '透明度'),
+              h('input', {
+                className: 'gufa-moyu-alpha-range',
+                type: 'range',
+                min: 20,
+                max: 100,
+                step: 1,
+                value: floatAlpha,
+                onChange: (event) => setFloatAlpha(Number(event.target.value)),
+              }),
+              h('span', { className: 'gufa-moyu-alpha-value' }, `${floatAlpha}%`),
+            )
+          : h(G.Button, { icon: 'plus', title: t('app.newWorkspace'), disabled: workspaceBusy, onClick: () => void createWorkspace() }, t('app.newWorkspace')),
+        moyuMode === false && skinBackdrop.available === true && backdropActive
           ? h(G.BackdropStrengthSlider, {
               value: backdropStrength === null || backdropStrength === undefined ? Math.round((skinBackdrop.portraitOpacity ?? 1) * 100) : backdropStrength,
               onChange: (value) => {
@@ -11278,7 +11428,7 @@ G.GufaApp = function GufaApp(props) {
               },
             })
           : null,
-        skinBackdrop.available === true
+        moyuMode === false && skinBackdrop.available === true
           ? h(G.IconButton, {
               title: backdropActive ? t('app.backdropOff') : t('app.backdropOn'),
               'data-active': backdropActive ? '' : undefined,
@@ -11289,19 +11439,32 @@ G.GufaApp = function GufaApp(props) {
               }),
             }, h(G.Icon, { name: 'image', size: 16 }))
           : null,
-        h(G.IconButton, {
-          title: floatRequested === true || floatRunning ? '退出摸鱼（关闭悬浮层，回主窗口）' : '进入摸鱼模式：选择一个 App 吸附并悬浮',
-          'data-active': floatRunning ? '' : undefined,
-          disabled: floatBusy,
-          onClick: () => void toggleFloatWindow(),
-        }, h(G.Icon, { name: 'monitor', size: 15 })),
-        h(G.IconButton, { title: t('app.refresh'), onClick: () => { setRefreshToken((token) => token + 1); setGitRefreshToken((token) => token + 1); setSshRefreshToken((token) => token + 1) } }, h(G.Icon, { name: 'refresh', size: 15 })),
+        moyuMode === false
+          ? h('button', {
+              type: 'button',
+              className: 'gufa-moyu-btn',
+              title: '摸鱼模式：选择一个 App 吸附并悬浮',
+              disabled: floatBusy,
+              onClick: () => void toggleFloatWindow(),
+            }, '摸鱼')
+          : null,
+        moyuMode === false
+          ? h(G.IconButton, { title: t('app.refresh'), onClick: () => { setRefreshToken((token) => token + 1); setGitRefreshToken((token) => token + 1); setSshRefreshToken((token) => token + 1) } }, h(G.Icon, { name: 'refresh', size: 15 }))
+          : null,
         h(G.IconButton, {
           title: ui.chatOpen ? t('activity.collapseChat') : t('activity.expandChat'),
           'data-active': ui.chatOpen ? '' : undefined,
           onClick: () => patchUi({ chatOpen: !ui.chatOpen }),
         }, h(G.Icon, { name: 'panel-right', size: 16 })),
-        h(G.Button, { icon: 'arrow-left', title: t('app.exitHint'), onClick: exitMode }, t('app.exit')),
+        moyuMode
+          ? h('button', {
+              type: 'button',
+              className: 'gufa-moyu-exit',
+              title: '退出摸鱼：关闭悬浮层，回到主窗口并带回当前状态',
+              disabled: floatBusy,
+              onClick: () => void exitMoyu(),
+            }, '退出摸鱼')
+          : h(G.Button, { icon: 'arrow-left', title: t('app.exitHint'), onClick: exitMode }, t('app.exit')),
       ),
     ),
     /* 主体 */
