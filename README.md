@@ -85,9 +85,13 @@ dsh plugin add dsh-gufa-code
   - 标题栏「**退出摸鱼**」（摸鱼界面里没有「返回经典模式」）：关闭悬浮层并恢复主窗口、带回状态；
   - 菜单栏「古法」图标 / 拖动条右键：也能退出摸鱼。
 - 选择器底部还有「自由悬浮（不吸附）」：不绑定窗口，自己拖拽缩放（同样带状态、同样可调透明度）。
-- 平台限制：
-  - **macOS Apple Silicon / Intel 都开箱可用**：npm 包内带的是 universal helper（arm64 + x86_64），无需自己编译；
-  - Windows / Linux 暂无悬浮层（其余 IDE 功能正常）；
+- 平台支持：
+  - **macOS Apple Silicon / Intel：开箱可用**（npm 包内是 universal helper，arm64 + x86_64，无需自己编译）；
+  - **Windows：开发中**（Win32 + WebView2 原生 helper，GitHub Actions 构建；需要 WebView2 Runtime，Win10/11 自带）；
+    暂有限制：虚拟桌面切换时悬浮窗可能留在原桌面；悬浮窗透明度待完善；
+  - **Linux：开发中**（X11 + GTK3/WebKit2GTK 原生 helper，GitHub Actions 构建；列窗口需要安装 `wmctrl`）；
+    暂有限制：仅支持 X11，Wayland 下只能自由悬浮（无法全局读取其它窗口位置）；
+  - 其它平台（以及 helper 二进制缺失时）：摸鱼模式会给出版本/构建提示，其余 IDE 功能不受影响；
   - helper 为 ad-hoc 签名；首次启动若被系统拦截，在「隐私与安全性」里允许一次即可。
 
 ### 外观

@@ -1,0 +1,125 @@
+name: build-float-helper
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/float/**'
+      - '.github/workflows/build-float.yml'
+  pull_request:
+    paths:
+      - 'desktop/float/**'
+  release:
+    types: [published]
+
+jobs:
+  macos:
+    name: macOS universal helper
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build universal (arm64 + x86_64)
+        run: ./scripts/build-float-macos.sh
+      - name: Smoke test (list windows)
+        run: |
+          ./desktop/float/bin/gufa-float-macos-universal --list-windows --out /tmp/win.json
+          head -c 200 /tmp/win.json
+          lipo -archs desktop/float/bin/gufa-float-macos-universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gufa-float-macos
+          path: |
+            desktop/float/bin/gufa-float-macos-universal
+            desktop/float/古法编程悬浮层.app
+
+  windows:
+    name: Windows helper (Win32 + WebView2)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch WebView2 SDK (NuGet)
+        shell: pwsh
+        run: |
+          $ver = '1.0.2903.40'
+          $zip = Join-Path $env:RUNNER_TEMP 'webview2.zip'
+          Invoke-WebRequest "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/$ver" -OutFile $zip
+          $dir = Join-Path $env:RUNNER_TEMP 'webview2'
+          Expand-Archive $zip -DestinationPath $dir -Force
+          "WEBVIEW2_SDK_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Configure (CMake)
+        shell: pwsh
+        run: |
+          if (!(Test-Path desktop/float/win/CMakeLists.txt)) { Write-Error 'desktop/float/win/CMakeLists.txt missing'; exit 1 }
+          cmake -S desktop/float/win -B build-win -A x64 -DWEBVIEW2_SDK_DIR="$env:WEBVIEW2_SDK_DIR"
+      - name: Build
+        shell: pwsh
+        run: cmake --build build-win --config Release
+      - name: Stage binary
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force desktop/float/bin/win-x64 | Out-Null
+          $exe = Get-ChildItem -Path build-win -Recurse -Filter *.exe | Where-Object { $_.Name -notlike 'vc_redist*' } | Select-Object -First 1
+          if ($exe -eq $null) { Write-Error 'built exe not found'; exit 1 }
+          Copy-Item $exe.FullName desktop/float/bin/win-x64/gufa-float-win.exe -Force
+          & desktop/float/bin/win-x64/gufa-float-win.exe --version
+      - name: Smoke test (ciProbe, non-interactive desktop may be unavailable)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $payload = '{"appUrl":"http://127.0.0.1:1/","authUrl":"http://127.0.0.1:1/","ciProbe":true}'
+          & desktop/float/bin/win-x64/gufa-float-win.exe $payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gufa-float-win-x64
+          path: desktop/float/bin/win-x64/gufa-float-win.exe
+
+  linux:
+    name: Linux helper (X11 + GTK/WebKit2GTK)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev xvfb wmctrl xdotool
+      - name: Build
+        working-directory: desktop/float/linux
+        run: make -j"$(nproc)"
+      - name: Stage binary
+        run: |
+          mkdir -p desktop/float/bin/linux-x64
+          cp desktop/float/linux/gufa-float-linux desktop/float/bin/linux-x64/gufa-float-linux
+          file desktop/float/bin/linux-x64/gufa-float-linux
+      - name: Smoke test (ciProbe under Xvfb)
+        continue-on-error: true
+        run: |
+          timeout 40 xvfb-run -a ./desktop/float/bin/linux-x64/gufa-float-linux '{"appUrl":"http://127.0.0.1:1/","authUrl":"http://127.0.0.1:1/","ciProbe":true}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gufa-float-linux-x64
+          path: desktop/float/bin/linux-x64/gufa-float-linux
+
+  release-assets:
+    name: Attach binaries to release
+    if: github.event_name == 'release'
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Package assets
+        run: |
+          cd artifacts
+          zip -r gufa-float-win-x64.zip gufa-float-win-x64 || true
+          tar -czf gufa-float-linux-x64.tar.gz gufa-float-linux-x64 || true
+          tar -czf gufa-float-macos.tar.gz gufa-float-macos || true
+          ls -lh
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/gufa-float-win-x64.zip
+            artifacts/gufa-float-linux-x64.tar.gz
+            artifacts/gufa-float-macos.tar.gz

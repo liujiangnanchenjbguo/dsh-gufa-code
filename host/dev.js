@@ -26,15 +26,54 @@ const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const floatState = globalThis.__gufaFloatState ?? (globalThis.__gufaFloatState = { child: null, startedAt: 0 })
 const runFile = promisify(execFile)
 
-/** 查找当前平台编译好的悬浮层 helper（P0 只支持 macOS）。 */
+/** 查找当前平台编译好的悬浮层 helper。 */
 function floatBinaryPath() {
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  const candidates = [`gufa-float-macos-${arch}`, 'gufa-float-macos-universal', 'gufa-float-macos-arm64', 'gufa-float-macos-x64']
-  for (const name of candidates) {
-    const full = join(PLUGIN_ROOT, 'desktop', 'float', 'bin', name)
+  const root = join(PLUGIN_ROOT, 'desktop', 'float', 'bin')
+  let candidates = []
+  if (process.platform === 'darwin') {
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+    candidates = [
+      join(root, `gufa-float-macos-${arch}`),
+      join(root, 'gufa-float-macos-universal'),
+      join(root, 'gufa-float-macos-arm64'),
+      join(root, 'gufa-float-macos-x64'),
+    ]
+  } else if (process.platform === 'win32') {
+    candidates = [
+      join(root, 'win-x64', 'gufa-float-win.exe'),
+      join(root, 'gufa-float-win.exe'),
+    ]
+  } else if (process.platform === 'linux') {
+    candidates = [
+      join(root, 'linux-x64', 'gufa-float-linux'),
+      join(root, 'linux-x64', 'gufa-float-linux-x64'),
+      join(root, 'gufa-float-linux'),
+    ]
+  }
+  for (const full of candidates) {
     if (existsSync(full)) return full
   }
   return null
+}
+
+/** 当前平台是否支持摸鱼悬浮层（helper 未构建时返回原因）。 */
+function floatSupportStatus() {
+  const binary = floatBinaryPath()
+  if (process.platform !== 'darwin' && process.platform !== 'win32' && process.platform !== 'linux') {
+    return { supported: false, reason: 'unsupported-platform', platform: process.platform, binary: null }
+  }
+  if (binary === null) {
+    return {
+      supported: false,
+      reason: 'missing-helper',
+      platform: process.platform,
+      binary: null,
+      hint: process.platform === 'darwin'
+        ? '运行 ./scripts/build-float-macos.sh 构建悬浮层'
+        : (process.platform === 'win32' ? '运行 ./scripts/build-float-win.sh 或下载 Release 中的 Windows 产物' : '运行 ./scripts/build-float-linux.sh'),
+    }
+  }
+  return { supported: true, reason: '', platform: process.platform, binary }
 }
 
 function floatRunning() {
@@ -56,11 +95,17 @@ export function register(router, env) {
 
 
 
-  /* ── 桌面悬浮层 / 摸鱼模式（macOS） ────────────────────────────────
-   * 通过 .app bundle 启动 helper：TCC（屏幕录制）按 bundle 身份授权，
-   * 用户在「系统设置 → 隐私与安全性 → 屏幕录制」里添加「古法编程悬浮层.app」即可。
+  /* ── 桌面悬浮层 / 摸鱼模式（跨平台：macOS / Windows / Linux） ─────────
+   * helper 协议见 desktop/float/PLATFORM-PROTOCOL.md：
+   *   - Host 用 spawn(binary, [payloadJson]) 启动 helper；
+   *   - 退出统一走 controlPath 控制文件（helper 自己恢复 DSH 主窗口后退出）；
+   *   - float.windows 统一返回 { ok, accessibility, apps:[{pid,owner,title,bundleId,windowNumber,icon}] }。
    */
+  const isMac = process.platform === 'darwin'
+  const isWin = process.platform === 'win32'
+  const isLinux = process.platform === 'linux'
   const appBundlePath = () => {
+    if (!isMac) return null
     const candidates = [
       join(PLUGIN_ROOT, 'desktop', 'float', '古法编程悬浮层.app'),
       join(PLUGIN_ROOT, 'desktop', 'float', 'GufaFloat.app'),
@@ -70,38 +115,77 @@ export function register(router, env) {
     }
     return null
   }
-  const floatProcessPatterns = ['gufa-float-macos-', '古法编程悬浮层.app/Contents/MacOS/gufa-float']
+  const floatProcessPatterns = isMac
+    ? ['gufa-float-macos-', '古法编程悬浮层.app/Contents/MacOS/gufa-float']
+    : (isWin ? ['gufa-float-win'] : ['gufa-float-linux'])
 
+  /** 列出本插件的 helper 进程（优先用自己 spawn 的 child，再加系统进程扫描兜底）。 */
   const listFloatPids = async () => {
     const pids = new Set()
-    for (const pattern of floatProcessPatterns) {
+    const tracked = floatState.child !== null && floatState.child.exitCode === null ? floatState.child.pid : null
+    if (Number.isFinite(tracked) && tracked > 0) pids.add(tracked)
+    if (isMac || isLinux) {
+      for (const pattern of floatProcessPatterns) {
+        try {
+          const { stdout } = await runFile('pgrep', ['-f', pattern], { timeout: 3000 })
+          for (const line of String(stdout ?? '').split('\n')) {
+            const pid = Number(line.trim())
+            if (Number.isFinite(pid) && pid > 0) pids.add(pid)
+          }
+        } catch {
+          /* 没匹配到 */
+        }
+      }
+    } else if (isWin) {
+      const alive = []
+      for (const pid of pids) {
+        try { process.kill(pid, 0); alive.push(pid) } catch { /* 已退出 */ }
+      }
+      pids.clear()
+      for (const pid of alive) pids.add(pid)
       try {
-        const { stdout } = await runFile('pgrep', ['-f', pattern], { timeout: 3000 })
+        const { stdout } = await runFile('tasklist', ['/FI', 'IMAGENAME eq gufa-float-win.exe', '/FO', 'CSV', '/NH'], { timeout: 5000 })
         for (const line of String(stdout ?? '').split('\n')) {
-          const pid = Number(line.trim())
-          if (Number.isFinite(pid) && pid > 0) pids.add(pid)
+          const match = /^"([^"]+)","(\d+)"/.exec(line.trim())
+          if (match !== null) {
+            const pid = Number(match[2])
+            if (Number.isFinite(pid) && pid > 0) pids.add(pid)
+          }
         }
       } catch {
-        /* 没匹配到 */
+        /* tasklist 不可用：只用 child pid */
       }
     }
     return [...pids]
   }
   const floatRunningAsync = async () => (await listFloatPids()).length > 0
 
-  const openApp = (args) => new Promise((resolve, reject) => {
-    const app = appBundlePath()
-    if (app === null) {
-      reject(new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500))
-      return
+  /** 强制退出/异常兜底：把 DSH 主窗口恢复显示并前置（正常情况下 helper 自己会恢复）。 */
+  const restoreDshWindowFallback = async () => {
+    try {
+      if (isMac) {
+        spawn('/usr/bin/osascript', ['-e', 'tell application "System Events" to set visible of process "DeepSeek Harness" to true'], { detached: true, stdio: 'ignore' }).unref()
+        spawn('open', ['-b', 'com.deepseek.dsh'], { detached: true, stdio: 'ignore' }).unref()
+      } else if (isWin) {
+        const ps = [
+          "$sig = '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd);'",
+          '$t = Add-Type -MemberDefinition $sig -Name Win32F -Namespace GufaF -PassThru',
+          "Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and $_.ProcessName -like '*DeepSeek*' } | ForEach-Object { [void]$t::ShowWindow($_.MainWindowHandle, 5); [void]$t::SetForegroundWindow($_.MainWindowHandle) }",
+        ].join('\n')
+        spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { detached: true, stdio: 'ignore' }).unref()
+      } else if (isLinux) {
+        for (const [command, args] of [['wmctrl', ['-a', 'DeepSeek Harness']], ['xdotool', ['search', '--name', 'DeepSeek Harness', 'windowactivate']]]) {
+          try {
+            spawn(command, args, { detached: true, stdio: 'ignore' }).unref()
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch {
+      /* ignore */
     }
-    const child = spawn('open', ['-n', app, '--args', ...args], { detached: true, stdio: 'ignore' })
-    child.once('error', reject)
-    child.once('exit', (code) => {
-      if (code === 0) resolve()
-      else reject(new ApiError('open-failed', `悬浮层启动失败（open exit ${code}）`, 500))
-    })
-  })
+  }
 
   const killFloat = async () => {
     const pids = await listFloatPids()
@@ -117,35 +201,40 @@ export function register(router, env) {
       } catch {
         /* ignore */
       }
-      const deadline = Date.now() + 4000
+      const deadline = Date.now() + 6000
       while (Date.now() < deadline) {
         if ((await listFloatPids()).length === 0) break
         await new Promise((resolve) => setTimeout(resolve, 150))
       }
     }
-    /* 兜底：还在就 SIGTERM/SIGKILL；被强杀时用 osascript 把 DSH 主窗口恢复显示 */
+    /* 兜底：还在就强杀；被强杀时用平台命令把 DSH 主窗口恢复显示 */
     let forced = false
     for (const pid of await listFloatPids()) {
       forced = true
-      try { process.kill(pid, 'SIGTERM') } catch { /* ignore */ }
+      try {
+        if (isWin) {
+          spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { detached: true, stdio: 'ignore' }).unref()
+        } else {
+          process.kill(pid, 'SIGTERM')
+        }
+      } catch {
+        /* ignore */
+      }
     }
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await new Promise((resolve) => setTimeout(resolve, 500))
     for (const pid of await listFloatPids()) {
       forced = true
-      try { process.kill(pid, 'SIGKILL') } catch { /* ignore */ }
-    }
-    if (forced) {
       try {
-        spawn('/usr/bin/osascript', ['-e', 'tell application "System Events" to set visible of process "DeepSeek Harness" to true'], { detached: true, stdio: 'ignore' }).unref()
-      } catch {
-        /* ignore */
-      }
-      try {
-        spawn('open', ['-b', 'com.deepseek.dsh'], { detached: true, stdio: 'ignore' }).unref()
+        if (isWin) {
+          spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { detached: true, stdio: 'ignore' }).unref()
+        } else {
+          process.kill(pid, 'SIGKILL')
+        }
       } catch {
         /* ignore */
       }
     }
+    if (forced) await restoreDshWindowFallback()
     try {
       if (typeof floatState.controlPath === 'string' && floatState.controlPath !== '') await rm(floatState.controlPath, { force: true })
     } catch {
@@ -155,32 +244,119 @@ export function register(router, env) {
     floatState.child = null
   }
 
+  /** macOS：用 .app 身份启动 helper（列表接口的兜底路线，能继承/单独授权辅助功能）。 */
+  const openApp = (args) => new Promise((resolve, reject) => {
+    const app = appBundlePath()
+    if (app === null) {
+      reject(new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500))
+      return
+    }
+    const child = spawn('open', ['-n', app, '--args', ...args], { detached: true, stdio: 'ignore' })
+    child.once('error', reject)
+    child.once('exit', (code) => {
+      if (code === 0) resolve()
+      else reject(new ApiError('open-failed', `悬浮层启动失败（open exit ${code}）`, 500))
+    })
+  })
+
+  /** Windows：PowerShell 枚举有主窗口的进程。 */
+  const listFloatWindowsWin = async () => {
+    const script = [
+      '$rows = @();',
+      "Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -ne '' } | ForEach-Object { $rows += [pscustomobject]@{ pid = $_.Id; owner = $_.ProcessName; title = $_.MainWindowTitle; bundleId = ''; windowNumber = [int64]$_.MainWindowHandle; frontmost = 0 } };",
+      "ConvertTo-Json -InputObject ([pscustomobject]@{ ok = $true; accessibility = $true; apps = @($rows) }) -Compress -Depth 5",
+    ].join('\n')
+    const { stdout } = await runFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 20_000, maxBuffer: 8 * 1024 * 1024 })
+    let parsed = null
+    try { parsed = JSON.parse(String(stdout ?? '').trim()) } catch { parsed = null }
+    if (parsed === null || parsed.ok !== true) throw new ApiError('list-failed', '读取 Windows 窗口列表失败', 500)
+    let apps = parsed.apps
+    if (!Array.isArray(apps)) apps = apps === null || apps === undefined ? [] : [apps]
+    apps = apps.filter((row) => row !== null && typeof row === 'object' && Number(row.pid) > 0 && typeof row.title === 'string' && row.title !== '')
+    return { ok: true, accessibility: true, apps }
+  }
+
+  /** Linux(X11)：wmctrl 枚举窗口（没装 wmctrl 时给出安装提示）。 */
+  const listFloatWindowsLinux = async () => {
+    let stdout = ''
+    try {
+      ({ stdout } = await runFile('wmctrl', ['-lp'], { timeout: 6000 }))
+    } catch {
+      throw new ApiError('missing-tool', 'Linux 下需要 wmctrl 才能列出窗口：sudo apt install wmctrl', 500)
+    }
+    const apps = []
+    const seen = new Set()
+    for (const line of String(stdout ?? '').split('\n')) {
+      const match = /^0x[0-9a-fA-F]+\s+\d+\s+(\d+)\s+(.*)$/.exec(line.trim())
+      if (match === null) continue
+      const pid = Number(match[1])
+      const title = match[2].trim()
+      if (!Number.isFinite(pid) || pid <= 0 || title === '') continue
+      const key = `${pid}:${title}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      let owner = String(pid)
+      try {
+        owner = readFileSync(`/proc/${pid}/comm`, 'utf8').trim() || owner
+      } catch {
+        /* ignore */
+      }
+      apps.push({ pid, owner, title, bundleId: owner, windowNumber: apps.length + 1, frontmost: 0 })
+    }
+    return { ok: true, accessibility: true, apps }
+  }
+
   router.method('float.status', async () => {
+    const support = floatSupportStatus()
     const running = await floatRunningAsync()
     return {
-      supported: process.platform === 'darwin' && appBundlePath() !== null,
+      supported: support.supported,
       platform: process.platform,
+      reason: support.reason,
+      hint: support.hint,
       running,
       pid: running ? (await listFloatPids())[0] ?? null : null,
-      app: appBundlePath(),
+      app: isMac ? appBundlePath() : support.binary,
     }
   })
 
-  /** 在 Finder 里显示悬浮层 App，便于用户在「屏幕录制」里手动添加。 */
+  /** 打开 helper 所在位置（macOS 在 Finder 显示 App；Windows 在资源管理器选中 exe；Linux 打开目录）。 */
   router.method('float.revealHelper', async () => {
-    const app = appBundlePath()
-    if (app === null) throw new ApiError('missing-helper', '悬浮层 App 未构建', 500)
+    const support = floatSupportStatus()
+    if (isMac) {
+      const app = appBundlePath()
+      if (app === null) throw new ApiError('missing-helper', '悬浮层 App 未构建', 500)
+      try {
+        spawn('open', ['-R', app], { detached: true, stdio: 'ignore' }).unref()
+        return { ok: true, app }
+      } catch {
+        return { ok: false, app }
+      }
+    }
+    if (!support.supported) throw new ApiError('missing-helper', support.hint ?? '悬浮层程序未构建', 500)
     try {
-      spawn('open', ['-R', app], { detached: true, stdio: 'ignore' }).unref()
-      return { ok: true, app }
+      if (isWin) spawn('explorer', ['/select,', support.binary], { detached: true, stdio: 'ignore' }).unref()
+      else spawn('xdg-open', [dirname(support.binary)], { detached: true, stdio: 'ignore' }).unref()
+      return { ok: true, app: support.binary }
     } catch {
-      return { ok: false, app }
+      return { ok: false, app: support.binary }
     }
   })
 
-  /** 列出可吸附的 App 窗口（通过 .app 身份启动 helper，输出到临时文件）。 */
+  /** 列出可吸附的 App 窗口（三平台统一返回 {ok, accessibility, apps}）。 */
   router.method('float.windows', async () => {
-    if (process.platform !== 'darwin') throw new ApiError('unsupported', '摸鱼模式目前只支持 macOS', 400)
+    const support = floatSupportStatus()
+    if (!support.supported) {
+      const message = support.reason === 'unsupported-platform'
+        ? '摸鱼模式暂不支持当前平台'
+        : (support.hint ?? '悬浮层程序未构建')
+      throw new ApiError('unsupported', message, 400)
+    }
+    if (!isMac) {
+      const list = isWin ? await listFloatWindowsWin() : await listFloatWindowsLinux()
+      debugLog(`float-windows platform=${process.platform} apps=${list.apps.length}`)
+      return list
+    }
     if (appBundlePath() === null) throw new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500)
     const binary = floatBinaryPath()
     const outPath = join(tmpdir(), `gufa-float-windows-${process.pid}-${Date.now()}.json`)
@@ -203,7 +379,6 @@ export function register(router, env) {
       }
     }
     try {
-      /* 路线 A：直接从 Host 进程 spawn（responsible app = DeepSeek Harness，可继承 DSH 的屏幕录制授权） */
       if (binary !== null) {
         try {
           await runFile(binary, ['--list-windows', '--out', outPath], { timeout: 12_000 })
@@ -215,7 +390,6 @@ export function register(router, env) {
         if (parsed !== null && parsed.ok === true) return parsed
         try { await rm(outPath, { force: true }) } catch { /* ignore */ }
       }
-      /* 路线 B：通过 .app 身份启动（用户给「古法编程悬浮层.app」单独授权） */
       await openApp(['--list-windows', '--out', outPath])
       const parsed = await readResult()
       debugLog(`float-windows route=app ok=${String(parsed !== null && parsed.ok === true)} permission=${String(parsed !== null ? parsed.permission : 'none')}`)
@@ -231,7 +405,7 @@ export function register(router, env) {
   })
 
   router.method('float.openPrivacy', async () => {
-    if (process.platform !== 'darwin') return { ok: false }
+    if (!isMac) return { ok: false }
     try {
       spawn('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'], { detached: true, stdio: 'ignore' }).unref()
       return { ok: true }
@@ -241,8 +415,14 @@ export function register(router, env) {
   })
 
   router.method('float.start', async (body) => {
-    if (process.platform !== 'darwin') throw new ApiError('unsupported', '摸鱼模式目前只支持 macOS', 400)
-    if (appBundlePath() === null) throw new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500)
+    const support = floatSupportStatus()
+    if (!support.supported) {
+      const message = support.reason === 'unsupported-platform'
+        ? '摸鱼模式暂不支持当前平台'
+        : (support.hint ?? '悬浮层程序未构建')
+      throw new ApiError('unsupported', message, 400)
+    }
+    if (isMac && appBundlePath() === null) throw new ApiError('missing-helper', '悬浮层 App 未构建，请先运行 scripts/build-float-macos.sh', 500)
     const follow = body !== null && typeof body === 'object' && body.follow !== null && typeof body.follow === 'object'
       ? {
         pid: Number(body.follow.pid) || 0,
@@ -264,7 +444,7 @@ export function register(router, env) {
     const authUrl = connection.authenticatedUrl(`${base}/`)
     const state = body !== null && typeof body === 'object' && body.state !== null && typeof body.state === 'object' ? body.state : null
     try {
-      debugLog(`float-start-state project=${String(state !== null && state.projectRoot) } tabs=${state !== null && Array.isArray(state.tabs) ? state.tabs.length : 'none'} active=${state !== null && typeof state.activePath === 'string' ? state.activePath : 'none'} ui=${state !== null && state.ui !== null && typeof state.ui === 'object' ? JSON.stringify(state.ui) : 'none'} session=${state !== null && typeof state.sessionId === 'string' ? state.sessionId : 'none'}`)
+      debugLog(`float-start-state platform=${process.platform} project=${String(state !== null && state.projectRoot) } tabs=${state !== null && Array.isArray(state.tabs) ? state.tabs.length : 'none'} active=${state !== null && typeof state.activePath === 'string' ? state.activePath : 'none'} ui=${state !== null && state.ui !== null && typeof state.ui === 'object' ? JSON.stringify(state.ui) : 'none'} session=${state !== null && typeof state.sessionId === 'string' ? state.sessionId : 'none'}`)
     } catch {
       /* ignore */
     }
@@ -279,12 +459,13 @@ export function register(router, env) {
       state: state ?? undefined,
       alpha: Number.isFinite(alphaPref) && alphaPref >= 20 && alphaPref <= 100 ? Math.round(alphaPref) : undefined,
       build: PLUGIN_VERSION,
+      ownerPid: process.ppid,
       controlPath,
     })
     floatState.controlPath = controlPath
     const binary = floatBinaryPath()
     if (binary === null) throw new ApiError('missing-helper', '悬浮层程序未构建', 500)
-    const child = spawn(binary, [payload], { detached: true, stdio: 'ignore' })
+    const child = spawn(binary, [payload], { detached: true, stdio: 'ignore', windowsHide: false })
     child.unref()
     floatState.child = child
     floatState.startedAt = Date.now()

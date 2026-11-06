@@ -33,6 +33,12 @@
 - 退出摸鱼：悬浮窗把「项目 / 打开的标签页 / UI 布局 / 当前会话」写回 Host，然后优雅退出并恢复显示主窗口；
   主窗口重新获得焦点时自动取回并应用这些状态（项目 → 标签页 → 会话）。
 
+## 摸鱼模式跨平台实现
+
+- helper 与 Host 的通信协议统一在 `desktop/float/PLATFORM-PROTOCOL.md`（argv JSON + controlPath 控制文件 + ciProbe 冒烟）。
+- macOS：`desktop/float/GufaFloat.m`（已可用）；Windows：`desktop/float/win/`（Win32 + WebView2）；Linux：`desktop/float/linux/`（X11 + GTK3/WebKit2GTK），后两者由 `.github/workflows/build-float.yml` 在 CI 构建，需真机验收。
+- Host 端 `host/dev.js` 的 `float.*` API 已按平台分支：darwin 用 .app + AX；win32/linux 用原生 helper + controlPath 退出，用 PowerShell/wmctrl 列窗口。
+
 ## 摸鱼模式现行限制
 
 - 只在独立悬浮窗实例里生效；主窗口永远走古法编程模式；
