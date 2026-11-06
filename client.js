@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.32'
+G.BUILD = '1.3.33'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3786,8 +3786,7 @@ function gufaTermFloatMode() {
 const GUFA_TERM_FLOAT_BG = 'rgba(30,30,30,var(--gufa-float-alpha))'
 
 function gufaTermTheme(mode, palette) {
-  const floatMode = gufaTermFloatMode()
-  const dark = floatMode || (palette !== null && palette !== undefined && typeof palette.isDark === 'boolean' ? palette.isDark : mode === 'dark')
+  const dark = palette !== null && palette !== undefined && typeof palette.isDark === 'boolean' ? palette.isDark : mode === 'dark'
   if (dark) {
     const darkTheme = {
       background: '#1e1e1e',
@@ -3813,11 +3812,9 @@ function gufaTermTheme(mode, palette) {
       brightWhite: '#e5e5e5',
     }
     const themed = gufaApplyPaletteToTermTheme(darkTheme, palette)
-    /* 摸鱼：xterm 自身背景透明，交给外层容器跟随 --gufa-float-alpha */
-    if (floatMode) {
-      themed.background = 'rgba(0,0,0,0)'
-      themed.cursorAccent = 'rgba(0,0,0,0)'
-    }
+    /* xterm 自身永远画透明底：背景色由外层容器用 IDE 调色板/透明度变量统一上色 */
+    themed.background = 'rgba(0,0,0,0)'
+    themed.cursorAccent = 'rgba(0,0,0,0)'
     return themed
   }
   const light = {
@@ -3843,7 +3840,10 @@ function gufaTermTheme(mode, palette) {
     brightCyan: '#0598bc',
     brightWhite: '#a5a5a5',
   }
-  return gufaApplyPaletteToTermTheme(light, palette)
+  const themed = gufaApplyPaletteToTermTheme(light, palette)
+  themed.background = 'rgba(0,0,0,0)'
+  themed.cursorAccent = 'rgba(0,0,0,0)'
+  return themed
 }
 
 /** 把皮肤实色调色板叠加到 xterm 主题（背景/前景/光标/选区跟随滑动变祖）。 */
@@ -4319,12 +4319,9 @@ function GufaTerminalView(props) {
       }
       gufaTermDebug('terminal-xterm', `open host=${host.clientWidth}x${host.clientHeight} palette=${palette !== null} isDark=${palette === null ? '?' : palette.isDark === true}`)
       try {
-        const floatTerm = gufaTermFloatMode()
-        const initialTheme = gufaTermTheme(themeRef.current, paletteRef.current)
-        void G.api('dev.log', { message: `term-create float=${floatTerm} allowTransparency=${floatTerm} bg=${String(initialTheme.background)}` }).catch(() => {})
         const terminal = new props.assets.Terminal({
           allowProposedApi: false,
-          allowTransparency: floatTerm,
+          allowTransparency: true,
           convertEol: false,
           cursorBlink: true,
           cursorStyle: 'bar',
@@ -4566,9 +4563,9 @@ function GufaTerminalView(props) {
 
   const monoFont = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace'
   const fallbackTheme = gufaTermTheme(props.theme, palette)
-  const terminalFloat = gufaTermFloatMode()
-  const background = terminalFloat ? 'transparent' : fallbackTheme.background
-  const shellBackground = terminalFloat ? GUFA_TERM_FLOAT_BG : fallbackTheme.background
+  /* 终端背景和其它面板用同一个变量：IDE 里是实色调色板，摸鱼里是带 --gufa-float-alpha 的半透明色 */
+  const shellBackground = 'var(--gufa-solid-layer, var(--gufa-bg, #1e1e1e))'
+  const background = 'transparent'
   const foreground = fallbackTheme.foreground
 
   const body = fallback
@@ -4699,6 +4696,9 @@ G.TerminalPane = function TerminalPane(props) {
   const theme = props.theme === 'light' ? 'light' : 'dark'
   const visible = props.visible !== false
   const [assets, setAssets] = useState({ status: 'loading', Terminal: null, FitAddon: null, error: '' })
+  /* 未显式传 palette 时（例如古法编程主模式），从 IDE 主题 token 算一份实色调色板，
+     让 xterm 的文字/选区颜色与周围面板一致，而不是永远用浅色主题 */
+  const [computedPalette, setComputedPalette] = useState(null)
   const [sessions, setSessions] = useState([])
   const [activeId, setActiveId] = useState(null)
   const [error, setError] = useState('')
@@ -4718,6 +4718,25 @@ G.TerminalPane = function TerminalPane(props) {
   useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
+  useEffect(() => {
+    if (props.palette !== null && props.palette !== undefined) return undefined
+    let cancelled = false
+    const compute = () => {
+      try {
+        const el = sizeRef.current
+        const value = typeof G.resolveSolidPalette === 'function' ? G.resolveSolidPalette(el) : null
+        if (!cancelled && value !== null && value !== undefined) setComputedPalette(value)
+      } catch {
+        /* ignore */
+      }
+    }
+    compute()
+    const timer = window.setTimeout(compute, 400)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [props.palette])
   useEffect(() => {
     activeRef.current = activeId
   }, [activeId])
@@ -4966,7 +4985,7 @@ G.TerminalPane = function TerminalPane(props) {
           active: session.id === activeId,
           visible,
           theme,
-          palette: props.palette,
+          palette: props.palette !== null && props.palette !== undefined ? props.palette : computedPalette,
           assets,
           register: registerChannel,
           unregister: unregisterChannel,
@@ -4991,7 +5010,7 @@ G.TerminalPane = function TerminalPane(props) {
         minHeight: 0,
         minWidth: 0,
         borderTop: '1px solid var(--gufa-border)',
-        background: 'var(--gufa-bg)',
+        background: 'var(--gufa-solid-bg, var(--gufa-bg))',
       },
     },
     h(
@@ -5005,7 +5024,7 @@ G.TerminalPane = function TerminalPane(props) {
           padding: '0 6px 0 8px',
           flex: '0 0 auto',
           borderBottom: '1px solid var(--gufa-border)',
-          background: 'var(--gufa-layer)',
+          background: 'var(--gufa-solid-layer, var(--gufa-layer))',
           minWidth: 0,
         },
       },
@@ -5042,7 +5061,7 @@ G.TerminalPane = function TerminalPane(props) {
       : null,
     h(
       'div',
-      { ref: sizeRef, style: { position: 'relative', flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: gufaTermFloatMode() ? 'transparent' : (theme === 'dark' ? '#1e1e1e' : '#ffffff') } },
+      { ref: sizeRef, style: { position: 'relative', flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: 'transparent' } },
       body,
     ),
   )
