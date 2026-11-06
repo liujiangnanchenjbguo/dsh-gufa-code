@@ -194,7 +194,7 @@ std::wstring ReadEnvironmentPayload() {
   char narrowBuffer[32768];
   narrowBuffer[0] = '\0';
   const DWORD narrowLength =
-      GetEnvironmentVariableA(kName, narrowBuffer, static_cast<DWORD>(_countof(narrowBuffer)));
+      GetEnvironmentVariableA("GUFA_FLOAT_PAYLOAD", narrowBuffer, static_cast<DWORD>(_countof(narrowBuffer)));
   if (narrowLength > 0 && narrowLength < _countof(narrowBuffer)) {
     return Utf8ToWide(std::string(narrowBuffer, narrowLength));
   }
