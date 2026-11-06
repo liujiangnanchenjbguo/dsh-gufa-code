@@ -7,6 +7,8 @@ const GUFA_NS = 'gufa-code'
 /** 全局命名空间：所有零件通过 G.xxx 共享能力与组件。 */
 const G = {}
 G.NS = GUFA_NS
+/** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
+G.BUILD = '1.3.12'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1444,6 +1446,7 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-brand{display:flex;align-items:center;gap:8px;min-width:0}
 .gufa-brand-logo{width:24px;height:24px;flex:0 0 auto}
 .gufa-brand-name{font-weight:650;font-size:14px;letter-spacing:.02em;white-space:nowrap}
+.gufa-build-tag{font-size:9.5px;color:var(--gufa-text-dim);opacity:.6;letter-spacing:.3px;flex:0 0 auto}
 .gufa-brand-sub{font-size:10px;letter-spacing:.18em;color:var(--gufa-text-dim);white-space:nowrap}
 .gufa-project{appearance:none;border:0;background:transparent;font:inherit;color:inherit;cursor:pointer}
 .gufa-project:hover{background:var(--gufa-hover)}

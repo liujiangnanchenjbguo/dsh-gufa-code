@@ -992,6 +992,16 @@ G.GufaApp = function GufaApp(props) {
         if (state !== null && typeof state === 'object') {
           void G.api('dev.log', { message: `moyu-exit-state consume project=${String(state.projectRoot)} tabs=${Array.isArray(state.tabs) ? state.tabs.length : 0} session=${String(state.sessionId)}` }).catch(() => {})
           const restore = G.floatRestoreRef
+          if (restore === null || restore === undefined) {
+            /* 主窗口当前不在 IDE 模式：把状态写进 localStorage，等下次进 IDE 时恢复 */
+            try {
+              if (typeof state.projectRoot === 'string' && state.projectRoot !== '') localStorage.setItem('gufa-code:project', JSON.stringify(state.projectRoot))
+              localStorage.setItem('gufa-code:float-state', JSON.stringify(state))
+            } catch {
+              /* ignore */
+            }
+            return
+          }
           let projectValue = null
           if (typeof state.projectRoot === 'string' && state.projectRoot !== '') {
             try {
@@ -1033,9 +1043,20 @@ G.GufaApp = function GufaApp(props) {
         running = false
       }
     }
-    const onFocus = () => { void consume() }
+    const syncFloatStatus = async () => {
+      try {
+        const value = await G.api('float.status')
+        const next = value?.running === true
+        setFloatRunning((current) => (current === next ? current : next))
+      } catch {
+        /* ignore */
+      }
+    }
+    const onFocus = () => { void syncFloatStatus(); void consume() }
     window.addEventListener('focus', onFocus)
-    const onVisible = () => { if (document.visibilityState === 'visible') void consume() }
+    /* 摸鱼退出后主窗口可能因隐藏/恢复丢失 focus 事件，低频轮询兜底 */
+    const pollTimer = window.setInterval(() => { void consume(); void syncFloatStatus() }, 3000)
+    const onVisible = () => { if (document.visibilityState === 'visible') { void syncFloatStatus(); void consume() } }
     document.addEventListener('visibilitychange', onVisible)
     if (consumeExitStateRef.current !== true) {
       consumeExitStateRef.current = true
@@ -1044,13 +1065,23 @@ G.GufaApp = function GufaApp(props) {
     return () => {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisible)
+      window.clearInterval(pollTimer)
     }
   }, [])
 
-  const toggleFloatWindow = useCallback(() => {
-    if (floatRequested === true || floatRunning) void stopFloatWindow()
+  const toggleFloatWindow = useCallback(async () => {
+    if (floatBusy) return
+    /* 以 Host 的真实运行状态为准：避免退出摸鱼后主窗口状态残留，第一次点击失效 */
+    let running = floatRunning
+    try {
+      const status = await G.api('float.status')
+      running = status?.running === true
+    } catch {
+      running = false
+    }
+    if (floatRequested === true || running) await stopFloatWindow()
     else void openFloatPicker()
-  }, [floatRequested, floatRunning, stopFloatWindow, openFloatPicker])
+  }, [floatBusy, floatRequested, floatRunning, stopFloatWindow, openFloatPicker])
 
   /* ── 右侧 AI 面板与当前工作区保持一致 ─────────────────────────────────
    * ChatDock 停靠的是 DSH「主视图会话」，但主视图会话可能属于别的工作区
@@ -1636,6 +1667,14 @@ G.GufaApp = function GufaApp(props) {
     if (project === null) return
     let state = null
     state = G.floatState
+    if (state === null || state === undefined) {
+      try {
+        const raw = localStorage.getItem('gufa-code:float-state')
+        state = raw === null ? null : JSON.parse(raw)
+      } catch {
+        state = null
+      }
+    }
     if (state === null || typeof state !== 'object') return
     floatTabsRestoredRef.current = true
     const paths = Array.isArray(state.tabs) ? state.tabs.filter((path) => typeof path === 'string' && path !== '') : []
@@ -1965,6 +2004,7 @@ G.GufaApp = function GufaApp(props) {
         h(G.Seal, { size: 24, className: 'gufa-brand-logo' }),
         h('span', { className: 'gufa-brand-name' }, t('app.title')),
         h('span', { className: 'gufa-brand-sub' }, t('app.subtitle')),
+        h('span', { className: 'gufa-build-tag', title: '古法编程客户端版本（排查缓存用）' }, G.BUILD !== undefined ? G.BUILD : ''),
       ),
       h(
         'button',

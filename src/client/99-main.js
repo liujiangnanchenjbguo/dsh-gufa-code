@@ -392,7 +392,7 @@ const GUFA_PLUGIN = {
     try {
       const transport = typeof globalThis.__DSH_TRANSPORT__ === 'object' && globalThis.__DSH_TRANSPORT__ !== null ? globalThis.__DSH_TRANSPORT__ : null
       void G.api('dev.log', {
-        message: `boot href=${location.href} base=${G.serverBase()} transport=${transport === null ? 'none' : JSON.stringify(transport)}`,
+        message: `boot build=${G.BUILD || '?'} href=${location.href} base=${G.serverBase()} transport=${transport === null ? 'none' : JSON.stringify(transport)}`,
       }).catch(() => {})
     } catch {
       /* 诊断失败不影响启动 */
