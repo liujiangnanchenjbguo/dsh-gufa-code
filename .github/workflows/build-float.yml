@@ -319,6 +319,56 @@ jobs:
           cat /tmp/gufa-linux-lifecycle.log
           echo 'helper did not exit after controlPath'
           exit 1
+      - name: Smoke test (follow a real target window under Xvfb)
+        run: |
+          sudo apt-get install -y xterm x11-utils openbox
+          mkdir -p /tmp/gufa-probe-www
+          printf '<html><body>gufa-probe</body></html>' > /tmp/gufa-probe-www/index.html
+          (cd /tmp/gufa-probe-www && python3 -m http.server 8795 --bind 127.0.0.1 >/tmp/gufa-probe-http2.log 2>&1 &)
+          sleep 1
+          xvfb-run -a bash -c '
+            set -euxo pipefail
+            openbox >/tmp/gufa-openbox.log 2>&1 &
+            sleep 1
+            xterm -T GUFA-TARGET -geometry 90x30+120+120 >/tmp/gufa-xterm.log 2>&1 &
+            XPID=$!
+            sleep 2
+            XWIN=$(xdotool search --pid $XPID | head -1)
+            [ -n "$XWIN" ]
+            control=/tmp/gufa-linux-follow-control.txt
+            rm -f "$control"
+            ./desktop/float/bin/linux-x64/gufa-float-linux "{\"appUrl\":\"http://127.0.0.1:8795/\",\"authUrl\":\"http://127.0.0.1:8795/\",\"controlPath\":\"$control\",\"follow\":{\"pid\":$XPID,\"title\":\"\"},\"build\":\"ci\"}" >/tmp/gufa-linux-follow.log 2>&1 &
+            HPID=$!
+            sleep 10
+            kill -0 $HPID
+            HWIN=$(xdotool search --pid $HPID | head -1)
+            [ -n "$HWIN" ]
+            eval $(xdotool getwindowgeometry --shell $XWIN)
+            tx=$X; ty=$Y; tw=$WIDTH; th=$HEIGHT
+            eval $(xdotool getwindowgeometry --shell $HWIN)
+            hx=$X; hy=$Y; hw=$WIDTH; hh=$HEIGHT
+            echo "target=$tx,$ty,$tw,$th helper=$hx,$hy,$hw,$hh"
+            [ $((tx > hx ? tx - hx : hx - tx)) -le 120 ]
+            [ $((ty > hy ? ty - hy : hy - ty)) -le 120 ]
+            xdotool windowmove $XWIN 260 210
+            sleep 5
+            eval $(xdotool getwindowgeometry --shell $XWIN)
+            tx2=$X; ty2=$Y
+            eval $(xdotool getwindowgeometry --shell $HWIN)
+            hx2=$X; hy2=$Y
+            echo "after move target=$tx2,$ty2 helper=$hx2,$hy2"
+            [ $((tx2 > hx2 ? tx2 - hx2 : hx2 - tx2)) -le 120 ]
+            [ $((ty2 > hy2 ? ty2 - hy2 : hy2 - ty2)) -le 120 ]
+            printf exit > "$control"
+            for i in $(seq 1 30); do
+              if ! kill -0 $HPID 2>/dev/null; then echo "follow helper exited cleanly"; exit 0; fi
+              sleep 0.5
+            done
+            cat /tmp/gufa-linux-follow.log
+            echo "helper did not exit after controlPath"
+            exit 1
+          '
+
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-linux-x64
