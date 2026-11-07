@@ -317,8 +317,12 @@ jobs:
           Remove-Item $reportPath -ErrorAction SilentlyContinue
           $env:GUFA_SITE = $site
           $env:GUFA_OUT = $reportPath
-          $server = Start-Process -FilePath 'python' -ArgumentList @('-File', $serverScript) -PassThru -WindowStyle Hidden
+          $serverErr = Join-Path $env:TEMP 'gufa-state-server.err.log'
+          $server = Start-Process -FilePath 'python' -ArgumentList @($serverScript) -PassThru -WindowStyle Hidden -RedirectStandardError $serverErr
           Start-Sleep -Seconds 2
+          if ($server.HasExited) { if (Test-Path $serverErr) { Get-Content $serverErr }; throw 'state HTTP server failed to start' }
+          $probe = Invoke-WebRequest -Uri 'http://127.0.0.1:8794/' -UseBasicParsing -TimeoutSec 10
+          if ($probe.StatusCode -ne 200) { throw 'state HTTP server did not serve the page' }
           $control = Join-Path $env:TEMP 'gufa-win-state-control.txt'
           Remove-Item $control -ErrorAction SilentlyContinue
           $payload = (@{ appUrl='http://127.0.0.1:8794/'; authUrl='http://127.0.0.1:8794/'; controlPath=$control; build='ci'; state=@{ projectRoot='/tmp/gufa-demo'; activePath='demo/a.js'; tabs=@('demo/a.js'); ui=@{ view='explorer'; chatOpen=$true }; sessionId='session-ci' } } | ConvertTo-Json -Compress -Depth 6)
