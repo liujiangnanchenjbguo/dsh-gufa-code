@@ -401,6 +401,30 @@ jobs:
           Write-Host 'composition (transparent) window verified: WS_EX_NOREDIRECTIONBITMAP + transparent-mode=composition'
           Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
 
+      - name: Smoke test (opaque mode / windowed fallback)
+        shell: pwsh
+        run: |
+          $www = Join-Path $env:TEMP 'gufa-probe-www'
+          New-Item -ItemType Directory -Force $www | Out-Null
+          if (-not (Test-Path (Join-Path $www 'index.html'))) { '<html><body>gufa-probe</body></html>' | Set-Content (Join-Path $www 'index.html') -Encoding UTF8 }
+          $http = Start-Process -FilePath 'python' -ArgumentList @('-m','http.server','8789','--bind','127.0.0.1') -WorkingDirectory $www -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $control = Join-Path $env:TEMP 'gufa-win-opaque-control.txt'
+          Remove-Item $control -ErrorAction SilentlyContinue
+          $payload = (@{ appUrl='http://127.0.0.1:8789/'; authUrl='http://127.0.0.1:8789/'; controlPath=$control; build='ci'; opaque=$true } | ConvertTo-Json -Compress)
+          $env:GUFA_FLOAT_PAYLOAD = $payload
+          $helper = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 6
+          if ($helper.HasExited) { throw "opaque helper exited early (code $($helper.ExitCode))" }
+          $log = Join-Path $env:TEMP 'gufa-float-debug.log'
+          $lines = Get-Content $log -Tail 200 -ErrorAction SilentlyContinue
+          $mode = $lines | Select-String 'transparent-mode=windowed reason=payload-opaque' | Select-Object -Last 1
+          if (-not $mode) { Write-Host ($lines | Select-String 'transparent-mode=' | Select-Object -Last 5); throw 'opaque payload did not force windowed mode' }
+          Set-Content -Path $control -Value 'exit' -NoNewline
+          if (-not $helper.WaitForExit(15000)) { throw 'opaque helper did not exit after controlPath' }
+          Write-Host 'opaque/windowed fallback mode verified'
+          Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
+
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-win-x64
@@ -607,6 +631,36 @@ jobs:
             done
             if [ $restored -ne 1 ]; then echo "helper did not restore DeepSeek Harness window"; cat /tmp/gufa-linux-hide.log; exit 1; fi
             echo "helper restored the DeepSeek Harness window on exit"
+          '
+
+      - name: Smoke test (RGBA transparency with compositor under Xvfb)
+        run: |
+          sudo apt-get install -y xcompmgr
+          mkdir -p /tmp/gufa-probe-www
+          printf '<html><body>gufa-probe</body></html>' > /tmp/gufa-probe-www/index.html
+          (cd /tmp/gufa-probe-www && python3 -m http.server 8790 --bind 127.0.0.1 >/tmp/gufa-probe-http3.log 2>&1 &)
+          sleep 1
+          xvfb-run -a bash -c '
+            set -euxo pipefail
+            openbox >/tmp/gufa-openbox-transp.log 2>&1 &
+            sleep 1
+            xcompmgr -a >/tmp/gufa-xcompmgr.log 2>&1 &
+            sleep 1
+            control=/tmp/gufa-linux-transp-control.txt
+            rm -f "$control"
+            ./desktop/float/bin/linux-x64/gufa-float-linux "{\"appUrl\":\"http://127.0.0.1:8790/\",\"authUrl\":\"http://127.0.0.1:8790/\",\"controlPath\":\"$control\",\"build\":\"ci\"}" >/tmp/gufa-linux-transp.log 2>&1 &
+            HPID=$!
+            sleep 8
+            kill -0 $HPID
+            grep -q "使用 RGBA visual" /tmp/gufa-linux-transp.log
+            HWIN=$(xdotool search --pid $HPID --onlyvisible | head -1)
+            [ -n "$HWIN" ]
+            echo "RGBA transparency path active (compositor detected)"
+            printf exit > "$control"
+            for i in $(seq 1 30); do if ! kill -0 $HPID 2>/dev/null; then echo "transparency helper exited cleanly"; exit 0; fi; sleep 0.5; done
+            cat /tmp/gufa-linux-transp.log
+            echo "helper did not exit after controlPath"
+            exit 1
           '
 
       - uses: actions/upload-artifact@v4
