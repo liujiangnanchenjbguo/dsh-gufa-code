@@ -879,10 +879,12 @@ jobs:
             [ -n "$HWIN" ]
             xdotool windowactivate --sync $HWIN
             sleep 1
-            xdotool key --window $HWIN g
+            # 用 XTEST（全局）而不是 --window（XSendEvent 合成事件，GTK/WebKit 常忽略）
+            xdotool key g
             for i in $(seq 1 20); do [ -s /tmp/gufa-key-report.json ] && break; sleep 0.5; done
             KEY=$(cat /tmp/gufa-key-report.json 2>/dev/null || true)
             echo "key report: $KEY"
+            if [ -z "$KEY" ]; then echo "--- helper log ---"; tail -40 /tmp/gufa-linux-key.log; fi
             printf exit > "$control"
             for i in $(seq 1 30); do if ! kill -0 $HPID 2>/dev/null; then break; fi; sleep 0.5; done
             kill -9 $HPID 2>/dev/null || true
