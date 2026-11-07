@@ -10,6 +10,7 @@ import { promisify } from 'node:util'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ApiError } from './context.js'
+import { floatBinaryCandidates, parsePowerShellWindowList, parseTasklistPids, parseWmctrlWindowList } from './float-platform.js'
 
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const DEBUG_LOG_PATH = '/tmp/gufa-code-debug.log'
@@ -29,28 +30,7 @@ const runFile = promisify(execFile)
 /** 查找当前平台编译好的悬浮层 helper。 */
 function floatBinaryPath() {
   const root = join(PLUGIN_ROOT, 'desktop', 'float', 'bin')
-  let candidates = []
-  if (process.platform === 'darwin') {
-    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
-    candidates = [
-      join(root, `gufa-float-macos-${arch}`),
-      join(root, 'gufa-float-macos-universal'),
-      join(root, 'gufa-float-macos-arm64'),
-      join(root, 'gufa-float-macos-x64'),
-    ]
-  } else if (process.platform === 'win32') {
-    candidates = [
-      join(root, 'win-x64', 'gufa-float-win.exe'),
-      join(root, 'gufa-float-win.exe'),
-    ]
-  } else if (process.platform === 'linux') {
-    candidates = [
-      join(root, 'linux-x64', 'gufa-float-linux'),
-      join(root, 'linux-x64', 'gufa-float-linux-x64'),
-      join(root, 'gufa-float-linux'),
-    ]
-  }
-  for (const full of candidates) {
+  for (const full of floatBinaryCandidates(process.platform, process.arch, root)) {
     if (existsSync(full)) return full
   }
   return null
@@ -147,13 +127,7 @@ export function register(router, env) {
       for (const pid of alive) pids.add(pid)
       try {
         const { stdout } = await runFile('tasklist', ['/FI', 'IMAGENAME eq gufa-float-win.exe', '/FO', 'CSV', '/NH'], { timeout: 5000 })
-        for (const line of String(stdout ?? '').split('\n')) {
-          const match = /^"([^"]+)","(\d+)"/.exec(line.trim())
-          if (match !== null) {
-            const pid = Number(match[2])
-            if (Number.isFinite(pid) && pid > 0) pids.add(pid)
-          }
-        }
+        for (const pid of parseTasklistPids(stdout)) pids.add(pid)
       } catch {
         /* tasklist 不可用：只用 child pid */
       }
@@ -269,14 +243,10 @@ export function register(router, env) {
       "ConvertTo-Json -InputObject ([pscustomobject]@{ ok = $true; accessibility = $true; apps = @($rows) }) -Compress -Depth 5",
     ].join('\n')
     const { stdout } = await runFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 20_000, maxBuffer: 8 * 1024 * 1024 })
-    let parsed = null
-    try { parsed = JSON.parse(String(stdout ?? '').trim()) } catch { parsed = null }
-    if (parsed === null || parsed.ok !== true) throw new ApiError('list-failed', '读取 Windows 窗口列表失败', 500)
-    let apps = parsed.apps
-    if (!Array.isArray(apps)) apps = apps === null || apps === undefined ? [] : [apps]
+    const parsed = parsePowerShellWindowList(stdout)
+    if (parsed === null) throw new ApiError('list-failed', '读取 Windows 窗口列表失败', 500)
     const helperPids = new Set(await listFloatPids())
-    apps = apps.filter((row) => row !== null && typeof row === 'object' && Number(row.pid) > 0 && typeof row.title === 'string' && row.title !== '' && !helperPids.has(Number(row.pid)))
-    apps = apps.map((row) => ({ ...row, name: typeof row.name === 'string' && row.name !== '' ? row.name : row.owner }))
+    const apps = parsed.apps.filter((row) => !helperPids.has(Number(row.pid)))
     return { ok: true, accessibility: true, apps }
   }
 
@@ -304,25 +274,13 @@ export function register(router, env) {
     } catch {
       throw new ApiError('missing-tool', 'Linux 下列出窗口失败：请重新构建 helper，或安装 wmctrl（sudo apt install wmctrl）', 500)
     }
-    const apps = []
-    const seen = new Set()
-    for (const line of String(stdout ?? '').split('\n')) {
-      const match = /^0x[0-9a-fA-F]+\s+\d+\s+(\d+)\s+(.*)$/.exec(line.trim())
-      if (match === null) continue
-      const pid = Number(match[1])
-      const title = match[2].trim()
-      if (!Number.isFinite(pid) || pid <= 0 || title === '') continue
-      const key = `${pid}:${title}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      let owner = String(pid)
+    const apps = parseWmctrlWindowList(stdout, (pid) => {
       try {
-        owner = readFileSync(`/proc/${pid}/comm`, 'utf8').trim() || owner
+        return readFileSync(`/proc/${pid}/comm`, 'utf8')
       } catch {
-        /* ignore */
+        return undefined
       }
-      apps.push({ pid, name: owner, owner, title, bundleId: owner, windowNumber: apps.length + 1, frontmost: 0 })
-    }
+    })
     return { ok: true, accessibility: true, apps }
   }
 

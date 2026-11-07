@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as assets from '../host/assets.js'
+import * as floatPlatform from '../host/float-platform.js'
 import * as chat from '../host/chat.js'
 import * as fs from '../host/fs.js'
 import * as git from '../host/git.js'
@@ -178,6 +179,55 @@ try {
   project.register(wsRouterUnavailable, { ctx: {}, projects: new ProjectRegistry() })
   const wsNone = await wsRouterUnavailable.methods.get('workspaces.list')({})
   check('workspaces.list unavailable fallback', wsNone.available === false && wsNone.workspaces.length === 0)
+
+  console.log('float 平台分支纯函数')
+  const binRoot = '/plugin/desktop/float/bin'
+  const macArm = floatPlatform.floatBinaryCandidates('darwin', 'arm64', binRoot)
+  check('float binary candidates darwin arm64 顺序', macArm[0].endsWith('gufa-float-macos-arm64') && macArm[1].endsWith('gufa-float-macos-universal'), JSON.stringify(macArm))
+  const macX64 = floatPlatform.floatBinaryCandidates('darwin', 'x64', binRoot)
+  check('float binary candidates darwin x64 顺序', macX64[0].endsWith('gufa-float-macos-x64'), JSON.stringify(macX64))
+  const winBins = floatPlatform.floatBinaryCandidates('win32', 'x64', binRoot)
+  check('float binary candidates win32', winBins[0] === '/plugin/desktop/float/bin/win-x64/gufa-float-win.exe' && winBins[1].endsWith('gufa-float-win.exe'), JSON.stringify(winBins))
+  const linuxBins = floatPlatform.floatBinaryCandidates('linux', 'x64', binRoot)
+  check('float binary candidates linux', linuxBins[0] === '/plugin/desktop/float/bin/linux-x64/gufa-float-linux', JSON.stringify(linuxBins))
+  check('float binary candidates 未知平台为空', floatPlatform.floatBinaryCandidates('aix', 'x64', binRoot).length === 0)
+
+  const tasklistOut = [
+    '"gufa-float-win.exe","1234","Console","1","10,000 K"',
+    '"gufa-float-win.exe","5678","Console","1","10,000 K"',
+    'INFO: No tasks are running which match the specified criteria.',
+    '',
+  ].join('\n')
+  check('parseTasklistPids 解析 CSV', JSON.stringify(floatPlatform.parseTasklistPids(tasklistOut)) === '[1234,5678]', JSON.stringify(floatPlatform.parseTasklistPids(tasklistOut)))
+  check('parseTasklistPids 空输入', floatPlatform.parseTasklistPids('').length === 0)
+
+  const psArray = JSON.stringify({ ok: true, accessibility: true, apps: [
+    { pid: 10, owner: 'chrome', title: 'Chrome', bundleId: '', windowNumber: 1, frontmost: 0 },
+    { pid: 11, owner: 'wechat', title: 'WeChat', bundleId: '', windowNumber: 2, frontmost: 1 },
+  ] })
+  const psParsed = floatPlatform.parsePowerShellWindowList(psArray)
+  check('parsePowerShellWindowList 数组 + name 回填', psParsed !== null && psParsed.apps.length === 2 && psParsed.apps[0].name === 'chrome', JSON.stringify(psParsed))
+  const psSingle = floatPlatform.parsePowerShellWindowList(JSON.stringify({ ok: true, accessibility: true, apps: { pid: 12, owner: 'code', title: 'VS Code' } }))
+  check('parsePowerShellWindowList 单对象转数组', psSingle !== null && psSingle.apps.length === 1 && psSingle.apps[0].name === 'code', JSON.stringify(psSingle))
+  check('parsePowerShellWindowList ok:false', floatPlatform.parsePowerShellWindowList(JSON.stringify({ ok: false })) === null)
+  check('parsePowerShellWindowList 非法 JSON', floatPlatform.parsePowerShellWindowList('not-json') === null)
+  const psFiltered = floatPlatform.parsePowerShellWindowList(JSON.stringify({ ok: true, apps: [
+    { pid: 1, owner: 'a', title: '' },
+    { pid: 0, owner: 'b', title: 'B' },
+    { pid: 2, owner: 'c', title: 'C' },
+  ] }))
+  check('parsePowerShellWindowList 过滤空标题/非法 pid', psFiltered !== null && psFiltered.apps.length === 1 && psFiltered.apps[0].pid === 2, JSON.stringify(psFiltered))
+
+  const wmctrlOut = [
+    '0x03e00007  0 1234 host One Title With Spaces',
+    '0x03e00008  0 1234 host One Title With Spaces',
+    '0x03e00009  1 4321 host Another',
+    'malformed line',
+  ].join('\n')
+  const wmApps = floatPlatform.parseWmctrlWindowList(wmctrlOut, (pid) => (pid === 1234 ? 'chrome' : 'wechat'))
+  check('parseWmctrlWindowList 解析/去重/owner', wmApps.length === 2 && wmApps[0].owner === 'chrome' && wmApps[0].title === 'One Title With Spaces' && wmApps[1].owner === 'wechat', JSON.stringify(wmApps))
+  const wmFallback = floatPlatform.parseWmctrlWindowList('0x1 0 999 host T', () => { throw new Error('gone') })
+  check('parseWmctrlWindowList comm 失败回退 pid', wmFallback.length === 1 && wmFallback[0].owner === '999', JSON.stringify(wmFallback))
 
   console.log('ssh / assets / placeholders')
   const sshHosts = await call(router, 'ssh.hosts')

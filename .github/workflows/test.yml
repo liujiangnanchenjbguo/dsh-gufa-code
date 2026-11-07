@@ -1,0 +1,34 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  node-tests:
+    name: node unit tests + client build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build client bundle
+        run: node scripts/build-client.mjs
+      - name: Syntax check client
+        run: node --check client.js
+      - name: Client selftest (99)
+        run: node scripts/selftest-client.mjs
+      - name: Host selftest (incl. float platform branches)
+        run: node scripts/selftest-host.mjs
+      - name: Editor selftest (19)
+        run: node scripts/test-editor.mjs
+      - name: npm tarball contains three-platform helpers
+        run: |
+          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          grep -q 'desktop/float/bin/gufa-float-macos-universal' /tmp/pack.txt
+          grep -q 'desktop/float/bin/win-x64/gufa-float-win.exe' /tmp/pack.txt
+          grep -q 'desktop/float/bin/linux-x64/gufa-float-linux' /tmp/pack.txt

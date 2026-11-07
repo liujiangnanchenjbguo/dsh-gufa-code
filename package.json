@@ -66,5 +66,11 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "scripts": {
+    "test": "node scripts/selftest-client.mjs && node scripts/selftest-host.mjs && node scripts/test-editor.mjs",
+    "build:client": "node scripts/build-client.mjs",
+    "build:float:macos": "./scripts/build-float-macos.sh",
+    "build:float:linux": "./scripts/build-float-linux.sh"
   }
 }
