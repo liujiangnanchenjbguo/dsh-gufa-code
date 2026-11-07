@@ -345,6 +345,62 @@ jobs:
           Write-Host 'document-start localStorage injection works (float/state/project/ui)'
           Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
 
+      - name: Smoke test (transparent composition mode + WS_EX_NOREDIRECTIONBITMAP)
+        shell: pwsh
+        run: |
+          $www = Join-Path $env:TEMP 'gufa-probe-www'
+          New-Item -ItemType Directory -Force $www | Out-Null
+          if (-not (Test-Path (Join-Path $www 'index.html'))) { '<html><body>gufa-probe</body></html>' | Set-Content (Join-Path $www 'index.html') -Encoding UTF8 }
+          $http = Start-Process -FilePath 'python' -ArgumentList @('-m','http.server','8791','--bind','127.0.0.1') -WorkingDirectory $www -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $control = Join-Path $env:TEMP 'gufa-win-transparent-control.txt'
+          Remove-Item $control -ErrorAction SilentlyContinue
+          $payload = (@{ appUrl='http://127.0.0.1:8791/'; authUrl='http://127.0.0.1:8791/'; controlPath=$control; build='ci' } | ConvertTo-Json -Compress)
+          $env:GUFA_FLOAT_PAYLOAD = $payload
+          $helper = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 8
+          if ($helper.HasExited) { throw "transparent helper exited early (code $($helper.ExitCode))" }
+          $log = Join-Path $env:TEMP 'gufa-float-debug.log'
+          $lines = Get-Content $log -Tail 300 -ErrorAction SilentlyContinue
+          $modes = @($lines | Select-String 'transparent-mode=')
+          $modes | ForEach-Object { Write-Host $_ }
+          if (-not ($modes | Select-String 'transparent-mode=composition' -Quiet)) {
+            Write-Host '--- helper log tail ---'
+            if (Test-Path $log) { Get-Content $log -Tail 80 }
+            throw 'helper did not enter composition (transparent) mode'
+          }
+          $sig = @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class GufaExStyleProbe {
+            public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+            [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+            public static IntPtr FindTop(uint pid) {
+              IntPtr found = IntPtr.Zero;
+              EnumWindows((h, l) => {
+                uint p; GetWindowThreadProcessId(h, out p);
+                if (p == pid && IsWindowVisible(h)) { found = h; return false; }
+                return true;
+              }, IntPtr.Zero);
+              return found;
+            }
+            public static long ExStyle(IntPtr h) { return (long)GetWindowLongPtr(h, -20); }
+          }
+          "@
+          Add-Type -TypeDefinition $sig -Language CSharp
+          $hwnd = [GufaExStyleProbe]::FindTop([uint32]$helper.Id)
+          if ($hwnd -eq [IntPtr]::Zero) { throw 'helper top-level window not found' }
+          $ex = [GufaExStyleProbe]::ExStyle($hwnd)
+          Write-Host ("helper GWL_EXSTYLE=0x{0:X}" -f $ex)
+          if (($ex -band 0x00200000) -eq 0) { throw 'WS_EX_NOREDIRECTIONBITMAP missing on helper window (not composition)' }
+          Set-Content -Path $control -Value 'exit' -NoNewline
+          if (-not $helper.WaitForExit(15000)) { throw 'transparent helper did not exit after controlPath' }
+          Write-Host 'composition (transparent) window verified: WS_EX_NOREDIRECTIONBITMAP + transparent-mode=composition'
+          Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
+
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-win-x64
