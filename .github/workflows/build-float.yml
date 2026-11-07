@@ -341,10 +341,10 @@ jobs:
             HPID=$!
             sleep 10
             kill -0 $HPID
-            echo "helper windows (all):"; for w in $(xdotool search --pid $HPID); do echo "  $w $(xdotool getwindowgeometry $w 2>/dev/null | tr '\n' ' ')"; done
+            echo "helper windows (all):"; for w in $(xdotool search --pid $HPID); do echo "  $w $(xdotool getwindowgeometry $w 2>/dev/null | tr "\n" " ")" ; done
             HWIN=$(xdotool search --pid $HPID --onlyvisible | head -1)
             if [ -z "$HWIN" ]; then echo "no visible helper window"; cat /tmp/gufa-linux-follow.log; exit 1; fi
-            echo "helper windows (visible):"; for w in $(xdotool search --pid $HPID --onlyvisible); do echo "  $w $(xdotool getwindowgeometry $w 2>/dev/null | tr '\n' ' ')"; done
+            echo "helper windows (visible):"; for w in $(xdotool search --pid $HPID --onlyvisible); do echo "  $w $(xdotool getwindowgeometry $w 2>/dev/null | tr "\n" " ")" ; done
             [ -n "$HWIN" ]
             eval $(xdotool getwindowgeometry --shell $XWIN)
             tx=$X; ty=$Y; tw=$WIDTH; th=$HEIGHT
