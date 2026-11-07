@@ -12,6 +12,18 @@
 
 如果「摸鱼」按钮点了没反应、或选择器报错，也点「自检」，把报错/JSON 发出来。
 
+## 0.5 CI 已自动覆盖的能力（2026-11 起）
+
+每次 push / release 的 `build-float-helper` 会在真实 runner 上跑：
+
+| 平台 | 自动化验证 |
+|---|---|
+| Windows (windows-latest) | ciProbe 加载本地页面 ok:true；真实窗口创建（EnumWindows 数可见窗口）；**跟随** notepad 窗口位置/大小、移动后继续跟随；**隐藏/恢复**标题为 "DeepSeek Harness" 的窗口；controlPath 优雅退出 |
+| Linux (ubuntu-24.04 + Xvfb + openbox) | ciProbe 加载本地页面 ok:true；真实窗口创建；**跟随** xterm 窗口位置/大小、移动后继续跟随；controlPath 优雅退出 |
+| macOS (macos-latest) | universal 构建 + 窗口列表辅助功能检查 |
+
+所以剩下的真机验收重点：真实 DSH 集成（主窗口隐藏/唤回）、多显示器/DPI、外观（Windows 首版不透明）、Wayland（Linux）等 CI 覆盖不到的部分。
+
 ## 1. macOS（Apple Silicon / Intel）
 
 前置：系统设置 → 隐私与安全性 → **辅助功能** 勾选 **DeepSeek Harness**（改完重启一次 DSH）。
