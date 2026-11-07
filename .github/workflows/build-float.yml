@@ -494,6 +494,101 @@ jobs:
           Write-Host 'top drag bar hit test verified (HTCAPTION / HTCLIENT)'
           Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
 
+      - name: Smoke test (keyboard input reaches the webview)
+        shell: pwsh
+        run: |
+          $site = Join-Path $env:TEMP 'gufa-key-site'
+          New-Item -ItemType Directory -Force $site | Out-Null
+          $page = @'
+          <html><body>key-probe
+          <script>
+          window.addEventListener("keydown", function (e) {
+            try { fetch("/key", { method: "POST", body: JSON.stringify({ key: e.key, code: e.code }) }); } catch (err) {}
+          });
+          document.title = "key-probe-ready";
+          </script></body></html>
+          '@
+          Set-Content -Path (Join-Path $site 'index.html') -Value $page -Encoding UTF8
+          $serverScript = Join-Path $env:TEMP 'gufa-key-server.py'
+          @'
+          import http.server, os
+          SITE = os.environ["GUFA_SITE"]
+          OUT = os.environ["GUFA_OUT"]
+          class H(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = open(os.path.join(SITE, "index.html"), "rb").read()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/html; charset=utf-8")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+              def do_POST(self):
+                  n = int(self.headers.get("Content-Length", "0"))
+                  data = self.rfile.read(n)
+                  open(OUT, "wb").write(data)
+                  self.send_response(200)
+                  self.end_headers()
+              def log_message(self, *args):
+                  pass
+          http.server.HTTPServer(("127.0.0.1", 8787), H).serve_forever()
+          '@ | Set-Content -Path $serverScript -Encoding UTF8
+          $keyReport = Join-Path $env:TEMP 'gufa-key-report.json'
+          Remove-Item $keyReport -ErrorAction SilentlyContinue
+          $env:GUFA_SITE = $site
+          $env:GUFA_OUT = $keyReport
+          $server = Start-Process -FilePath 'python' -ArgumentList @($serverScript) -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $control = Join-Path $env:TEMP 'gufa-win-key-control.txt'
+          Remove-Item $control -ErrorAction SilentlyContinue
+          $payload = (@{ appUrl='http://127.0.0.1:8787/'; authUrl='http://127.0.0.1:8787/'; controlPath=$control; build='ci' } | ConvertTo-Json -Compress)
+          $env:GUFA_FLOAT_PAYLOAD = $payload
+          $helper = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 8
+          if ($helper.HasExited) { throw "keyboard helper exited early (code $($helper.ExitCode))" }
+          $sig = @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class GufaKeyProbe {
+            public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern IntPtr SetFocus(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+            [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+            public static IntPtr FindTop(uint pid) {
+              IntPtr found = IntPtr.Zero;
+              EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid && IsWindowVisible(h)) { found = h; return false; } return true; }, IntPtr.Zero);
+              return found;
+            }
+          }
+          "@
+          Add-Type -TypeDefinition $sig -Language CSharp
+          $hwnd = [GufaKeyProbe]::FindTop([uint32]$helper.Id)
+          if ($hwnd -eq [IntPtr]::Zero) { throw 'helper window not found' }
+          [void][GufaKeyProbe]::ShowWindow($hwnd, 5)
+          [void][GufaKeyProbe]::SetForegroundWindow($hwnd)
+          Start-Sleep -Milliseconds 800
+          [void][GufaKeyProbe]::SetFocus($hwnd)
+          Start-Sleep -Milliseconds 500
+          [GufaKeyProbe]::keybd_event(0x47, 0, 0, [UIntPtr]::Zero)   # 'G'
+          Start-Sleep -Milliseconds 120
+          [GufaKeyProbe]::keybd_event(0x47, 0, 2, [UIntPtr]::Zero)   # key up
+          for ($i = 0; $i -lt 30 -and -not (Test-Path $keyReport); $i++) { Start-Sleep -Milliseconds 500 }
+          if (-not (Test-Path $keyReport)) {
+            $log = Join-Path $env:TEMP 'gufa-float-debug.log'
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw 'webview did not receive keyboard input'
+          }
+          $report = Get-Content -Raw $keyReport
+          Write-Host "key report: $report"
+          if ($report -notmatch '"key":"[Gg]"') { throw 'keyboard event key mismatch' }
+          Set-Content -Path $control -Value 'exit' -NoNewline
+          if (-not $helper.WaitForExit(15000)) { throw 'keyboard helper did not exit after controlPath' }
+          Write-Host 'keyboard input reached the webview (composition hosting)'
+          Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-win-x64
