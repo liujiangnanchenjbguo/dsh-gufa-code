@@ -18,8 +18,8 @@
 
 | 平台 | 自动化验证 |
 |---|---|
-| Windows (windows-latest) | ciProbe 加载本地页面 ok:true；真实窗口创建（EnumWindows 数可见窗口）；**跟随** notepad 窗口位置/大小、移动后继续跟随；**隐藏/恢复**标题为 "DeepSeek Harness" 的窗口；**状态注入**（页面读回 `gufa-code:float` / `float-state` / `project` / `ui:v1` 全部正确）；**透明 composition**（日志 `transparent-mode=composition` + 窗口 `WS_EX_NOREDIRECTIONBITMAP`）；controlPath 优雅退出 |
-| Linux (ubuntu-24.04 + Xvfb + openbox) | ciProbe 加载本地页面 ok:true；真实窗口创建；**跟随** xterm 窗口位置/大小、移动后继续跟随；**状态注入**（同上四项 localStorage 全部正确）；**隐藏/恢复**标题为 "DeepSeek Harness" 的 xmessage 窗口（XUnmap→XMap）；controlPath 优雅退出 |
+| Windows (windows-latest) | ciProbe 加载本地页面 ok:true；真实窗口创建（EnumWindows 数可见窗口）；**跟随** notepad 窗口位置/大小、移动后继续跟随；**隐藏/恢复**标题为 "DeepSeek Harness" 的窗口；**状态注入**（页面读回 `gufa-code:float` / `float-state` / `project` / `ui:v1` 全部正确）；**透明 composition**（日志 `transparent-mode=composition` + 窗口 `WS_EX_NOREDIRECTIONBITMAP`）；**opaque 回退**（`transparent-mode=windowed reason=payload-opaque` 下窗口/退出正常）；controlPath 优雅退出 |
+| Linux (ubuntu-24.04 + Xvfb + openbox) | ciProbe 加载本地页面 ok:true；真实窗口创建；**跟随** xterm 窗口位置/大小、移动后继续跟随；**状态注入**（同上四项 localStorage 全部正确）；**隐藏/恢复**标题为 "DeepSeek Harness" 的 xmessage 窗口（XUnmap→XMap）；**RGBA 透明路径**（xcompmgr 下日志 `使用 RGBA visual`）；controlPath 优雅退出 |
 | macOS (macos-latest) | universal 构建 + 窗口列表辅助功能检查 |
 
 所以剩下的真机验收重点：真实 DSH 集成（主窗口隐藏/唤回）、多显示器/DPI、外观（Windows 首版不透明）、Wayland（Linux）等 CI 覆盖不到的部分。
