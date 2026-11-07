@@ -88,6 +88,47 @@ jobs:
             if (Test-Path $log) { Write-Host '--- helper debug log ---'; Get-Content $log -Tail 80 }
             throw 'ciProbe did not report ok:true'
           }
+      - name: Smoke test (window lifecycle + controlPath exit)
+        shell: pwsh
+        run: |
+          $www = Join-Path $env:TEMP 'gufa-probe-www'
+          New-Item -ItemType Directory -Force $www | Out-Null
+          if (-not (Test-Path (Join-Path $www 'index.html'))) { '<html><body>gufa-probe</body></html>' | Set-Content (Join-Path $www 'index.html') -Encoding UTF8 }
+          $http = Start-Process -FilePath 'python' -ArgumentList @('-m','http.server','8798','--bind','127.0.0.1') -WorkingDirectory $www -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $control = Join-Path $env:TEMP 'gufa-win-control.txt'
+          Remove-Item $control -ErrorAction SilentlyContinue
+          $payload = (@{ appUrl='http://127.0.0.1:8798/'; authUrl='http://127.0.0.1:8798/'; controlPath=$control; build='ci' } | ConvertTo-Json -Compress)
+          $env:GUFA_FLOAT_PAYLOAD = $payload
+          $process = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 6
+          if ($process.HasExited) { throw "helper exited before controlPath (code $($process.ExitCode))" }
+          # 用 EnumWindows 数该进程的可见顶层窗口（无边框窗口没有标题，不能用 MainWindowHandle）
+          $sig = @'
+          using System;
+          using System.Collections.Generic;
+          using System.Runtime.InteropServices;
+          public static class GufaWinProbe {
+            public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+            public static int CountVisible(uint pid) {
+              var list = new List<IntPtr>();
+              EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid && IsWindowVisible(h)) list.Add(h); return true; }, IntPtr.Zero);
+              return list.Count;
+            }
+          }
+          '@
+          Add-Type -TypeDefinition $sig -Language CSharp
+          $windows = [GufaWinProbe]::CountVisible([uint32]$process.Id)
+          Write-Host "visible top-level windows for helper: $windows"
+          if ($windows -lt 1) { throw 'helper created no visible window' }
+          Set-Content -Path $control -Value 'exit' -NoNewline
+          $exited = $process.WaitForExit(15000)
+          if (-not $exited) { throw 'helper did not exit after controlPath' }
+          Write-Host "helper exited after controlPath, code=$($process.ExitCode)"
+          Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-win-x64
@@ -122,6 +163,24 @@ jobs:
           for i in $(seq 1 40); do [ -s "$PROBE" ] && break; sleep 0.5; done
           cat "$PROBE" 2>/dev/null || true
           grep -q '"ok":true' "$PROBE"
+      - name: Smoke test (window lifecycle + controlPath exit under Xvfb)
+        run: |
+          sudo apt-get install -y xvfb xdotool
+          control=/tmp/gufa-linux-control.txt
+          rm -f "$control"
+          ( xvfb-run -a ./desktop/float/bin/linux-x64/gufa-float-linux "{\"appUrl\":\"http://127.0.0.1:8799/\",\"authUrl\":\"http://127.0.0.1:8799/\",\"controlPath\":\"$control\",\"build\":\"ci\"}" >/tmp/gufa-linux-lifecycle.log 2>&1 & echo $! > /tmp/gufa-linux-lifecycle.pid )
+          sleep 8
+          PID=$(cat /tmp/gufa-linux-lifecycle.pid)
+          if ! kill -0 "$PID" 2>/dev/null; then cat /tmp/gufa-linux-lifecycle.log; echo 'helper exited before controlPath'; exit 1; fi
+          echo "helper alive pid=$PID"
+          # 检查 Xvfb 下确实创建了窗口（xdotool 可用；失败只警告，避免无 WM 环境误报）
+          DISPLAY=$(grep -o 'DISPLAY=:[0-9]*' /tmp/gufa-linux-lifecycle.log | head -1 | cut -d= -f2)
+          if [ -n "$DISPLAY" ]; then DISPLAY="$DISPLAY" xdotool search --name '古法编程悬浮层' 2>/dev/null || echo 'xdotool: no named window (frameless helper may not set a title)'; fi
+          printf 'exit' > "$control"
+          for i in $(seq 1 30); do if ! kill -0 "$PID" 2>/dev/null; then echo "helper exited after controlPath"; exit 0; fi; sleep 0.5; done
+          cat /tmp/gufa-linux-lifecycle.log
+          echo 'helper did not exit after controlPath'
+          exit 1
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-linux-x64
