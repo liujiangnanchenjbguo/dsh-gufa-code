@@ -471,8 +471,10 @@ jobs:
           Write-Host "client=${width}x${height} dpi=$dpi"
           $topY = [int]([math]::Floor(5 * $dpi / 96.0))
           $midY = [int]([math]::Floor($height / 2))
-          $topLp = [IntPtr](($topY -shl 16) -bor 10)
-          $midLp = [IntPtr](($midY -shl 16) -bor 10)
+          $midX = [int]([math]::Floor($width / 2))
+          # 注意：x=10 会落在左侧 resize 边框里（返回 HTLEFT/HTTOPLEFT），拖拽条要取水平中点
+          $topLp = [IntPtr](($topY -shl 16) -bor $midX)
+          $midLp = [IntPtr](($midY -shl 16) -bor $midX)
           $topResult = [int][GufaHitProbe]::SendMessage($hwnd, 0x0084, [IntPtr]::Zero, $topLp)
           $midResult = [int][GufaHitProbe]::SendMessage($hwnd, 0x0084, [IntPtr]::Zero, $midLp)
           Write-Host "WM_NCHITTEST top=$topResult (expect HTCAPTION=2) middle=$midResult (expect HTCLIENT=1)"
