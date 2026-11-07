@@ -139,6 +139,7 @@ target_link_libraries(gufa-float-win PRIVATE
   shell32
   advapi32
   dwmapi
+  dcomp
 )
 
 if(MSVC)

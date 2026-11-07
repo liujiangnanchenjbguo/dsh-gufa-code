@@ -10,9 +10,13 @@
  * 本文件刻意写成单文件（少量小文件），方便在无法本地编译的机器上逐行核对；
  * WebView2 SDK 头/静态库由 CMake 的 WEBVIEW2_SDK_DIR 提供。
  *
- * 首版说明：窗口为「不透明」窗口（WebView2 windowed hosting 不支持真正的
- * 逐像素透明；透明需要 DirectComposition + CompositionController +
- * WS_EX_NOREDIRECTIONBITMAP 的 visual hosting，见 README-WIN.md 的 TODO）。
+ * 窗口托管两种模式：
+ *   - composition（默认）：DirectComposition + WebView2 CompositionController +
+ *     WS_EX_NOREDIRECTIONBITMAP 视觉托管，窗口背景透明、可透出下层 App；鼠标输入
+ *     由本程序转发给 WebView2（SendMouseInput），顶部 22 DIP 命中 HTCAPTION 拖动。
+ *   - windowed（回退/payload.opaque=true）：ICoreWebView2Controller 窗口托管，
+ *     不透明但功能完整；初始化/运行期任一步失败都会自动回退到该模式并写日志
+ *     transparent-mode=fallback reason=... / transparent-mode=windowed。
  */
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -24,6 +28,7 @@
 
 #include <windows.h>
 #include <windowsx.h>
+#include <dcomp.h>
 #include <dwmapi.h>
 #include <objbase.h>
 #include <shellapi.h>
@@ -69,6 +74,7 @@ constexpr UINT_PTR kTimerProbeWatchdog = 5;
 constexpr UINT_PTR kTimerSelftest = 6;
 constexpr UINT_PTR kTimerPageProbe = 7;
 constexpr UINT_PTR kTimerRetry = 8;
+constexpr UINT_PTR kTimerControllerWatchdog = 9;
 
 constexpr int kMenuExit = 1;
 constexpr int kMenuResetFrame = 2;
@@ -79,6 +85,7 @@ constexpr int kProbeTimeoutMs = 8000;
 constexpr int kProbeWatchdogMs = 20000;
 constexpr int kFollowIntervalMs = 250;
 constexpr int kControlIntervalMs = 300;
+constexpr int kControllerWatchdogMs = 12000;
 
 /* 深色背景（与网页 --gufa-solid-bg 的底色一致） */
 const COLORREF kBackgroundColor = RGB(13, 15, 19);
@@ -638,6 +645,7 @@ struct FloatPayload {
   int alpha = 0;
   DWORD ownerPid = 0;
   bool ciProbe = false;
+  bool opaque = false;  // true = 强制 windowed（不透明）模式，调试用
 };
 
 DWORD ReadJsonPid(const gufa::JsonValue* value) {
@@ -697,6 +705,9 @@ bool ParsePayloadJson(const std::wstring& text, FloatPayload* payload, std::wstr
 
   const gufa::JsonValue* ciProbe = root.Find(L"ciProbe");
   if (ciProbe != nullptr && ciProbe->IsBool()) payload->ciProbe = ciProbe->boolean;
+
+  const gufa::JsonValue* opaque = root.Find(L"opaque");
+  if (opaque != nullptr && opaque->IsBool()) payload->opaque = opaque->boolean;
 
   return true;
 }
@@ -894,6 +905,24 @@ HWND FindFollowWindowForProcess(DWORD processId, const std::wstring& title) {
   return best;
 }
 
+/* 悬浮层右键菜单：windowed 模式由拖动条子窗口触发；composition 模式由主窗口
+ * 顶部 22px 拖动区的 WM_NCRBUTTONUP 触发。命令统一 PostMessage 给主窗口处理。 */
+void ShowFloatContextMenu(HWND owner) {
+  if (owner == nullptr) return;
+  HMENU menu = CreatePopupMenu();
+  if (menu == nullptr) return;
+  AppendMenuW(menu, MF_STRING, kMenuExit, L"退出摸鱼（恢复主窗口）");
+  AppendMenuW(menu, MF_STRING, kMenuResetFrame, L"重置窗口位置和大小");
+  POINT cursor;
+  GetCursorPos(&cursor);
+  const int command = static_cast<int>(TrackPopupMenu(
+      menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, cursor.x, cursor.y, 0, owner, nullptr));
+  DestroyMenu(menu);
+  if (command != 0) {
+    PostMessageW(owner, kMsgStripMenu, static_cast<WPARAM>(command), 0);
+  }
+}
+
 /* ────────────────────────────── 悬浮层窗口 ────────────────────────────── */
 
 class FloatApp {
@@ -918,6 +947,7 @@ class FloatApp {
 
  private:
   enum class Phase { Idle, Auth, App, Done };
+  enum class HostingMode { Windowed, Composition };
 
   static FloatApp* FromWindow(HWND hwnd);
   static FloatApp* FromStripWindow(HWND stripWindow);
@@ -926,6 +956,16 @@ class FloatApp {
   LRESULT OnMainMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
   LRESULT HandleNcHitTest(HWND hwnd, LPARAM lparam);
   void HandleMinMaxInfo(MINMAXINFO* info);
+
+  bool CreateHostWindow(const RECT& rect, bool composition);
+  bool CreateStripChildWindow();
+  bool InitializeDCompDevice(std::wstring* error, HRESULT* errorCode);
+  bool CreateDCompVisualTree(std::wstring* error, HRESULT* errorCode);
+  void CleanupDCompVisualTree();
+  bool FallbackToWindowed(const std::wstring& reason, HRESULT errorCode);
+  void ArmRuntimeTimers();
+  bool IsDragStripPoint(POINT clientPoint);
+  bool OnCompositionMouseMessage(UINT message, WPARAM wparam, LPARAM lparam);
 
   void LayoutChildren();
   void RaiseStrip();
@@ -948,7 +988,11 @@ class FloatApp {
 
   void CreateWebViewEnvironment();
   void OnEnvironmentCreated(HRESULT errorCode, ICoreWebView2Environment* environment);
-  void OnControllerCreated(HRESULT errorCode, ICoreWebView2Controller* controller);
+  void CreateWindowedController();
+  void OnWindowedControllerCreated(HRESULT errorCode, ICoreWebView2Controller* controller);
+  void OnCompositionControllerCreated(HRESULT errorCode,
+                                      ICoreWebView2CompositionController* controller);
+  void FinishControllerSetup();
   void ConfigureWebView();
   void StartScriptInjection();
   void OnScriptRegistered(HRESULT errorCode, LPCWSTR scriptId);
@@ -971,6 +1015,13 @@ class FloatApp {
   HWND hwnd_ = nullptr;
   HWND strip_ = nullptr;
   FloatPayload payload_;
+  HostingMode hostingMode_ = HostingMode::Windowed;
+  ComPtr<IDCompositionDevice> dcompDevice_;
+  ComPtr<IDCompositionTarget> dcompTarget_;
+  ComPtr<IDCompositionVisual> dcompRootVisual_;
+  ComPtr<IDCompositionVisual> dcompWebViewVisual_;
+  ComPtr<ICoreWebView2CompositionController> compositionController_;
+  HCURSOR webViewCursor_ = nullptr;
   bool started_ = false;
   bool exiting_ = false;
   bool controllerReady_ = false;
@@ -992,6 +1043,10 @@ class FloatApp {
   RECT lastFollowRect_ = {};
   bool hasLastFollowRect_ = false;
   HANDLE hostProcess_ = nullptr;
+  bool mouseLeaveTracked_ = false;
+  bool mouseCaptured_ = false;
+  bool suppressWindowDestroy_ = false;
+  bool hideDshDone_ = false;
 };
 
 FloatApp::~FloatApp() {
@@ -1086,22 +1141,9 @@ LRESULT CALLBACK FloatApp::StripWndProc(HWND hwnd, UINT message, WPARAM wparam, 
       }
       return 0;
     }
-    case WM_RBUTTONUP: {
-      HMENU menu = CreatePopupMenu();
-      if (menu == nullptr) return 0;
-      AppendMenuW(menu, MF_STRING, kMenuExit, L"退出摸鱼（恢复主窗口）");
-      AppendMenuW(menu, MF_STRING, kMenuResetFrame, L"重置窗口位置和大小");
-      POINT cursor;
-      GetCursorPos(&cursor);
-      HWND parent = GetParent(hwnd);
-      const int command = static_cast<int>(TrackPopupMenu(
-          menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, cursor.x, cursor.y, 0, parent, nullptr));
-      DestroyMenu(menu);
-      if (command != 0 && parent != nullptr) {
-        PostMessageW(parent, kMsgStripMenu, static_cast<WPARAM>(command), 0);
-      }
+    case WM_RBUTTONUP:
+      ShowFloatContextMenu(GetParent(hwnd));
       return 0;
-    }
     case WM_SETCURSOR:
       SetCursor(LoadCursorW(nullptr, IDC_ARROW));
       return TRUE;
@@ -1152,9 +1194,9 @@ bool FloatApp::ParseCommandLine(const std::wstring& jsonText) {
     LogFmt(L"payload-invalid %s", error.c_str());
     return false;
   }
-  LogFmt(L"payload-ok ciProbe=%d follow=%d followPid=%lu ownerPid=%lu cookie=%s authUrl=%s "
-         L"controlPath=%s build=%s alpha=%d hasState=%d",
-         payload_.ciProbe ? 1 : 0, payload_.hasFollow ? 1 : 0,
+  LogFmt(L"payload-ok ciProbe=%d opaque=%d follow=%d followPid=%lu ownerPid=%lu cookie=%s "
+         L"authUrl=%s controlPath=%s build=%s alpha=%d hasState=%d",
+         payload_.ciProbe ? 1 : 0, payload_.opaque ? 1 : 0, payload_.hasFollow ? 1 : 0,
          static_cast<unsigned long>(payload_.followPid),
          static_cast<unsigned long>(payload_.ownerPid),
          payload_.cookie.empty() ? L"no" : L"yes",
@@ -1225,25 +1267,40 @@ bool FloatApp::CreateMainWindow() {
     ClampInitialRect(&initial);
   }
 
-  const DWORD extendedStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
-  const DWORD style = WS_POPUP | WS_THICKFRAME | WS_CLIPCHILDREN;
-  hwnd_ = CreateWindowExW(extendedStyle, kMainWindowClass, kWindowTitle, style, initial.left,
-                          initial.top, initial.right - initial.left,
-                          initial.bottom - initial.top, nullptr, nullptr, g_instance, this);
-  if (hwnd_ == nullptr) {
-    LogFmt(L"create-main-window-failed err=%lu", static_cast<unsigned long>(GetLastError()));
-    return false;
+  // 模式选择：默认尝试 DirectComposition 透明视觉托管；payload.opaque 可强制 windowed。
+  bool useComposition = !payload_.opaque;
+  if (payload_.opaque) {
+    Log(L"transparent-mode=windowed reason=payload-opaque");
+  } else {
+    std::wstring error;
+    HRESULT errorCode = E_FAIL;
+    if (!InitializeDCompDevice(&error, &errorCode)) {
+      LogFmt(L"transparent-mode=fallback reason=%s hr=0x%08lX", error.c_str(),
+             static_cast<unsigned long>(errorCode));
+      Log(L"transparent-mode=windowed");
+      useComposition = false;
+    }
   }
 
-  RECT client = {};
-  GetClientRect(hwnd_, &client);
-  const int stripHeight = DpiScale(hwnd_, kDragStripDip);
-  strip_ = CreateWindowExW(0, kStripWindowClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0,
-                           0, client.right - client.left, stripHeight, hwnd_, nullptr, g_instance,
-                           nullptr);
-  if (strip_ == nullptr) {
-    LogFmt(L"create-strip-window-failed err=%lu", static_cast<unsigned long>(GetLastError()));
+  if (!CreateHostWindow(initial, useComposition)) {
+    if (!useComposition) return false;
+    Log(L"transparent-mode=fallback reason=create-composition-window-failed");
+    useComposition = false;
+    Log(L"transparent-mode=windowed");
+    if (!CreateHostWindow(initial, false)) return false;
   }
+
+  if (useComposition) {
+    std::wstring error;
+    HRESULT errorCode = E_FAIL;
+    if (!CreateDCompVisualTree(&error, &errorCode)) {
+      // 窗口已按 composition 样式创建：重建为不透明 windowed 窗口继续。
+      if (!FallbackToWindowed(error, errorCode)) return false;
+    } else {
+      Log(L"transparent-mode=composition");
+    }
+  }
+
   LayoutChildren();
 
   if (payload_.ciProbe) {
@@ -1253,11 +1310,157 @@ bool FloatApp::CreateMainWindow() {
     UpdateWindow(hwnd_);
   }
 
-  LogFmt(L"main-window-created rect=(%ld,%ld)-(%ld,%ld) dpi=%u ciProbe=%d",
+  LogFmt(L"main-window-ready rect=(%ld,%ld)-(%ld,%ld) dpi=%u ciProbe=%d composition=%d",
          static_cast<long>(initial.left), static_cast<long>(initial.top),
          static_cast<long>(initial.right), static_cast<long>(initial.bottom),
-         WindowDpi(hwnd_), payload_.ciProbe ? 1 : 0);
+         WindowDpi(hwnd_), payload_.ciProbe ? 1 : 0,
+         hostingMode_ == HostingMode::Composition ? 1 : 0);
   return true;
+}
+
+bool FloatApp::CreateHostWindow(const RECT& rect, bool composition) {
+  hostingMode_ = composition ? HostingMode::Composition : HostingMode::Windowed;
+  DWORD extendedStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
+  if (composition) extendedStyle |= WS_EX_NOREDIRECTIONBITMAP;
+  const DWORD style = WS_POPUP | WS_THICKFRAME | WS_CLIPCHILDREN;
+  hwnd_ = CreateWindowExW(extendedStyle, kMainWindowClass, kWindowTitle, style, rect.left,
+                          rect.top, rect.right - rect.left, rect.bottom - rect.top, nullptr,
+                          nullptr, g_instance, this);
+  if (hwnd_ == nullptr) {
+    LogFmt(L"create-main-window-failed composition=%d err=%lu", composition ? 1 : 0,
+           static_cast<unsigned long>(GetLastError()));
+    return false;
+  }
+  LogFmt(L"main-window-created composition=%d rect=(%ld,%ld)-(%ld,%ld) dpi=%u",
+         composition ? 1 : 0, static_cast<long>(rect.left), static_cast<long>(rect.top),
+         static_cast<long>(rect.right), static_cast<long>(rect.bottom), WindowDpi(hwnd_));
+  if (composition) return true;
+  return CreateStripChildWindow();
+}
+
+bool FloatApp::CreateStripChildWindow() {
+  if (hwnd_ == nullptr) return false;
+  RECT client = {};
+  GetClientRect(hwnd_, &client);
+  const int stripHeight = DpiScale(hwnd_, kDragStripDip);
+  strip_ = CreateWindowExW(0, kStripWindowClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0,
+                           0, client.right - client.left, stripHeight, hwnd_, nullptr, g_instance,
+                           nullptr);
+  if (strip_ == nullptr) {
+    LogFmt(L"create-strip-window-failed err=%lu", static_cast<unsigned long>(GetLastError()));
+    return false;
+  }
+  return true;
+}
+
+bool FloatApp::InitializeDCompDevice(std::wstring* error, HRESULT* errorCode) {
+  dcompDevice_.Reset();
+  const HRESULT hr = DCompositionCreateDevice2(
+      nullptr, IID_PPV_ARGS(dcompDevice_.ReleaseAndGetAddressOf()));
+  if (FAILED(hr) || dcompDevice_.Get() == nullptr) {
+    if (error != nullptr) *error = L"dcomp-device hr=0x" + HexHresult(hr);
+    if (errorCode != nullptr) *errorCode = hr;
+    dcompDevice_.Reset();
+    return false;
+  }
+  Log(L"dcomp-device-ready");
+  return true;
+}
+
+bool FloatApp::CreateDCompVisualTree(std::wstring* error, HRESULT* errorCode) {
+  auto fail = [error, errorCode](const wchar_t* step, HRESULT hr) {
+    if (error != nullptr) *error = std::wstring(step) + L" hr=0x" + HexHresult(hr);
+    if (errorCode != nullptr) *errorCode = hr;
+    return false;
+  };
+  if (dcompDevice_.Get() == nullptr) return fail(L"dcomp-device-missing", E_FAIL);
+  HRESULT hr = dcompDevice_->CreateTargetForHwnd(hwnd_, TRUE,
+                                                 dcompTarget_.ReleaseAndGetAddressOf());
+  if (FAILED(hr) || dcompTarget_.Get() == nullptr) return fail(L"dcomp-target", hr);
+  hr = dcompDevice_->CreateVisual(dcompRootVisual_.ReleaseAndGetAddressOf());
+  if (FAILED(hr) || dcompRootVisual_.Get() == nullptr) return fail(L"dcomp-root-visual", hr);
+  hr = dcompTarget_->SetRoot(dcompRootVisual_.Get());
+  if (FAILED(hr)) return fail(L"dcomp-set-root", hr);
+  hr = dcompDevice_->CreateVisual(dcompWebViewVisual_.ReleaseAndGetAddressOf());
+  if (FAILED(hr) || dcompWebViewVisual_.Get() == nullptr) return fail(L"dcomp-webview-visual", hr);
+  hr = dcompRootVisual_->AddVisual(dcompWebViewVisual_.Get(), TRUE, nullptr);
+  if (FAILED(hr)) return fail(L"dcomp-add-visual", hr);
+  hr = dcompDevice_->Commit();
+  if (FAILED(hr)) return fail(L"dcomp-commit", hr);
+  Log(L"dcomp-visual-tree-ready");
+  return true;
+}
+
+void FloatApp::CleanupDCompVisualTree() {
+  if (compositionController_.Get() != nullptr) {
+    compositionController_->put_RootVisualTarget(nullptr);
+  }
+  if (dcompWebViewVisual_.Get() != nullptr) dcompWebViewVisual_->RemoveAllVisuals();
+  if (dcompRootVisual_.Get() != nullptr) dcompRootVisual_->RemoveAllVisuals();
+  if (dcompTarget_.Get() != nullptr) dcompTarget_->SetRoot(nullptr);
+  if (dcompDevice_.Get() != nullptr) dcompDevice_->Commit();
+  dcompWebViewVisual_.Reset();
+  dcompRootVisual_.Reset();
+  dcompTarget_.Reset();
+  dcompDevice_.Reset();
+}
+
+bool FloatApp::FallbackToWindowed(const std::wstring& reason, HRESULT errorCode) {
+  LogFmt(L"transparent-mode=fallback reason=%s hr=0x%08lX", reason.c_str(),
+         static_cast<unsigned long>(errorCode));
+  if (exiting_) return false;
+  if (hostingMode_ == HostingMode::Windowed && hwnd_ != nullptr) return true;
+
+  CleanupDCompVisualTree();
+  compositionController_.Reset();
+  if (controller_.Get() != nullptr) {
+    controller_->Close();
+    controller_.Reset();
+  }
+  webView_.Reset();
+  webViewCursor_ = nullptr;
+
+  RECT rect = {};
+  if (hwnd_ != nullptr && !GetWindowRect(hwnd_, &rect)) {
+    rect = {0, 0, 800, 600};
+  }
+  const bool wasVisible = hwnd_ != nullptr && IsWindowVisible(hwnd_) != FALSE;
+  if (hwnd_ != nullptr) {
+    HWND oldWindow = hwnd_;
+    hwnd_ = nullptr;
+    strip_ = nullptr;
+    suppressWindowDestroy_ = true;
+    DestroyWindow(oldWindow);
+  }
+  if (!CreateHostWindow(rect, false)) {
+    Log(L"fallback-create-windowed-failed");
+    return false;
+  }
+  LayoutChildren();
+  ArmRuntimeTimers();
+  if (wasVisible && !payload_.ciProbe) {
+    ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+    UpdateWindow(hwnd_);
+  }
+  Log(L"transparent-mode=windowed");
+  return true;
+}
+
+void FloatApp::ArmRuntimeTimers() {
+  if (hwnd_ == nullptr || !started_) return;
+  if (payload_.ciProbe) {
+    SetTimer(hwnd_, kTimerProbeWatchdog, kProbeWatchdogMs, nullptr);
+    if (!controllerReady_) {
+      SetTimer(hwnd_, kTimerControllerWatchdog, kControllerWatchdogMs, nullptr);
+    }
+    return;
+  }
+  if (!controllerReady_) {
+    SetTimer(hwnd_, kTimerControllerWatchdog, kControllerWatchdogMs, nullptr);
+  }
+  if (payload_.hasFollow) SetTimer(hwnd_, kTimerFollow, kFollowIntervalMs, nullptr);
+  if (!hideDshDone_) SetTimer(hwnd_, kTimerHideDsh, 450, nullptr);
+  SetTimer(hwnd_, kTimerControl, kControlIntervalMs, nullptr);
 }
 
 void FloatApp::Start() {
@@ -1272,13 +1475,9 @@ void FloatApp::Start() {
         followWindow_ = FindFollowWindowForProcess(payload_.followPid, payload_.followTitle);
       }
       if (followWindow_ != nullptr) ForceForeground(followWindow_);
-      SetTimer(hwnd_, kTimerFollow, kFollowIntervalMs, nullptr);
     }
-    SetTimer(hwnd_, kTimerHideDsh, 450, nullptr);
-    SetTimer(hwnd_, kTimerControl, kControlIntervalMs, nullptr);
-  } else {
-    SetTimer(hwnd_, kTimerProbeWatchdog, kProbeWatchdogMs, nullptr);
   }
+  ArmRuntimeTimers();
   CreateWebViewEnvironment();
 }
 
@@ -1317,6 +1516,19 @@ void FloatApp::LayoutChildren() {
   if (!GetClientRect(hwnd_, &client)) return;
   const int width = client.right - client.left;
   const int height = client.bottom - client.top;
+  if (hostingMode_ == HostingMode::Composition) {
+    // visual hosting：没有子窗口拖动条（拖动条由主窗口顶部 22px 命中 HTCAPTION 实现，
+    // 视觉上由网页 CSS 的 .gufa-overlay-root::before 画半透明条），WebView 铺满客户区。
+    if (strip_ != nullptr) {
+      DestroyWindow(strip_);
+      strip_ = nullptr;
+    }
+    if (controller_.Get() != nullptr) {
+      RECT bounds = {0, 0, width, height};
+      controller_->put_Bounds(bounds);
+    }
+    return;
+  }
   const int border = DpiScale(hwnd_, kResizeBorderDip);
   const int stripHeight = DpiScale(hwnd_, kDragStripDip);
   if (strip_ != nullptr) {
@@ -1340,12 +1552,111 @@ void FloatApp::RaiseStrip() {
   SetWindowPos(strip_, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
+bool FloatApp::IsDragStripPoint(POINT clientPoint) {
+  if (hwnd_ == nullptr) return false;
+  RECT client = {};
+  if (!GetClientRect(hwnd_, &client)) return false;
+  const int stripHeight = DpiScale(hwnd_, kDragStripDip);
+  return clientPoint.y >= 0 && clientPoint.y < stripHeight;
+}
+
+/* visual hosting 没有子 HWND：把主窗口收到的鼠标消息转发给 WebView2。 */
+bool FloatApp::OnCompositionMouseMessage(UINT message, WPARAM wparam, LPARAM lparam) {
+  if (hostingMode_ != HostingMode::Composition || compositionController_.Get() == nullptr) {
+    return false;
+  }
+  POINT point = {};
+  bool hasPoint = true;
+  switch (message) {
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+      point.x = GET_X_LPARAM(lparam);
+      point.y = GET_Y_LPARAM(lparam);
+      ScreenToClient(hwnd_, &point);
+      break;
+    case WM_MOUSELEAVE:
+      hasPoint = false;
+      break;
+    default:
+      point.x = GET_X_LPARAM(lparam);
+      point.y = GET_Y_LPARAM(lparam);
+      break;
+  }
+  if (hasPoint && !mouseCaptured_) {
+    RECT client = {};
+    if (!GetClientRect(hwnd_, &client)) return false;
+    if (!PtInRect(&client, point)) return false;
+    if (IsDragStripPoint(point)) return false;  // 顶部拖动条不转发给网页
+  }
+  if (message == WM_MOUSEMOVE) {
+    if (!mouseLeaveTracked_) {
+      TRACKMOUSEEVENT track = {};
+      track.cbSize = sizeof(track);
+      track.dwFlags = TME_LEAVE;
+      track.hwndTrack = hwnd_;
+      if (TrackMouseEvent(&track) != FALSE) mouseLeaveTracked_ = true;
+    }
+  } else if (message == WM_MOUSELEAVE) {
+    mouseLeaveTracked_ = false;
+  }
+
+  UINT32 mouseData = 0;
+  switch (message) {
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+      mouseData = static_cast<UINT32>(GET_WHEEL_DELTA_WPARAM(wparam));
+      break;
+    case WM_XBUTTONDOWN:
+    case WM_XBUTTONUP:
+    case WM_XBUTTONDBLCLK:
+      mouseData = static_cast<UINT32>(GET_XBUTTON_WPARAM(wparam));
+      break;
+    default:
+      break;
+  }
+
+  if (message == WM_LBUTTONDOWN || message == WM_MBUTTONDOWN || message == WM_RBUTTONDOWN ||
+      message == WM_XBUTTONDOWN) {
+    if (!mouseCaptured_) {
+      mouseCaptured_ = true;
+      SetCapture(hwnd_);
+    }
+  } else if (message == WM_LBUTTONUP || message == WM_MBUTTONUP || message == WM_RBUTTONUP ||
+             message == WM_XBUTTONUP) {
+    if (mouseCaptured_) {
+      mouseCaptured_ = false;
+      ReleaseCapture();
+    }
+  }
+
+  const COREWEBVIEW2_MOUSE_EVENT_KIND kind =
+      static_cast<COREWEBVIEW2_MOUSE_EVENT_KIND>(message);
+  const COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS keys =
+      static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(GET_KEYSTATE_WPARAM(wparam));
+  const HRESULT hr = compositionController_->SendMouseInput(kind, keys, mouseData, point);
+  if (FAILED(hr)) {
+    LogFmt(L"send-mouse-input-failed msg=0x%04X hr=0x%08lX", message,
+           static_cast<unsigned long>(hr));
+    return false;
+  }
+  return true;
+}
+
 LRESULT FloatApp::HandleNcHitTest(HWND hwnd, LPARAM lparam) {
   POINT point;
   point.x = GET_X_LPARAM(lparam);
   point.y = GET_Y_LPARAM(lparam);
   RECT windowRect = {};
   if (!GetWindowRect(hwnd, &windowRect)) return HTCLIENT;
+  if (hostingMode_ == HostingMode::Composition) {
+    POINT clientPoint = point;
+    ScreenToClient(hwnd, &clientPoint);
+    const int stripHeight = DpiScale(hwnd, kDragStripDip);
+    if (clientPoint.y >= 0 && clientPoint.y < stripHeight) {
+      // composition 模式没有子窗口拖动条：顶部 22 DIP 直接作为系统拖动区。
+      return HTCAPTION;
+    }
+  }
   const int border = DpiScale(hwnd, kResizeBorderDip);
   const bool left = point.x < windowRect.left + border;
   const bool right = point.x >= windowRect.right - border;
@@ -1449,7 +1760,20 @@ void FloatApp::OnTimer(UINT_PTR timerId) {
       break;
     case kTimerHideDsh:
       KillTimer(hwnd_, kTimerHideDsh);
+      hideDshDone_ = true;
       OnHideDshTimer();
+      break;
+    case kTimerControllerWatchdog:
+      KillTimer(hwnd_, kTimerControllerWatchdog);
+      if (!exiting_ && !controllerReady_) {
+        Log(L"controller-watchdog-timeout");
+        if (hostingMode_ == HostingMode::Composition) {
+          if (FallbackToWindowed(L"composition-controller-timeout",
+                                 HRESULT_FROM_WIN32(ERROR_TIMEOUT))) {
+            CreateWindowedController();
+          }
+        }
+      }
       break;
     case kTimerProbeTimeout:
       KillTimer(hwnd_, kTimerProbeTimeout);
@@ -1491,6 +1815,7 @@ void FloatApp::KillAllTimers() {
   KillTimer(hwnd_, kTimerSelftest);
   KillTimer(hwnd_, kTimerPageProbe);
   KillTimer(hwnd_, kTimerRetry);
+  KillTimer(hwnd_, kTimerControllerWatchdog);
 }
 
 void FloatApp::OnFollowTimer() {
@@ -1626,8 +1951,9 @@ void FloatApp::CreateWebViewEnvironment() {
     // QueryInterface 降级；这样用户机器上的 Evergreen Runtime 稍旧也能启动，
     // 而不是直接创建失败（默认值等于 SDK 版本 129.x）。
     options->put_TargetCompatibleBrowserVersion(L"86.0.616.0");
-    if (payload_.ciProbe) {
-      // CI 的 runner 可能没有可用 GPU：强制软件渲染，避免 ciProbe 卡住。
+    if (payload_.ciProbe && payload_.opaque) {
+      // 仅 windowed 调试冒烟强制软件渲染；composition 路径保留默认，
+      // WebView2 在无 GPU 的 runner 上会自行回退 WARP/SwiftShader。
       options->put_AdditionalBrowserArguments(L"--disable-gpu");
     }
   }
@@ -1666,11 +1992,45 @@ void FloatApp::OnEnvironmentCreated(HRESULT errorCode, ICoreWebView2Environment*
     environment_.Attach(environment);
   }
   Log(L"webview2-env-ready");
+  if (hostingMode_ == HostingMode::Composition) {
+    ComPtr<ICoreWebView2Environment3> environment3;
+    const HRESULT queryResult = environment_->QueryInterface(
+        IID_PPV_ARGS(environment3.ReleaseAndGetAddressOf()));
+    if (FAILED(queryResult) || environment3.Get() == nullptr) {
+      LogFmt(L"composition-unavailable hr=0x%08lX", static_cast<unsigned long>(queryResult));
+      if (FallbackToWindowed(L"environment3-unavailable", queryResult)) {
+        CreateWindowedController();
+      }
+      return;
+    }
+    const HRESULT createResult = environment3->CreateCoreWebView2CompositionController(
+        hwnd_,
+        Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
+            [this](HRESULT result,
+                   ICoreWebView2CompositionController* compositionController) -> HRESULT {
+              OnCompositionControllerCreated(result, compositionController);
+              return S_OK;
+            })
+            .Get());
+    if (FAILED(createResult)) {
+      LogFmt(L"create-composition-controller-call-failed hr=0x%08lX",
+             static_cast<unsigned long>(createResult));
+      if (FallbackToWindowed(L"composition-controller-call", createResult)) {
+        CreateWindowedController();
+      }
+    }
+    return;
+  }
+  CreateWindowedController();
+}
+
+void FloatApp::CreateWindowedController() {
+  if (exiting_ || hwnd_ == nullptr || environment_.Get() == nullptr) return;
   const HRESULT hr = environment_->CreateCoreWebView2Controller(
       hwnd_,
       Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
           [this](HRESULT controllerError, ICoreWebView2Controller* controller) -> HRESULT {
-            OnControllerCreated(controllerError, controller);
+            OnWindowedControllerCreated(controllerError, controller);
             return S_OK;
           })
           .Get());
@@ -1680,8 +2040,13 @@ void FloatApp::OnEnvironmentCreated(HRESULT errorCode, ICoreWebView2Environment*
   }
 }
 
-void FloatApp::OnControllerCreated(HRESULT errorCode, ICoreWebView2Controller* controller) {
+void FloatApp::OnWindowedControllerCreated(HRESULT errorCode,
+                                           ICoreWebView2Controller* controller) {
   if (exiting_) return;
+  if (hostingMode_ != HostingMode::Windowed) {
+    Log(L"windowed-controller-late-ignored");
+    return;
+  }
   if (FAILED(errorCode) || controller == nullptr) {
     LogFmt(L"webview2-controller-failed hr=%08lX", static_cast<unsigned long>(errorCode));
     HandleWebViewEnvironmentFailure(errorCode);
@@ -1692,6 +2057,67 @@ void FloatApp::OnControllerCreated(HRESULT errorCode, ICoreWebView2Controller* c
     controller->AddRef();
     controller_.Attach(controller);
   }
+  FinishControllerSetup();
+}
+
+void FloatApp::OnCompositionControllerCreated(
+    HRESULT errorCode, ICoreWebView2CompositionController* compositionController) {
+  if (exiting_) return;
+  if (hostingMode_ != HostingMode::Composition) {
+    // 例如 controller 看门狗已回退到 windowed 后，这个迟到的异步回调必须忽略。
+    Log(L"composition-controller-late-ignored");
+    return;
+  }
+  if (FAILED(errorCode) || compositionController == nullptr) {
+    LogFmt(L"webview2-composition-controller-failed hr=0x%08lX",
+           static_cast<unsigned long>(errorCode));
+    if (FallbackToWindowed(L"composition-controller", errorCode)) {
+      CreateWindowedController();
+    }
+    return;
+  }
+  compositionController_.Reset();
+  compositionController->AddRef();
+  compositionController_.Attach(compositionController);
+
+  ComPtr<ICoreWebView2Controller> coreController;
+  const HRESULT queryResult = compositionController_->QueryInterface(
+      IID_PPV_ARGS(coreController.ReleaseAndGetAddressOf()));
+  if (FAILED(queryResult) || coreController.Get() == nullptr) {
+    LogFmt(L"composition-controller-query-failed hr=0x%08lX",
+           static_cast<unsigned long>(queryResult));
+    if (FallbackToWindowed(L"composition-controller-query", queryResult)) {
+      CreateWindowedController();
+    }
+    return;
+  }
+  controller_.Reset();
+  coreController->AddRef();
+  controller_.Attach(coreController.Get());
+
+  if (dcompWebViewVisual_.Get() == nullptr) {
+    Log(L"root-visual-target-missing-visual");
+    if (FallbackToWindowed(L"root-visual-target-missing-visual", E_POINTER)) {
+      CreateWindowedController();
+    }
+    return;
+  }
+  const HRESULT visualResult =
+      compositionController_->put_RootVisualTarget(dcompWebViewVisual_.Get());
+  if (FAILED(visualResult)) {
+    LogFmt(L"root-visual-target-failed hr=0x%08lX", static_cast<unsigned long>(visualResult));
+    if (FallbackToWindowed(L"root-visual-target", visualResult)) {
+      CreateWindowedController();
+    }
+    return;
+  }
+  if (dcompDevice_.Get() != nullptr) dcompDevice_->Commit();
+  Log(L"transparent-mode=composition");
+  FinishControllerSetup();
+}
+
+void FloatApp::FinishControllerSetup() {
+  if (exiting_ || controller_.Get() == nullptr) return;
   const HRESULT hr = controller_->get_CoreWebView2(webView_.GetAddressOf());
   if (FAILED(hr) || webView_.Get() == nullptr) {
     LogFmt(L"get-core-webview-failed hr=%08lX", static_cast<unsigned long>(hr));
@@ -1718,13 +2144,51 @@ void FloatApp::ConfigureWebView() {
   if (SUCCEEDED(controller_->QueryInterface(IID_PPV_ARGS(controller2.GetAddressOf()))) &&
       controller2.Get() != nullptr) {
     COREWEBVIEW2_COLOR background;
-    background.A = 255;
-    background.R = 13;
-    background.G = 15;
-    background.B = 19;
+    if (hostingMode_ == HostingMode::Composition) {
+      // 视觉托管：WebView 背景全透明，才可能透出 DComp 目标后面的桌面/下层窗口。
+      background.A = 0;
+      background.R = 0;
+      background.G = 0;
+      background.B = 0;
+    } else {
+      // windowed hosting 不支持逐像素透明：用与网页一致的深色不透明底。
+      background.A = 255;
+      background.R = 13;
+      background.G = 15;
+      background.B = 19;
+    }
     controller2->put_DefaultBackgroundColor(background);
   }
   controller_->put_IsVisible(TRUE);
+
+  if (hostingMode_ == HostingMode::Composition) {
+    if (webViewCursor_ == nullptr) webViewCursor_ = LoadCursorW(nullptr, IDC_ARROW);
+    EventRegistrationToken cursorToken = {};
+    if (compositionController_.Get() != nullptr) {
+      compositionController_->add_CursorChanged(
+          Callback<ICoreWebView2CursorChangedEventHandler>(
+              [this](ICoreWebView2CompositionController* sender, IUnknown* args) -> HRESULT {
+                (void)args;
+                if (sender == nullptr || hwnd_ == nullptr) return S_OK;
+                HCURSOR cursor = nullptr;
+                if (SUCCEEDED(sender->get_Cursor(&cursor)) && cursor != nullptr) {
+                  webViewCursor_ = cursor;
+                  POINT point = {};
+                  if (GetCursorPos(&point)) {
+                    ScreenToClient(hwnd_, &point);
+                    RECT client = {};
+                    if (GetClientRect(hwnd_, &client) && PtInRect(&client, point) &&
+                        !IsDragStripPoint(point)) {
+                      SetCursor(cursor);
+                    }
+                  }
+                }
+                return S_OK;
+              })
+              .Get(),
+          &cursorToken);
+    }
+  }
 
   EventRegistrationToken token = {};
   webView_->add_NavigationCompleted(
@@ -1996,6 +2460,9 @@ void FloatApp::HandleWebViewEnvironmentFailure(HRESULT errorCode) {
 }
 
 void FloatApp::CleanupWebView() {
+  CleanupDCompVisualTree();  // 内含 compositionController_->put_RootVisualTarget(nullptr)
+  compositionController_.Reset();
+  webViewCursor_ = nullptr;
   if (webView_.Get() != nullptr) webView_.Reset();
   if (controller_.Get() != nullptr) {
     controller_->put_IsVisible(FALSE);
@@ -2028,6 +2495,10 @@ void FloatApp::DoGracefulExit() {
 
 void FloatApp::OnWindowDestroyed() {
   KillAllTimers();
+  if (mouseCaptured_) {
+    mouseCaptured_ = false;
+    ReleaseCapture();
+  }
   CleanupWebView();
   strip_ = nullptr;  // 子窗口随父窗口一起销毁
   hwnd_ = nullptr;
@@ -2044,6 +2515,63 @@ LRESULT FloatApp::OnMainMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
     case WM_GETMINMAXINFO:
       HandleMinMaxInfo(reinterpret_cast<MINMAXINFO*>(lparam));
       return 0;
+    case WM_ERASEBKGND:
+      if (hostingMode_ == HostingMode::Composition) return 1;  // 不画背景，透出下层
+      return DefWindowProcW(hwnd, message, wparam, lparam);
+    case WM_PAINT:
+      if (hostingMode_ == HostingMode::Composition) {
+        PAINTSTRUCT paint = {};
+        BeginPaint(hwnd, &paint);
+        EndPaint(hwnd, &paint);
+        return 0;
+      }
+      return DefWindowProcW(hwnd, message, wparam, lparam);
+    case WM_NCRBUTTONUP:
+      if (hostingMode_ == HostingMode::Composition) {
+        ShowFloatContextMenu(hwnd);
+        return 0;
+      }
+      return DefWindowProcW(hwnd, message, wparam, lparam);
+    case WM_SETCURSOR:
+      if (hostingMode_ == HostingMode::Composition && LOWORD(lparam) == HTCLIENT) {
+        SetCursor(webViewCursor_ != nullptr ? webViewCursor_ : LoadCursorW(nullptr, IDC_ARROW));
+        return TRUE;
+      }
+      return DefWindowProcW(hwnd, message, wparam, lparam);
+    case WM_ACTIVATE:
+      if (hostingMode_ == HostingMode::Composition && LOWORD(wparam) != WA_INACTIVE &&
+          controller_.Get() != nullptr) {
+        controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+      }
+      return DefWindowProcW(hwnd, message, wparam, lparam);
+    case WM_SETFOCUS:
+      if (hostingMode_ == HostingMode::Composition && controller_.Get() != nullptr) {
+        controller_->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+      }
+      return DefWindowProcW(hwnd, message, wparam, lparam);
+    case WM_CAPTURECHANGED:
+      mouseCaptured_ = false;
+      return DefWindowProcW(hwnd, message, wparam, lparam);
+    case WM_MOUSEMOVE:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MBUTTONDBLCLK:
+    case WM_XBUTTONDOWN:
+    case WM_XBUTTONUP:
+    case WM_XBUTTONDBLCLK:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+    case WM_MOUSELEAVE:
+      if (hostingMode_ == HostingMode::Composition) {
+        if (OnCompositionMouseMessage(message, wparam, lparam)) return 0;
+      }
+      return DefWindowProcW(hwnd, message, wparam, lparam);
     case WM_SIZE:
       LayoutChildren();
       return 0;
@@ -2089,6 +2617,11 @@ LRESULT FloatApp::OnMainMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
       if (wparam != 0) RestoreDshWindows();
       return 0;
     case WM_DESTROY:
+      if (suppressWindowDestroy_) {
+        // 模式回退时重建窗口：旧窗口销毁不代表进程退出，不能 PostQuitMessage。
+        suppressWindowDestroy_ = false;
+        return 0;
+      }
       OnWindowDestroyed();
       return 0;
     default:
