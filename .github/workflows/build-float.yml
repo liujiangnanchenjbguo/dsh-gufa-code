@@ -196,6 +196,72 @@ jobs:
           Stop-Process -Id $target.Id -ErrorAction SilentlyContinue
           Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
 
+      - name: Smoke test (hide and restore a "DeepSeek Harness" window)
+        shell: pwsh
+        run: |
+          # 造一个标题为 DeepSeek Harness 的假窗口，验证 helper 的隐藏/恢复逻辑（不依赖真实 DSH）
+          $scriptPath = Join-Path $env:TEMP 'gufa-dummy-window.ps1'
+          @'
+          Add-Type -AssemblyName System.Windows.Forms
+          $form = New-Object System.Windows.Forms.Form
+          $form.Text = 'DeepSeek Harness'
+          $form.Width = 420
+          $form.Height = 300
+          $form.StartPosition = 'Manual'
+          $form.Left = 320
+          $form.Top = 260
+          [System.Windows.Forms.Application]::Run($form)
+          '@ | Set-Content -Path $scriptPath -Encoding UTF8
+          $dummy = Start-Process -FilePath 'powershell' -ArgumentList @('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',$scriptPath) -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 5
+          $sig = @"
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class GufaHideProbe {
+            public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int max);
+            public static IntPtr FindByTitle(string needle) {
+              IntPtr found = IntPtr.Zero;
+              EnumWindows((h, l) => {
+                var buffer = new StringBuilder(512);
+                GetWindowText(h, buffer, buffer.Capacity);
+                if (buffer.ToString().IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0) { found = h; return false; }
+                return true;
+              }, IntPtr.Zero);
+              return found;
+            }
+          }
+          "@
+          Add-Type -TypeDefinition $sig -Language CSharp
+          $dummyHwnd = [GufaHideProbe]::FindByTitle('DeepSeek Harness')
+          if ($dummyHwnd -eq [IntPtr]::Zero) { throw 'dummy DeepSeek Harness window not found' }
+          if (-not [GufaHideProbe]::IsWindowVisible($dummyHwnd)) { throw 'dummy window is not visible before helper start' }
+          $www = Join-Path $env:TEMP 'gufa-probe-www'
+          New-Item -ItemType Directory -Force $www | Out-Null
+          if (-not (Test-Path (Join-Path $www 'index.html'))) { '<html><body>gufa-probe</body></html>' | Set-Content (Join-Path $www 'index.html') -Encoding UTF8 }
+          $http = Start-Process -FilePath 'python' -ArgumentList @('-m','http.server','8796','--bind','127.0.0.1') -WorkingDirectory $www -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $control = Join-Path $env:TEMP 'gufa-win-hide-control.txt'
+          Remove-Item $control -ErrorAction SilentlyContinue
+          $payload = (@{ appUrl='http://127.0.0.1:8796/'; authUrl='http://127.0.0.1:8796/'; controlPath=$control; build='ci' } | ConvertTo-Json -Compress)
+          $env:GUFA_FLOAT_PAYLOAD = $payload
+          $helper = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -PassThru -WindowStyle Hidden
+          $hidden = $false
+          for ($i = 0; $i -lt 20; $i++) { Start-Sleep -Milliseconds 500; if (-not [GufaHideProbe]::IsWindowVisible($dummyHwnd)) { $hidden = $true; break } }
+          if (-not $hidden) { throw 'helper did not hide the DeepSeek Harness window' }
+          Write-Host 'helper hid the DeepSeek Harness window'
+          Set-Content -Path $control -Value 'exit' -NoNewline
+          if (-not $helper.WaitForExit(15000)) { throw 'hide/restore helper did not exit after controlPath' }
+          $restored = $false
+          for ($i = 0; $i -lt 20; $i++) { Start-Sleep -Milliseconds 500; if ([GufaHideProbe]::IsWindowVisible($dummyHwnd)) { $restored = $true; break } }
+          if (-not $restored) { throw 'helper did not restore the DeepSeek Harness window' }
+          Write-Host 'helper restored the DeepSeek Harness window on exit'
+          Stop-Process -Id $dummy.Id -Force -ErrorAction SilentlyContinue
+          Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
+
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-win-x64
