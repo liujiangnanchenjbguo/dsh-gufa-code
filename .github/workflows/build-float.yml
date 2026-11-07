@@ -129,6 +129,73 @@ jobs:
           if (-not $exited) { throw 'helper did not exit after controlPath' }
           Write-Host "helper exited after controlPath, code=$($process.ExitCode)"
           Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
+      - name: Smoke test (follow a real target window)
+        shell: pwsh
+        run: |
+          $www = Join-Path $env:TEMP 'gufa-probe-www'
+          New-Item -ItemType Directory -Force $www | Out-Null
+          if (-not (Test-Path (Join-Path $www 'index.html'))) { '<html><body>gufa-probe</body></html>' | Set-Content (Join-Path $www 'index.html') -Encoding UTF8 }
+          $http = Start-Process -FilePath 'python' -ArgumentList @('-m','http.server','8797','--bind','127.0.0.1') -WorkingDirectory $www -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $target = Start-Process -FilePath 'notepad.exe' -PassThru
+          Start-Sleep -Seconds 2
+          $control = Join-Path $env:TEMP 'gufa-win-follow-control.txt'
+          Remove-Item $control -ErrorAction SilentlyContinue
+          $payload = (@{ appUrl='http://127.0.0.1:8797/'; authUrl='http://127.0.0.1:8797/'; controlPath=$control; build='ci'; follow=@{ pid=$target.Id; title='' } } | ConvertTo-Json -Compress -Depth 5)
+          $env:GUFA_FLOAT_PAYLOAD = $payload
+          $helper = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -PassThru -WindowStyle Hidden
+          $sig = @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class GufaProbe {
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+            public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+            public static IntPtr FindMain(uint pid) {
+              IntPtr best = IntPtr.Zero; long bestArea = 0;
+              EnumWindows((h, l) => {
+                uint p; GetWindowThreadProcessId(h, out p);
+                if (p != pid || !IsWindowVisible(h)) return true;
+                RECT r; if (!GetWindowRect(h, out r)) return true;
+                long area = (long)(r.Right - r.Left) * (r.Bottom - r.Top);
+                if (area > bestArea) { bestArea = area; best = h; }
+                return true;
+              }, IntPtr.Zero);
+              return best;
+            }
+            public static int[] Rect(IntPtr h) { RECT r; GetWindowRect(h, out r); return new int[] { r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top }; }
+            public static void SetPos(IntPtr h, int x, int y, int cx, int cy) { SetWindowPos(h, IntPtr.Zero, x, y, cx, cy, 0x0004); }
+          }
+          "@
+          Add-Type -TypeDefinition $sig -Language CSharp
+          Start-Sleep -Seconds 6
+          if ($helper.HasExited) { throw "follow helper exited early (code $($helper.ExitCode))" }
+          $targetHwnd = [GufaProbe]::FindMain([uint32]$target.Id)
+          $helperHwnd = [GufaProbe]::FindMain([uint32]$helper.Id)
+          if ($targetHwnd -eq [IntPtr]::Zero) { throw 'target window not found' }
+          if ($helperHwnd -eq [IntPtr]::Zero) { throw 'helper window not found' }
+          $tr = [GufaProbe]::Rect($targetHwnd)
+          $hr = [GufaProbe]::Rect($helperHwnd)
+          Write-Host "target rect=$($tr -join ',') helper rect=$($hr -join ',')"
+          $tolerance = 120
+          if ([math]::Abs($tr[0] - $hr[0]) -gt $tolerance -or [math]::Abs($tr[1] - $hr[1]) -gt $tolerance) { throw "helper did not follow target position (t=$($tr -join ',') h=$($hr -join ','))" }
+          if ([math]::Abs($tr[2] - $hr[2]) -gt $tolerance -or [math]::Abs($tr[3] - $hr[3]) -gt $tolerance) { throw "helper did not follow target size (t=$($tr -join ',') h=$($hr -join ','))" }
+          [GufaProbe]::SetPos($targetHwnd, 180, 140, 760, 560)
+          Start-Sleep -Seconds 4
+          $tr2 = [GufaProbe]::Rect($targetHwnd)
+          $hr2 = [GufaProbe]::Rect($helperHwnd)
+          Write-Host "after move target rect=$($tr2 -join ',') helper rect=$($hr2 -join ',')"
+          if ([math]::Abs($tr2[0] - $hr2[0]) -gt $tolerance -or [math]::Abs($tr2[1] - $hr2[1]) -gt $tolerance) { throw 'helper did not follow target after move' }
+          Set-Content -Path $control -Value 'exit' -NoNewline
+          if (-not $helper.WaitForExit(15000)) { throw 'follow helper did not exit after controlPath' }
+          Write-Host 'follow window tracked target and exited cleanly'
+          Stop-Process -Id $target.Id -ErrorAction SilentlyContinue
+          Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
+
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-win-x64
