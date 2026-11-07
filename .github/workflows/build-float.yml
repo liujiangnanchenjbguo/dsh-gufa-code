@@ -513,6 +513,45 @@ jobs:
           echo "$CURRENT" | grep -q 'explorer'
           echo 'document-start localStorage injection works on Linux (float/state/project/ui)'
 
+      - name: Smoke test (hide and restore a "DeepSeek Harness" window under Xvfb)
+        run: |
+          mkdir -p /tmp/gufa-probe-www
+          printf '<html><body>gufa-probe</body></html>' > /tmp/gufa-probe-www/index.html
+          (cd /tmp/gufa-probe-www && python3 -m http.server 8792 --bind 127.0.0.1 >/tmp/gufa-hide-http.log 2>&1 &)
+          sleep 1
+          xvfb-run -a bash -c '
+            set -euxo pipefail
+            openbox >/tmp/gufa-openbox-hide.log 2>&1 &
+            sleep 1
+            xterm -T "DeepSeek Harness" -geometry 80x24+200+160 >/tmp/gufa-xterm-hide.log 2>&1 &
+            XPID=$!
+            sleep 2
+            XWIN=$(xdotool search --pid $XPID | head -1)
+            [ -n "$XWIN" ]
+            xwininfo -id $XWIN | grep -q "IsViewable"
+            control=/tmp/gufa-linux-hide-control.txt
+            rm -f "$control"
+            ./desktop/float/bin/linux-x64/gufa-float-linux "{\"appUrl\":\"http://127.0.0.1:8792/\",\"authUrl\":\"http://127.0.0.1:8792/\",\"controlPath\":\"$control\",\"build\":\"ci\"}" >/tmp/gufa-linux-hide.log 2>&1 &
+            HPID=$!
+            hidden=0
+            for i in $(seq 1 20); do
+              if xwininfo -id $XWIN 2>/dev/null | grep -q "IsUnMapped"; then hidden=1; break; fi
+              sleep 0.5
+            done
+            if [ $hidden -ne 1 ]; then echo "helper did not hide DeepSeek Harness window"; cat /tmp/gufa-linux-hide.log; kill -9 $HPID 2>/dev/null || true; exit 1; fi
+            echo "helper hid the DeepSeek Harness window"
+            printf exit > "$control"
+            for i in $(seq 1 30); do if ! kill -0 $HPID 2>/dev/null; then break; fi; sleep 0.5; done
+            kill -9 $HPID 2>/dev/null || true
+            restored=0
+            for i in $(seq 1 20); do
+              if xwininfo -id $XWIN 2>/dev/null | grep -q "IsViewable"; then restored=1; break; fi
+              sleep 0.5
+            done
+            if [ $restored -ne 1 ]; then echo "helper did not restore DeepSeek Harness window"; cat /tmp/gufa-linux-hide.log; exit 1; fi
+            echo "helper restored the DeepSeek Harness window on exit"
+          '
+
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-linux-x64
