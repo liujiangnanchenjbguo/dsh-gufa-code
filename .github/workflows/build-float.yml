@@ -469,7 +469,8 @@ jobs:
           $width = $rect.Right - $rect.Left
           $height = $rect.Bottom - $rect.Top
           Write-Host "client=${width}x${height} dpi=$dpi"
-          $topY = [int]([math]::Floor(5 * $dpi / 96.0))
+          # 顶部 22 DIP 是拖动条，但最上面几像素是 resize 边框（HTTOP），取 16 DIP 命中拖动条
+          $topY = [int]([math]::Floor(16 * $dpi / 96.0))
           $midY = [int]([math]::Floor($height / 2))
           $midX = [int]([math]::Floor($width / 2))
           # 注意：x=10 会落在左侧 resize 边框里（返回 HTLEFT/HTTOPLEFT），拖拽条要取水平中点
