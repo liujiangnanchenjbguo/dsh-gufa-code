@@ -384,6 +384,8 @@ static gboolean gufa_text_contains_ci(const char *haystack, const char *needle) 
 }
 
 static char *gufa_x11_process_comm(long pid);
+static char *gufa_x11_process_cmdline(long pid);
+static char *gufa_x11_window_original_title(GufaX11 *x11, Window window);
 
 /* ── 对外接口 ───────────────────────────────────────────────────────── */
 
@@ -409,6 +411,7 @@ gboolean gufa_x11_open(GufaX11 *x11) {
     GUFA_ATOM(atom_net_wm_name, "_NET_WM_NAME");
     GUFA_ATOM(atom_wm_name, "WM_NAME");
     GUFA_ATOM(atom_wm_state, "WM_STATE");
+    GUFA_ATOM(atom_ob_app_title, "_OB_APP_TITLE");
     GUFA_ATOM(atom_utf8_string, "UTF8_STRING");
     GUFA_ATOM(atom_net_active_window, "_NET_ACTIVE_WINDOW");
     GUFA_ATOM(atom_net_client_list, "_NET_CLIENT_LIST");
@@ -783,6 +786,31 @@ static char *gufa_x11_process_comm(long pid) {
     if (!g_file_get_contents(path, &contents, &length, NULL) || contents == NULL) return NULL;
     g_strchomp(contents);
     return contents;
+}
+
+/** 读 /proc/<pid>/cmdline（NUL 分隔转空格）。CI 的 xterm 标题会被 shell prompt 覆盖，
+ *  但进程命令行里仍保留 `-T "DeepSeek Harness"`，可作为窗口身份匹配的兜底信号。 */
+static char *gufa_x11_process_cmdline(long pid) {
+    if (pid <= 0) return NULL;
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%ld/cmdline", pid);
+    char *contents = NULL;
+    gsize length = 0;
+    if (!g_file_get_contents(path, &contents, &length, NULL) || contents == NULL) return NULL;
+    for (gsize i = 0; i < length; i++) {
+        if (contents[i] == '\0') contents[i] = ' ';
+    }
+    g_strchomp(contents);
+    return contents;
+}
+
+/** 部分 WM（Openbox）会把“窗口映射时的原始标题”存到 client 的 _OB_APP_TITLE，
+ * 应用后来改标题也能读回，作为标题匹配的补充来源。 */
+static char *gufa_x11_window_original_title(GufaX11 *x11, Window window) {
+    char *title = gufa_x11_get_property_text(x11, window, x11->atom_ob_app_title);
+    if (title != NULL && *title != '\0') return title;
+    g_free(title);
+    return NULL;
 }
 
 static void gufa_x11_app_destroy(gpointer data) {

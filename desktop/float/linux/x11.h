@@ -47,6 +47,7 @@ typedef struct {
     Atom atom_net_wm_name;
     Atom atom_wm_name;
     Atom atom_wm_state;
+    Atom atom_ob_app_title;
     Atom atom_utf8_string;
     Atom atom_net_active_window;
     Atom atom_net_client_list;

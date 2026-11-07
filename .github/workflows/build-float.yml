@@ -579,10 +579,11 @@ jobs:
             set -euxo pipefail
             openbox >/tmp/gufa-openbox-hide.log 2>&1 &
             sleep 1
-            xterm -T "DeepSeek Harness" -geometry 80x24+200+160 >/tmp/gufa-xterm-hide.log 2>&1 &
+            # 用 xmessage 而不是 xterm：xterm 的标题会被 shell 的 PROMPT_COMMAND 覆盖成提示符
+            xmessage -title "DeepSeek Harness" -geometry 360x240+200+160 probe >/tmp/gufa-xmessage-hide.log 2>&1 &
             XPID=$!
             sleep 2
-            XWIN=$(xdotool search --pid $XPID | head -1)
+            XWIN=$(xdotool search --name "DeepSeek Harness" | head -1)
             [ -n "$XWIN" ]
             xwininfo -id $XWIN | grep -q "IsViewable"
             control=/tmp/gufa-linux-hide-control.txt
