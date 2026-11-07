@@ -18,7 +18,7 @@
 
 | 平台 | 自动化验证 |
 |---|---|
-| Windows (windows-latest) | ciProbe 加载本地页面 ok:true；真实窗口创建（EnumWindows 数可见窗口）；**跟随** notepad 窗口位置/大小、移动后继续跟随；**隐藏/恢复**标题为 "DeepSeek Harness" 的窗口；**状态注入**（页面读回 `gufa-code:float` / `float-state` / `project` / `ui:v1` 全部正确）；**透明 composition**（日志 `transparent-mode=composition` + 窗口 `WS_EX_NOREDIRECTIONBITMAP`）；**opaque 回退**（`transparent-mode=windowed reason=payload-opaque` 下窗口/退出正常）；controlPath 优雅退出 |
+| Windows (windows-latest) | ciProbe 加载本地页面 ok:true；真实窗口创建（EnumWindows 数可见窗口）；**跟随** notepad 窗口位置/大小、移动后继续跟随；**隐藏/恢复**标题为 "DeepSeek Harness" 的窗口；**状态注入**（页面读回 `gufa-code:float` / `float-state` / `project` / `ui:v1` 全部正确）；**透明 composition**（日志 `transparent-mode=composition` + 窗口 `WS_EX_NOREDIRECTIONBITMAP`）；**opaque 回退**（`transparent-mode=windowed reason=payload-opaque` 下窗口/退出正常）；**顶部拖动条命中**（WM_NCHITTEST 拖动区 HTCAPTION / 客户区 HTCLIENT）；**键盘输入**（SetForegroundWindow+keybd_event 后页面收到 keydown）；controlPath 优雅退出 |
 | Linux (ubuntu-24.04 + Xvfb + openbox) | ciProbe 加载本地页面 ok:true；真实窗口创建；**跟随** xterm 窗口位置/大小、移动后继续跟随；**状态注入**（同上四项 localStorage 全部正确）；**隐藏/恢复**标题为 "DeepSeek Harness" 的 xmessage 窗口（XUnmap→XMap）；**RGBA 透明路径**（xcompmgr 下日志 `使用 RGBA visual`）；controlPath 优雅退出 |
 | macOS (macos-latest) | universal 构建 + 窗口列表辅助功能检查 |
 
