@@ -69,6 +69,50 @@ static gboolean gufa_x11_get_property(GufaX11 *x11, Window window, Atom atom, At
     return TRUE;
 }
 
+/** 读任意类型、format 8 的属性原始字节。
+ *  标题属性（_NET_WM_NAME / WM_NAME）的 type 可能是 UTF8_STRING / STRING / COMPOUND_TEXT，
+ *  对 ASCII 标题这些编码的字节兼容，直接按字节返回，避免 XFetchName 只认 STRING 的局限。 */
+static char *gufa_x11_get_property_text(GufaX11 *x11, Window window, Atom atom) {
+    unsigned char *data = NULL;
+    Atom type = None;
+    int format = 0;
+    unsigned long nitems = 0;
+    if (!gufa_x11_get_property(x11, window, atom, AnyPropertyType, &data, &type, &format, &nitems)) {
+        return NULL;
+    }
+    char *text = NULL;
+    if (format == 8 && nitems > 0 && data != NULL) {
+        text = g_strndup((const char *)data, (gsize)nitems);
+    }
+    XFree(data);
+    return text;
+}
+
+/** 窗口是否被 WM 管理（有 WM_STATE 属性）。reparenting WM 的 frame/decor 窗口没有该属性，
+ *  client 窗口有；用于在 _NET_WM_PID 缺失时仍然识别真正的应用窗口。 */
+static gboolean gufa_x11_window_has_wm_state(GufaX11 *x11, Window window) {
+    unsigned char *data = NULL;
+    Atom type = None;
+    int format = 0;
+    unsigned long nitems = 0;
+    if (!gufa_x11_get_property(x11, window, x11->atom_wm_state, AnyPropertyType,
+                               &data, &type, &format, &nitems)) {
+        return FALSE;
+    }
+    XFree(data);
+    return TRUE;
+}
+
+/** 把日志里的窗口标题 sanitize 成单行。 */
+static char *gufa_x11_log_text(const char *text) {
+    if (text == NULL) return g_strdup("(null)");
+    char *copy = g_strdup(text);
+    for (char *p = copy; *p != '\0'; p++) {
+        if ((unsigned char)*p < 0x20) *p = '?';
+    }
+    return copy;
+}
+
 long gufa_x11_window_pid(GufaX11 *x11, Window window) {
     unsigned char *data = NULL;
     Atom type = None;
@@ -86,19 +130,15 @@ long gufa_x11_window_pid(GufaX11 *x11, Window window) {
 }
 
 char *gufa_x11_window_title(GufaX11 *x11, Window window) {
-    unsigned char *data = NULL;
-    Atom type = None;
-    int format = 0;
-    unsigned long nitems = 0;
-    if (gufa_x11_get_property(x11, window, x11->atom_net_wm_name, x11->atom_utf8_string,
-                              &data, &type, &format, &nitems)) {
-        char *title = NULL;
-        if (format == 8 && nitems > 0 && data != NULL) {
-            title = g_strndup((const char *)data, (gsize)nitems);
-        }
-        XFree(data);
-        if (title != NULL) return title;
-    }
+    /* EWMH 标题优先（规范要求 UTF-8，但类型可能被写成 STRING，按原始字节读更稳） */
+    char *title = gufa_x11_get_property_text(x11, window, x11->atom_net_wm_name);
+    if (title != NULL && *title != '\0') return title;
+    g_free(title);
+    /* ICCCM WM_NAME：type 可能是 STRING / COMPOUND_TEXT / UTF8_STRING，按原始字节读 */
+    title = gufa_x11_get_property_text(x11, window, x11->atom_wm_name);
+    if (title != NULL && *title != '\0') return title;
+    g_free(title);
+    /* 最后的 encoding 感知回退（STRING） */
     char *wm_name = NULL;
     if (x11->dpy != NULL && XFetchName(x11->dpy, window, &wm_name) != 0 && wm_name != NULL) {
         char *copy = g_strdup(wm_name);
@@ -166,6 +206,38 @@ static gboolean gufa_x11_window_type_followable(GufaX11 *x11, Window window) {
     return followable;
 }
 
+/** 隐藏场景的类型过滤：只排除明确不是普通应用窗口的类型；未知/空类型/NORMAL/DIALOG/UTILITY 都允许，
+ *  避免 xterm 之类不声明类型的窗口被误杀。 */
+static gboolean gufa_x11_window_type_hideable(GufaX11 *x11, Window window) {
+    unsigned char *data = NULL;
+    Atom type = None;
+    int format = 0;
+    unsigned long nitems = 0;
+    if (!gufa_x11_get_property(x11, window, x11->atom_net_wm_window_type, XA_ATOM,
+                               &data, &type, &format, &nitems)) {
+        return TRUE;
+    }
+    gboolean hideable = TRUE;
+    if (format == 32 && data != NULL) {
+        long *atoms = (long *)(void *)data;
+        for (unsigned long i = 0; i < nitems; i++) {
+            Atom value = (Atom)atoms[i];
+            if (value == x11->atom_net_wm_window_type_desktop ||
+                value == x11->atom_net_wm_window_type_dock ||
+                value == x11->atom_net_wm_window_type_toolbar ||
+                value == x11->atom_net_wm_window_type_menu ||
+                value == x11->atom_net_wm_window_type_dropdown ||
+                value == x11->atom_net_wm_window_type_tooltip ||
+                value == x11->atom_net_wm_window_type_splash) {
+                hideable = FALSE;
+                break;
+            }
+        }
+    }
+    XFree(data);
+    return hideable;
+}
+
 static void gufa_x11_collect_children(GufaX11 *x11, Window parent, int depth, Window skip,
                                      gboolean include_unmapped, GArray *out) {
     Window root_return = 0;
@@ -183,9 +255,15 @@ static void gufa_x11_collect_children(GufaX11 *x11, Window parent, int depth, Wi
         if (attributes.override_redirect) continue;
         if (attributes.class != InputOutput) continue;
         long pid = gufa_x11_window_pid(x11, window);
-        if (pid > 0) {
-            if (attributes.width < 40 || attributes.height < 40) continue;
-            if (!include_unmapped && attributes.map_state != IsViewable) continue;
+        gboolean usable = attributes.width >= 40 && attributes.height >= 40 &&
+                          (include_unmapped || attributes.map_state == IsViewable);
+        gboolean is_managed = FALSE;
+        if (pid <= 0 && usable) {
+            /* _NET_WM_PID 缺失时，用 WM_STATE 识别真正的 client 窗口（reparenting WM 的 frame 没有） */
+            is_managed = gufa_x11_window_has_wm_state(x11, window);
+        }
+        if (pid > 0 || is_managed) {
+            if (!usable) continue;
             int root_x = 0;
             int root_y = 0;
             Window child_return = 0;
@@ -202,19 +280,82 @@ static void gufa_x11_collect_children(GufaX11 *x11, Window parent, int depth, Wi
             info.height = attributes.height;
             info.viewable = attributes.map_state == IsViewable;
             g_array_append_val(out, info);
-        } else if (depth < 2) {
-            /* 有 WM 时 root 的子窗口是 frame，真正的 client 在下一层 */
+        }
+        if (pid <= 0 && depth < 4) {
+            /* 有 WM 时 root 的子窗口是 frame/decor，真正的 client 在更深层；深度放宽到 4 层 */
             gufa_x11_collect_children(x11, window, depth + 1, skip, include_unmapped, out);
         }
     }
     if (children != NULL) XFree(children);
 }
 
-/** 在 root 上枚举「带 _NET_WM_PID 的顶层 client 窗口」；include_unmapped 时也收其它工作区/最小化的窗口。 */
+/** 用 EWMH 的 _NET_CLIENT_LIST / _NET_CLIENT_LIST_STACKING 补齐候选：比窗口树更权威，
+ *  即使树层级/深度/pid 有任何意外也能拿到 WM 管理的 client 窗口。 */
+static void gufa_x11_collect_client_list(GufaX11 *x11, Window skip, gboolean include_unmapped,
+                                         GArray *out) {
+    Atom atoms[2];
+    atoms[0] = x11->atom_net_client_list;
+    atoms[1] = x11->atom_net_client_list_stacking;
+    GHashTable *seen = g_hash_table_new(g_direct_hash, g_direct_equal);
+    for (guint i = 0; i < out->len; i++) {
+        GufaX11WindowInfo *info = &g_array_index(out, GufaX11WindowInfo, i);
+        g_hash_table_add(seen, (gpointer)(guintptr)info->win);
+    }
+    for (int a = 0; a < 2; a++) {
+        unsigned char *data = NULL;
+        Atom type = None;
+        int format = 0;
+        unsigned long nitems = 0;
+        if (!gufa_x11_get_property(x11, x11->root, atoms[a], AnyPropertyType,
+                                   &data, &type, &format, &nitems)) {
+            continue;
+        }
+        if (format != 32 || data == NULL) {
+            XFree(data);
+            continue;
+        }
+        Window *windows = (Window *)(void *)data;
+        if (nitems > 512) nitems = 512;
+        for (unsigned long i = 0; i < nitems; i++) {
+            Window window = windows[i];
+            if (window == 0 || window == skip) continue;
+            if (g_hash_table_contains(seen, (gpointer)(guintptr)window)) continue;
+            XWindowAttributes attributes;
+            memset(&attributes, 0, sizeof(attributes));
+            if (XGetWindowAttributes(x11->dpy, window, &attributes) == 0) continue;
+            if (attributes.override_redirect) continue;
+            if (attributes.width < 40 || attributes.height < 40) continue;
+            if (!include_unmapped && attributes.map_state != IsViewable) continue;
+            int root_x = 0;
+            int root_y = 0;
+            Window child_return = 0;
+            if (XTranslateCoordinates(x11->dpy, window, x11->root, 0, 0, &root_x, &root_y, &child_return) == 0) {
+                root_x = 0;
+                root_y = 0;
+            }
+            GufaX11WindowInfo info;
+            info.win = window;
+            info.pid = gufa_x11_window_pid(x11, window);
+            info.x = root_x;
+            info.y = root_y;
+            info.width = attributes.width;
+            info.height = attributes.height;
+            info.viewable = attributes.map_state == IsViewable;
+            g_array_append_val(out, info);
+            g_hash_table_add(seen, (gpointer)(guintptr)window);
+        }
+        XFree(data);
+    }
+    g_hash_table_destroy(seen);
+}
+
+/** 枚举「WM 管理的顶层 client 窗口」：窗口树递归 + EWMH client list 并集；
+ *  include_unmapped 时也收其它工作区/最小化的窗口。 */
 static GArray *gufa_x11_enumerate(GufaX11 *x11, Window skip, gboolean include_unmapped) {
     GArray *out = g_array_new(FALSE, FALSE, sizeof(GufaX11WindowInfo));
     if (x11 == NULL || !x11->ok) return out;
     gufa_x11_collect_children(x11, x11->root, 0, skip, include_unmapped, out);
+    gufa_x11_collect_client_list(x11, skip, include_unmapped, out);
     return out;
 }
 
@@ -266,9 +407,12 @@ gboolean gufa_x11_open(GufaX11 *x11) {
 #define GUFA_ATOM(field, name) (x11->field = XInternAtom(x11->dpy, (name), False))
     GUFA_ATOM(atom_net_wm_pid, "_NET_WM_PID");
     GUFA_ATOM(atom_net_wm_name, "_NET_WM_NAME");
+    GUFA_ATOM(atom_wm_name, "WM_NAME");
+    GUFA_ATOM(atom_wm_state, "WM_STATE");
     GUFA_ATOM(atom_utf8_string, "UTF8_STRING");
     GUFA_ATOM(atom_net_active_window, "_NET_ACTIVE_WINDOW");
     GUFA_ATOM(atom_net_client_list, "_NET_CLIENT_LIST");
+    GUFA_ATOM(atom_net_client_list_stacking, "_NET_CLIENT_LIST_STACKING");
     GUFA_ATOM(atom_net_wm_window_type, "_NET_WM_WINDOW_TYPE");
     GUFA_ATOM(atom_net_wm_window_type_normal, "_NET_WM_WINDOW_TYPE_NORMAL");
     GUFA_ATOM(atom_net_wm_window_type_dialog, "_NET_WM_WINDOW_TYPE_DIALOG");
@@ -448,51 +592,140 @@ void gufa_x11_copy_desktop(GufaX11 *x11, Window target, Window own) {
              (unsigned long)target, (unsigned long)own);
 }
 
-void gufa_x11_hide_windows_like_dsh(GufaX11 *x11, long owner_pid, const char *title_hint, GufaX11WindowList *hidden) {
+/** 无匹配时把窗口树（含 frame/decor）打进日志，便于 CI/真机一次定位。 */
+static void gufa_x11_debug_dump_tree(GufaX11 *x11, Window window, int depth, int *budget) {
+    if (window == 0 || depth > 3 || *budget <= 0) return;
+    XWindowAttributes attributes;
+    memset(&attributes, 0, sizeof(attributes));
+    if (XGetWindowAttributes(x11->dpy, window, &attributes) == 0) return;
+    if (!attributes.override_redirect) {
+        (*budget)--;
+        char *title = gufa_x11_window_title(x11, window);
+        char *wm_class = gufa_x11_window_class(x11, window);
+        char *title_text = gufa_x11_log_text(title);
+        char *class_text = gufa_x11_log_text(wm_class);
+        gufa_log("x11: tree depth=%d win=0x%lx class=%d map=%d size=%dx%d pid=%ld wm_state=%d "
+                 "title=\"%s\" wm_class=\"%s\"",
+                 depth, (unsigned long)window, attributes.class, attributes.map_state,
+                 attributes.width, attributes.height, gufa_x11_window_pid(x11, window),
+                 gufa_x11_window_has_wm_state(x11, window) ? 1 : 0, title_text, class_text);
+        g_free(title_text);
+        g_free(class_text);
+        g_free(title);
+        g_free(wm_class);
+    }
+    if (depth < 3) {
+        Window root_return = 0;
+        Window parent_return = 0;
+        Window *children = NULL;
+        unsigned int child_count = 0;
+        if (XQueryTree(x11->dpy, window, &root_return, &parent_return, &children, &child_count) == 0) {
+            return;
+        }
+        for (unsigned int i = 0; i < child_count && *budget > 0; i++) {
+            gufa_x11_debug_dump_tree(x11, children[i], depth + 1, budget);
+        }
+        if (children != NULL) XFree(children);
+    }
+}
+
+void gufa_x11_hide_windows_like_dsh(GufaX11 *x11, long owner_pid, const char *title_hint,
+                                    GufaX11WindowList *hidden) {
     gufa_x11_window_list_clear(hidden);
     if (x11 == NULL || !x11->ok || hidden == NULL) return;
     GArray *windows = gufa_x11_enumerate(x11, 0, FALSE);
+    gufa_log("x11: 隐藏 DSH 前枚举到 %u 个候选窗口（ownerPid=%ld，窗口树 + _NET_CLIENT_LIST）",
+             windows->len, owner_pid);
+
+    /* 逐候选诊断日志：定位“为什么没匹配” */
+    int logged = 0;
+    for (guint i = 0; i < windows->len; i++) {
+        GufaX11WindowInfo *info = &g_array_index(windows, GufaX11WindowInfo, i);
+        if (logged >= 64) {
+            gufa_log("x11: 候选过多，其余 %u 个不再逐条打印", windows->len - (guint)logged);
+            break;
+        }
+        logged++;
+        char *title = gufa_x11_window_title(x11, info->win);
+        char *wm_class = gufa_x11_window_class(x11, info->win);
+        char *comm = info->pid > 0 ? gufa_x11_process_comm(info->pid) : NULL;
+        char *title_text = gufa_x11_log_text(title);
+        char *class_text = gufa_x11_log_text(wm_class);
+        char *comm_text = gufa_x11_log_text(comm);
+        gufa_log("x11: 候选 win=0x%lx pid=%ld title=\"%s\" wm_class=\"%s\" comm=\"%s\" "
+                 "size=%dx%d viewable=%d type_ok=%d wm_state=%d",
+                 (unsigned long)info->win, info->pid, title_text, class_text, comm_text,
+                 info->width, info->height, info->viewable ? 1 : 0,
+                 gufa_x11_window_type_hideable(x11, info->win) ? 1 : 0,
+                 gufa_x11_window_has_wm_state(x11, info->win) ? 1 : 0);
+        g_free(title);
+        g_free(wm_class);
+        g_free(comm);
+        g_free(title_text);
+        g_free(class_text);
+        g_free(comm_text);
+    }
+
     GArray *matched = g_array_new(FALSE, FALSE, sizeof(Window));
-    /* 第一轮：精确 owner pid */
+
+    /* 第一轮：ownerPid 精确匹配（优先级最高，行为保持不变） */
     if (owner_pid > 0) {
         for (guint i = 0; i < windows->len; i++) {
             GufaX11WindowInfo *info = &g_array_index(windows, GufaX11WindowInfo, i);
             if (info->pid != owner_pid) continue;
             if (info->pid == x11->self_pid) continue;
-            if (info->width < 200 || info->height < 140) continue;
-            if (!gufa_x11_window_type_followable(x11, info->win)) continue;
+            if (info->width < 50 || info->height < 50) continue;
+            if (!gufa_x11_window_type_hideable(x11, info->win)) continue;
+            gufa_log("x11: ownerPid 精确命中 win=0x%lx pid=%ld size=%dx%d",
+                     (unsigned long)info->win, info->pid, info->width, info->height);
             Window window = info->win;
             g_array_append_val(matched, window);
         }
+        gufa_log("x11: ownerPid 精确匹配到 %u 个窗口", matched->len);
     }
-    /* 第二轮：标题 / WM_CLASS 启发式（ownerPid 对不上时兜底，DSH 是 Electron 应用） */
+
+    /* 第二轮：标题 / WM_CLASS / 进程名启发式（ownerPid 对不上时兜底；Electron DSH 与 CI xterm 都覆盖） */
     if (matched->len == 0) {
         const char *needles[] = {"deepseek harness", "deepseek-harness", "deepseek"};
         for (guint i = 0; i < windows->len; i++) {
             GufaX11WindowInfo *info = &g_array_index(windows, GufaX11WindowInfo, i);
             if (info->pid == x11->self_pid) continue;
-            if (info->width < 200 || info->height < 140) continue;
-            if (!gufa_x11_window_type_followable(x11, info->win)) continue;
+            if (info->width < 16 || info->height < 16) continue;
+            if (!gufa_x11_window_type_hideable(x11, info->win)) continue;
             char *title = gufa_x11_window_title(x11, info->win);
             char *wm_class = gufa_x11_window_class(x11, info->win);
-            char *comm = gufa_x11_process_comm(info->pid);
+            char *comm = info->pid > 0 ? gufa_x11_process_comm(info->pid) : NULL;
             gboolean matched_title = FALSE;
+            const char *why = NULL;
             if (title_hint != NULL && *title_hint != '\0' && gufa_text_contains_ci(title, title_hint)) {
                 matched_title = TRUE;
+                why = "title_hint";
             }
             for (gsize n = 0; n < G_N_ELEMENTS(needles) && !matched_title; n++) {
-                if (gufa_text_contains_ci(title, needles[n]) || gufa_text_contains_ci(wm_class, needles[n]) ||
-                    gufa_text_contains_ci(comm, needles[n])) {
+                if (gufa_text_contains_ci(title, needles[n])) {
                     matched_title = TRUE;
+                    why = "title";
+                } else if (gufa_text_contains_ci(wm_class, needles[n])) {
+                    matched_title = TRUE;
+                    why = "wm_class";
+                } else if (gufa_text_contains_ci(comm, needles[n])) {
+                    matched_title = TRUE;
+                    why = "process";
                 }
             }
             if (matched_title) {
                 if (matched->len >= 16) {
+                    gufa_log("x11: 启发式命中窗口超过 16 个，已截断");
                     g_free(title);
                     g_free(wm_class);
                     g_free(comm);
                     break;
                 }
+                char *title_text = gufa_x11_log_text(title);
+                gufa_log("x11: 标题启发式命中 win=0x%lx pid=%ld by=%s title=\"%s\" size=%dx%d",
+                         (unsigned long)info->win, info->pid, why != NULL ? why : "?",
+                         title_text, info->width, info->height);
+                g_free(title_text);
                 Window window = info->win;
                 g_array_append_val(matched, window);
             }
@@ -500,21 +733,24 @@ void gufa_x11_hide_windows_like_dsh(GufaX11 *x11, long owner_pid, const char *ti
             g_free(wm_class);
             g_free(comm);
         }
+        gufa_log("x11: 标题启发式匹配到 %u 个窗口", matched->len);
     }
-    g_array_free(windows, TRUE);
-    if (matched->len > 16) g_array_set_size(matched, 16);
-    for (guint i = 0; i < matched->len; i++) {
-        Window window = g_array_index(matched, Window, i);
-        XUnmapWindow(x11->dpy, window);
-        gufa_x11_window_list_add(hidden, window);
-        gufa_log("x11: 隐藏 DSH 主窗口 0x%lx", (unsigned long)window);
-    }
+
     if (matched->len == 0) {
-        gufa_log("x11: 没找到 DSH 主窗口（ownerPid=%ld），跳过隐藏", owner_pid);
+        gufa_log("x11: 没找到 DSH 主窗口（ownerPid=%ld），跳过隐藏；dump 窗口树如下", owner_pid);
+        int budget = 120;
+        gufa_x11_debug_dump_tree(x11, x11->root, 0, &budget);
     } else {
+        for (guint i = 0; i < matched->len; i++) {
+            Window window = g_array_index(matched, Window, i);
+            XUnmapWindow(x11->dpy, window);
+            gufa_x11_window_list_add(hidden, window);
+            gufa_log("x11: 隐藏 DSH 主窗口 0x%lx", (unsigned long)window);
+        }
         gufa_log("x11: 已隐藏 DSH 主窗口 %u 个", hidden->n);
     }
     XSync(x11->dpy, False);
+    g_array_free(windows, TRUE);
     g_array_free(matched, TRUE);
 }
 

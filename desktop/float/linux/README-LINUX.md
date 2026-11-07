@@ -113,8 +113,15 @@ WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_
 - [x] 用目标的 `_NET_WM_DESKTOP` 同步自己窗口的工作区（best-effort）。
 
 ### 2.3 隐藏/恢复 DSH 主窗口（X11）
-- [x] 隐藏：优先 `_NET_WM_PID == ownerPid`（Host payload 已带 `ownerPid`）；对不上时按标题/WM_CLASS 启发式
+- [x] 隐藏：优先 `_NET_WM_PID == ownerPid`（Host payload 已带 `ownerPid`）；对不上时按标题/WM_CLASS/进程名启发式
       （`deepseek harness` / `deepseek` 等）兜底；命中窗口 `XUnmapWindow`，最多 16 个。
+- [x] 候选枚举 = **窗口树递归（root→frame→client，深度 ≤4，`_NET_WM_PID` 缺失时用 `WM_STATE` 识别 client）**
+      ∪ **`_NET_CLIENT_LIST` / `_NET_CLIENT_LIST_STACKING`**（EWMH 权威清单），两者按窗口 ID 去重；
+      openbox/mutter 等 reparenting WM 下实测可拿到 xterm/Electron client。
+- [x] 标题读取不再依赖 `XFetchName`（只认 STRING）：`_NET_WM_NAME` / `WM_NAME` 按**原始字节**读（兼容
+      UTF8_STRING / STRING / COMPOUND_TEXT），`_NET_WM_PID` 缺失、窗口尺寸偏小、类型未声明时不误杀。
+- [x] 每次隐藏都会把候选窗口写进日志：`win/pid/title/wm_class/comm/size/viewable/type_ok/wm_state`；
+      一个候选都没匹配时额外把整棵窗口树（含 frame/decor）dump 到日志，便于 CI/真机一次定位。
 - [x] 恢复：退出前 `XMapWindow` + `XRaiseWindow` + `_NET_ACTIVE_WINDOW`（带 GDK server timestamp 提高 WM 接受率），
       再 `XSync` 确保请求已处理；controlPath 退出、SIGTERM/SIGINT、菜单退出、窗口关闭都会走同一恢复路径。
 - [x] 非 X11（Wayland 后端）时明确跳过并写日志，不会误操作其它窗口。

@@ -45,9 +45,12 @@ typedef struct {
     long self_pid;
     Atom atom_net_wm_pid;
     Atom atom_net_wm_name;
+    Atom atom_wm_name;
+    Atom atom_wm_state;
     Atom atom_utf8_string;
     Atom atom_net_active_window;
     Atom atom_net_client_list;
+    Atom atom_net_client_list_stacking;
     Atom atom_net_wm_window_type;
     Atom atom_net_wm_window_type_normal;
     Atom atom_net_wm_window_type_dialog;
