@@ -89,8 +89,9 @@ dsh plugin add dsh-gufa-code
   - **macOS Apple Silicon / Intel：开箱可用**（npm 包内是 universal helper，arm64 + x86_64，无需自己编译）；
   - **Windows：可用（实验）**：npm 包内含 `desktop/float/bin/win-x64/gufa-float-win.exe`（CI 构建的 Win32 + WebView2 helper）。
     前置条件：Windows 10/11 + **WebView2 Runtime**（Win10/11 的 Edge 通常已自带；缺失时 helper 会提示下载）。
-    暂有限制：**首版窗口不透明**（悬浮层本身不能透出下层 App，透明度滑块对窗口背景不生效）；虚拟桌面切换时悬浮窗可能留在原桌面；
-    exe 未代码签名，首次运行可能被 SmartScreen 拦截（「更多信息 → 仍要运行」）；
+    **透明悬浮窗**已实现（DirectComposition + WebView2 CompositionController；系统不支持时自动回退不透明窗口并写日志）；
+    composition 模式下顶部 22px 拖动条由网页层承担（按住可拖动、右键有退出/重置菜单），键盘输入依赖 WebView2 焦点（真机验收项）；
+    暂有限制：虚拟桌面切换时悬浮窗可能留在原桌面；exe 未代码签名，首次运行可能被 SmartScreen 拦截（「更多信息 → 仍要运行」）；
   - **Linux：可用（实验，仅 X11）**：npm 包内含 `desktop/float/bin/linux-x64/gufa-float-linux`（CI 构建的 X11 + GTK3/WebKit2GTK helper）。
     前置条件：X11 桌面 + GTK3/WebKit2GTK 运行库（`libgtk-3-0`、`libwebkit2gtk-4.1-0` 或 `4.0`、`libsoup-3.0-0` 或 `2.4`）。
     暂有限制：**纯 Wayland 下不能跟随/隐藏其它窗口**（有 XWayland 时自动退到 X11 后端，可用；完全 Wayland 时只能自由悬浮）；

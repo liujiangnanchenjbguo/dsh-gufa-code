@@ -134,26 +134,22 @@ CI 传入：`{"appUrl":"http://127.0.0.1:1/","authUrl":"http://127.0.0.1:1/","ci
   首次创建失败会自动用 `%LOCALAPPDATA%\gufa-float\webview2-retry-<pid>-<tick>` 再试一次。
 - 自由悬浮窗口位置：`%LOCALAPPDATA%\gufa-float\frame.ini`。
 
-## 已知限制 / TODO（首版）
+## 已知限制 / TODO
 
-1. **透明窗口：首版不透明**。
-   WebView2 的 windowed hosting（`CreateCoreWebView2Controller`）只能渲染不透明内容，
-   `put_DefaultBackgroundColor` 也不支持 alpha=0；因此首版窗口是不透明深色背景。
-   协议 §2.6 允许「首版不透明，透明作为后续项」。后续透明方案（未实现，需要真机调试）：
-   - `WS_EX_NOREDIRECTIONBITMAP` 窗口 + `D3D11CreateDevice` / `DCompositionCreateDevice3` +
-     `IDCompositionTarget` / `IDCompositionVisual`；
-   - `ICoreWebView2Environment3::CreateCoreWebView2CompositionController` 得到
-     `ICoreWebView2CompositionController`，`put_RootVisualTarget(visual)`；
-   - 手动转发鼠标输入（`SendMouseInput` + `COREWEBVIEW2_MOUSE_EVENT_KIND`）、处理 `add_CursorChanged`、
-     `WM_DPICHANGED` 时更新 DComp visual 的 offset/clip；
-   - 页面 CSS（`html[data-gufa-float]` 已把背景改成 rgba）即可透出下层 App。
-   另一条低风险折中路线：`WS_EX_LAYERED + SetLayeredWindowAttributes(LWA_ALPHA)`（窗口整体 alpha，
-   与网页 CSS 叠加，观感一般，且 WebView2 下稳定性待真机验证），未采用。
+1. **透明窗口：已实现（DirectComposition），失败自动回退不透明**。
+   用 `WS_EX_NOREDIRECTIONBITMAP` 窗口 + `DCompositionCreateDevice2(nullptr)`（默认渲染设备，无需 d3d11）
+   + `IDCompositionTarget/Visual` + `ICoreWebView2Environment3::CreateCoreWebView2CompositionController`
+   + `ICoreWebView2Controller2::put_DefaultBackgroundColor({A:0})`，页面 CSS rgba 背景即可透出下层 App；
+   鼠标输入手动转发（`SendMouseInput`、capture/leave/cursor），键盘由 WebView2 焦点处理（窗口激活时 `MoveFocus`）。
+   dcomp/目标/visual/Environment3/CompositionController/put_RootVisualTarget/12s 看门狗任一步失败 →
+   按原 rect 重建 windowed 窗口继续（日志 `transparent-mode=fallback reason=...`）。
+   `payload.opaque=true` 可强制 windowed 调试。CI 已断言 `transparent-mode=composition` + `WS_EX_NOREDIRECTIONBITMAP`。
+   真机还需确认：视觉透明观感、键盘输入、较高缩放比下 follow 与输入命中。
 2. **Windows 虚拟桌面**：没有稳定公开 API，切换虚拟桌面时悬浮窗可能留在原桌面；
    只保证「当前桌面可用」（协议 §2.7 要求写明的平台限制）。
 3. **窗口无系统阴影/圆角**（`WM_NCCALCSIZE` 去掉了非客户区）；不影响功能，后续可用 DWM 相关 API 美化。
-4. **`payload.alpha` 未用于原生窗口**：首版不透明，透明度按协议「优先由网页 CSS 决定」；
-   页面自己会通过 `float.getPrefs`/`--gufa-float-alpha` 读取偏好。
+4. **`payload.alpha` 未用于原生窗口**：透明度按协议「优先由网页 CSS 决定」；
+   页面自己会通过 `float.getPrefs`/`--gufa-float-alpha` 读取偏好（composition 下 CSS rgba 直接作用于合成结果）。
 5. **helper 不提供 `--list-windows`**：Windows 的摸鱼窗口列表由 Host 侧用 PowerShell 实现
    （`host/dev.js` 的 `listFloatWindowsWin`，协议 §5.1「列表 Host 侧实现」）。
 6. **缓存策略**：按 payload.build 分 WebView2 profile 目录，未实现 macOS 那样的「同版本只清内存缓存」；

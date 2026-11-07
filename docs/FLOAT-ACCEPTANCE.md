@@ -18,8 +18,8 @@
 
 | 平台 | 自动化验证 |
 |---|---|
-| Windows (windows-latest) | ciProbe 加载本地页面 ok:true；真实窗口创建（EnumWindows 数可见窗口）；**跟随** notepad 窗口位置/大小、移动后继续跟随；**隐藏/恢复**标题为 "DeepSeek Harness" 的窗口；**状态注入**（页面读回 `gufa-code:float` / `float-state` / `project` / `ui:v1` 全部正确）；controlPath 优雅退出 |
-| Linux (ubuntu-24.04 + Xvfb + openbox) | ciProbe 加载本地页面 ok:true；真实窗口创建；**跟随** xterm 窗口位置/大小、移动后继续跟随；**状态注入**（同上四项 localStorage 全部正确）；controlPath 优雅退出 |
+| Windows (windows-latest) | ciProbe 加载本地页面 ok:true；真实窗口创建（EnumWindows 数可见窗口）；**跟随** notepad 窗口位置/大小、移动后继续跟随；**隐藏/恢复**标题为 "DeepSeek Harness" 的窗口；**状态注入**（页面读回 `gufa-code:float` / `float-state` / `project` / `ui:v1` 全部正确）；**透明 composition**（日志 `transparent-mode=composition` + 窗口 `WS_EX_NOREDIRECTIONBITMAP`）；controlPath 优雅退出 |
+| Linux (ubuntu-24.04 + Xvfb + openbox) | ciProbe 加载本地页面 ok:true；真实窗口创建；**跟随** xterm 窗口位置/大小、移动后继续跟随；**状态注入**（同上四项 localStorage 全部正确）；**隐藏/恢复**标题为 "DeepSeek Harness" 的 xmessage 窗口（XUnmap→XMap）；controlPath 优雅退出 |
 | macOS (macos-latest) | universal 构建 + 窗口列表辅助功能检查 |
 
 所以剩下的真机验收重点：真实 DSH 集成（主窗口隐藏/唤回）、多显示器/DPI、外观（Windows 首版不透明）、Wayland（Linux）等 CI 覆盖不到的部分。
@@ -50,8 +50,10 @@
 - 目标窗口最小化/关闭时悬浮层保持最后位置、不崩；
 - `任务管理器` 里退出后没有 `gufa-float-win.exe` 残留。
 
-已知限制（1.3.51 首版）：
-- **悬浮窗不透明**（不能透出下层 App，透明度滑块对窗口背景无效）——后续 DComp 方案；
+已知限制 / 真机重点（1.3.54+）：
+- 透明窗口用 DirectComposition 合成，**真机重点看观感**（能否透出下层 App；系统/远程桌面不支持时会自动回退不透明，日志 `transparent-mode=fallback reason=...`）；
+- composition 模式顶部拖动条是网页层（按住可拖、右键菜单），页面内「退出摸鱼」按钮仍可用；
+- **键盘输入**依赖 WebView2 焦点（CI 测不到）；
 - 虚拟桌面切换时悬浮窗可能留在原桌面，切回后才可见；
 - 多屏/DPI 已处理，但极端 DPI 组合仍需验证。
 
