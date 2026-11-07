@@ -652,21 +652,29 @@ void gufa_x11_hide_windows_like_dsh(GufaX11 *x11, long owner_pid, const char *ti
         char *title = gufa_x11_window_title(x11, info->win);
         char *wm_class = gufa_x11_window_class(x11, info->win);
         char *comm = info->pid > 0 ? gufa_x11_process_comm(info->pid) : NULL;
+        char *cmdline = info->pid > 0 ? gufa_x11_process_cmdline(info->pid) : NULL;
+        char *orig_title = gufa_x11_window_original_title(x11, info->win);
         char *title_text = gufa_x11_log_text(title);
         char *class_text = gufa_x11_log_text(wm_class);
         char *comm_text = gufa_x11_log_text(comm);
+        char *orig_text = gufa_x11_log_text(orig_title);
+        char *cmdline_short = cmdline != NULL ? g_strndup(cmdline, 160) : g_strdup("(null)");
         gufa_log("x11: 候选 win=0x%lx pid=%ld title=\"%s\" wm_class=\"%s\" comm=\"%s\" "
-                 "size=%dx%d viewable=%d type_ok=%d wm_state=%d",
+                 "ob_app_title=\"%s\" cmdline=\"%s\" size=%dx%d viewable=%d type_ok=%d wm_state=%d",
                  (unsigned long)info->win, info->pid, title_text, class_text, comm_text,
-                 info->width, info->height, info->viewable ? 1 : 0,
+                 orig_text, cmdline_short, info->width, info->height, info->viewable ? 1 : 0,
                  gufa_x11_window_type_hideable(x11, info->win) ? 1 : 0,
                  gufa_x11_window_has_wm_state(x11, info->win) ? 1 : 0);
         g_free(title);
         g_free(wm_class);
         g_free(comm);
+        g_free(cmdline);
+        g_free(orig_title);
         g_free(title_text);
         g_free(class_text);
         g_free(comm_text);
+        g_free(orig_text);
+        g_free(cmdline_short);
     }
 
     GArray *matched = g_array_new(FALSE, FALSE, sizeof(Window));
@@ -698,16 +706,34 @@ void gufa_x11_hide_windows_like_dsh(GufaX11 *x11, long owner_pid, const char *ti
             char *title = gufa_x11_window_title(x11, info->win);
             char *wm_class = gufa_x11_window_class(x11, info->win);
             char *comm = info->pid > 0 ? gufa_x11_process_comm(info->pid) : NULL;
+            char *cmdline = info->pid > 0 ? gufa_x11_process_cmdline(info->pid) : NULL;
+            char *orig_title = gufa_x11_window_original_title(x11, info->win);
             gboolean matched_title = FALSE;
             const char *why = NULL;
-            if (title_hint != NULL && *title_hint != '\0' && gufa_text_contains_ci(title, title_hint)) {
-                matched_title = TRUE;
-                why = "title_hint";
+            if (title_hint != NULL && *title_hint != '\0') {
+                if (gufa_text_contains_ci(title, title_hint)) {
+                    matched_title = TRUE;
+                    why = "title_hint";
+                } else if (gufa_text_contains_ci(orig_title, title_hint)) {
+                    matched_title = TRUE;
+                    why = "ob_app_title_hint";
+                } else if (gufa_text_contains_ci(cmdline, title_hint)) {
+                    /* 窗口标题可能被应用/Shell 覆盖（CI 的 xterm 被 bash prompt 覆盖），
+                       但进程命令行里仍带着原始标题（如 `xterm -T "DeepSeek Harness"`） */
+                    matched_title = TRUE;
+                    why = "cmdline_hint";
+                }
             }
             for (gsize n = 0; n < G_N_ELEMENTS(needles) && !matched_title; n++) {
                 if (gufa_text_contains_ci(title, needles[n])) {
                     matched_title = TRUE;
                     why = "title";
+                } else if (gufa_text_contains_ci(orig_title, needles[n])) {
+                    matched_title = TRUE;
+                    why = "ob_app_title";
+                } else if (gufa_text_contains_ci(cmdline, needles[n])) {
+                    matched_title = TRUE;
+                    why = "cmdline";
                 } else if (gufa_text_contains_ci(wm_class, needles[n])) {
                     matched_title = TRUE;
                     why = "wm_class";
@@ -722,19 +748,25 @@ void gufa_x11_hide_windows_like_dsh(GufaX11 *x11, long owner_pid, const char *ti
                     g_free(title);
                     g_free(wm_class);
                     g_free(comm);
+                    g_free(cmdline);
+                    g_free(orig_title);
                     break;
                 }
                 char *title_text = gufa_x11_log_text(title);
-                gufa_log("x11: 标题启发式命中 win=0x%lx pid=%ld by=%s title=\"%s\" size=%dx%d",
+                char *orig_text = gufa_x11_log_text(orig_title);
+                gufa_log("x11: 标题启发式命中 win=0x%lx pid=%ld by=%s title=\"%s\" ob_app_title=\"%s\" size=%dx%d",
                          (unsigned long)info->win, info->pid, why != NULL ? why : "?",
-                         title_text, info->width, info->height);
+                         title_text, orig_text, info->width, info->height);
                 g_free(title_text);
+                g_free(orig_text);
                 Window window = info->win;
                 g_array_append_val(matched, window);
             }
             g_free(title);
             g_free(wm_class);
             g_free(comm);
+            g_free(cmdline);
+            g_free(orig_title);
         }
         gufa_log("x11: 标题启发式匹配到 %u 个窗口", matched->len);
     }

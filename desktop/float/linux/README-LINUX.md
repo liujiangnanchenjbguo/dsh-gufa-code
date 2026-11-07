@@ -120,7 +120,11 @@ WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_
       openbox/mutter 等 reparenting WM 下实测可拿到 xterm/Electron client。
 - [x] 标题读取不再依赖 `XFetchName`（只认 STRING）：`_NET_WM_NAME` / `WM_NAME` 按**原始字节**读（兼容
       UTF8_STRING / STRING / COMPOUND_TEXT），`_NET_WM_PID` 缺失、窗口尺寸偏小、类型未声明时不误杀。
-- [x] 每次隐藏都会把候选窗口写进日志：`win/pid/title/wm_class/comm/size/viewable/type_ok/wm_state`；
+- [x] 标题被应用/Shell 覆盖时的兜底（CI 的 xterm 会被 bash prompt 的标题转义覆盖成
+      `runner@host: ~/work/...`，`-T "DeepSeek Harness"` 不再出现在窗口标题里）：
+      匹配来源还包括 **`/proc/<pid>/cmdline`**（xterm 命令行保留 `-T "DeepSeek Harness"`）和
+      **Openbox 的 `_OB_APP_TITLE`**（WM 保存的原始标题）；日志里会打出 `ob_app_title=` / `cmdline=`。
+- [x] 每次隐藏都会把候选窗口写进日志：`win/pid/title/wm_class/comm/ob_app_title/cmdline/size/viewable/type_ok/wm_state`；
       一个候选都没匹配时额外把整棵窗口树（含 frame/decor）dump 到日志，便于 CI/真机一次定位。
 - [x] 恢复：退出前 `XMapWindow` + `XRaiseWindow` + `_NET_ACTIVE_WINDOW`（带 GDK server timestamp 提高 WM 接受率），
       再 `XSync` 确保请求已处理；controlPath 退出、SIGTERM/SIGINT、菜单退出、窗口关闭都会走同一恢复路径。
