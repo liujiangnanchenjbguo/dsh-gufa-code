@@ -450,6 +450,69 @@ jobs:
             exit 1
           '
 
+      - name: Smoke test (state injection into localStorage under Xvfb)
+        run: |
+          mkdir -p /tmp/gufa-state-site
+          cat > /tmp/gufa-state-site/index.html <<'HTML'
+          <html><body>state-probe
+          <script>
+          function report() {
+            try {
+              fetch('/report', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+                float: localStorage.getItem('gufa-code:float'),
+                state: localStorage.getItem('gufa-code:float-state'),
+                project: localStorage.getItem('gufa-code:project'),
+                ui: localStorage.getItem('gufa-code:ui:v1')
+              }) });
+            } catch (e) {}
+          }
+          report(); setTimeout(report, 400); setTimeout(report, 1200);
+          </script></body></html>
+          HTML
+          cat > /tmp/gufa-state-server.py <<'PY'
+          import http.server, os
+          SITE = os.environ["GUFA_SITE"]
+          OUT = os.environ["GUFA_OUT"]
+          class H(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = open(os.path.join(SITE, "index.html"), "rb").read()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/html; charset=utf-8")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+              def do_POST(self):
+                  n = int(self.headers.get("Content-Length", "0"))
+                  data = self.rfile.read(n)
+                  open(OUT, "wb").write(data)
+                  self.send_response(200)
+                  self.end_headers()
+              def log_message(self, *args):
+                  pass
+          http.server.HTTPServer(("127.0.0.1", 8793), H).serve_forever()
+          PY
+          rm -f /tmp/gufa-state-report.json
+          GUFA_SITE=/tmp/gufa-state-site GUFA_OUT=/tmp/gufa-state-report.json python3 /tmp/gufa-state-server.py >/tmp/gufa-state-server.log 2>&1 &
+          SERVER_PID=$!
+          sleep 1
+          curl -sf http://127.0.0.1:8793/ >/dev/null
+          control=/tmp/gufa-linux-state-control.txt
+          rm -f "$control"
+          xvfb-run -a ./desktop/float/bin/linux-x64/gufa-float-linux "{\"appUrl\":\"http://127.0.0.1:8793/\",\"authUrl\":\"http://127.0.0.1:8793/\",\"controlPath\":\"$control\",\"build\":\"ci\",\"state\":{\"projectRoot\":\"/tmp/gufa-demo\",\"activePath\":\"demo/a.js\",\"tabs\":[\"demo/a.js\"],\"ui\":{\"view\":\"explorer\",\"chatOpen\":true},\"sessionId\":\"session-ci\"}}" >/tmp/gufa-linux-state.log 2>&1 &
+          HPID=$!
+          for i in $(seq 1 30); do [ -s /tmp/gufa-state-report.json ] && break; sleep 0.5; done
+          CURRENT=$(cat /tmp/gufa-state-report.json 2>/dev/null || true)
+          echo "state report: $CURRENT"
+          printf exit > "$control"
+          for i in $(seq 1 30); do if ! kill -0 $HPID 2>/dev/null; then break; fi; sleep 0.5; done
+          kill -9 $HPID 2>/dev/null || true
+          kill $SERVER_PID 2>/dev/null || true
+          echo "$CURRENT" | grep -q '"float":"1"'
+          echo "$CURRENT" | grep -q 'gufa-demo'
+          echo "$CURRENT" | grep -q 'demo/a.js'
+          echo "$CURRENT" | grep -q 'explorer'
+          echo 'document-start localStorage injection works on Linux (float/state/project/ui)'
+
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-linux-x64
