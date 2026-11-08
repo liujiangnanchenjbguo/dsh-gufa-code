@@ -250,7 +250,15 @@ G.GufaApp = function GufaApp(props) {
   const [banner, setBanner] = useState('')
   const [tabs, setTabs] = useState([])
   const [activePath, setActivePath] = useState(null)
-  const [cursor, setCursor] = useState(null)
+  /* 选区（给右侧 AI 用）单独更新；光标位置/行数走 G.cursorStore，避免每次按键重渲染整个 IDE。 */
+  const [selection, setSelection] = useState(null)
+  /* 编辑器内容缓冲：Monaco 每次按键只写这里，300ms 停顿后才同步进 tabs（保存/自动保存直接读缓冲）。 */
+  const editorBuffersRef = useRef(new Map())
+  const tabsRef = useRef([])
+  const flushTimerRef = useRef(null)
+  const selectionTimerRef = useRef(null)
+  const pendingSelectionRef = useRef(null)
+  const flushBuffersRef = useRef(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [gitRefreshToken, setGitRefreshToken] = useState(0)
   const [sshRefreshToken, setSshRefreshToken] = useState(0)
@@ -273,6 +281,9 @@ G.GufaApp = function GufaApp(props) {
   const [explorerWidth, explorerDrag] = G.useSplitter({ initial: 260, min: 190, max: 520, storageKey: 'gufa-code:w:explorer' })
   const [chatWidth, chatDrag] = G.useSplitter({ initial: 430, min: 320, max: 780, axis: 'x', invert: true, storageKey: 'gufa-code:w:chat' })
   const [terminalHeight, terminalDrag] = G.useSplitter({ initial: 230, min: 120, max: 560, axis: 'y', invert: true, storageKey: 'gufa-code:h:terminal' })
+  useEffect(() => {
+    tabsRef.current = tabs
+  }, [tabs])
 
   const patchUi = useCallback((patch) => {
     setUi((current) => {
@@ -289,7 +300,10 @@ G.GufaApp = function GufaApp(props) {
     writeJson(GUFA_LS.project, value?.root ?? null)
     setTabs([])
     setActivePath(null)
-    setCursor(null)
+    setSelection(null)
+    editorBuffersRef.current.clear()
+    if (flushTimerRef.current !== null) { window.clearTimeout(flushTimerRef.current); flushTimerRef.current = null }
+    G.cursorStore.set(null)
     setGitStatus(null)
     setRefreshToken((token) => token + 1)
     setGitRefreshToken((token) => token + 1)
@@ -395,6 +409,7 @@ G.GufaApp = function GufaApp(props) {
   /* ── 文件打开 / 保存 / 关闭 ─────────────────────────────────────────── */
   const openFile = useCallback(async (path) => {
     if (project === null) return
+    flushBuffersRef.current?.()
     const existing = tabs.find((tab) => tab.path === path)
     if (existing !== undefined) {
       setActivePath(path)
@@ -417,6 +432,7 @@ G.GufaApp = function GufaApp(props) {
   /* 原子恢复标签集合：按快照顺序、去重、最后激活指定文件（避免 openFile 并发产生重复标签） */
   const applyTabs = useCallback(async (paths, active) => {
     if (project === null || !Array.isArray(paths)) return
+    flushBuffersRef.current?.()
     const docs = []
     const seen = new Set()
     for (const path of paths.slice(0, 12)) {
@@ -429,6 +445,7 @@ G.GufaApp = function GufaApp(props) {
         /* 快照里的文件可能已被删除：忽略 */
       }
     }
+    editorBuffersRef.current.clear()
     setTabs(docs)
     const wanted = typeof active === 'string' && docs.some((doc) => doc.path === active) ? active : (docs.length > 0 ? docs[docs.length - 1].path : null)
     setActivePath(wanted)
@@ -437,27 +454,85 @@ G.GufaApp = function GufaApp(props) {
   const activeTab = useMemo(() => tabs.find((tab) => tab.path === activePath) ?? null, [tabs, activePath])
 
   const patchTab = useCallback((path, patch) => {
-    setTabs((current) => current.map((tab) => (tab.path === path ? { ...tab, ...patch } : tab)))
+    setTabs((current) => {
+      const next = current.map((tab) => (tab.path === path ? { ...tab, ...patch } : tab))
+      tabsRef.current = next
+      return next
+    })
   }, [])
 
-  const changeFile = useCallback((path, content) => {
-    setTabs((current) => current.map((tab) => (
-      tab.path === path ? { ...tab, content, dirty: content !== tab.savedContent } : tab
-    )))
+  /* 把缓冲内容写回 tabs（停顿 / 保存 / 切换标签时调用），不会在每次按键触发渲染。 */
+  const flushEditorBuffers = useCallback(() => {
+    const buffers = editorBuffersRef.current
+    if (buffers.size === 0) return
+    setTabs((current) => {
+      let changed = false
+      const next = current.map((tab) => {
+        if (tab === null || !buffers.has(tab.path)) return tab
+        const content = buffers.get(tab.path)
+        const dirty = content !== tab.savedContent
+        if (tab.content === content && tab.dirty === dirty) return tab
+        changed = true
+        return { ...tab, content, dirty }
+      })
+      if (!changed) return current
+      tabsRef.current = next
+      return next
+    })
   }, [])
+
+  flushBuffersRef.current = flushEditorBuffers
+
+  const scheduleEditorFlush = useCallback(() => {
+    if (flushTimerRef.current !== null) window.clearTimeout(flushTimerRef.current)
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null
+      flushEditorBuffers()
+    }, 300)
+  }, [flushEditorBuffers])
+
+  const changeFile = useCallback((path, content) => {
+    editorBuffersRef.current.set(path, content)
+    const tab = tabsRef.current.find((item) => item !== null && item.path === path)
+    if (tab !== undefined && tab.dirty !== (content !== tab.savedContent)) {
+      /* 只在「干净 ↔ 脏」变化时立刻更新标签圆点，避免每个按键重渲染整棵 IDE 树。 */
+      setTabs((current) => {
+        let changed = false
+        const next = current.map((item) => {
+          if (item === null || item.path !== path) return item
+          const dirty = content !== item.savedContent
+          if (item.dirty === dirty) return item
+          changed = true
+          return { ...item, dirty }
+        })
+        if (!changed) return current
+        tabsRef.current = next
+        return next
+      })
+    }
+    scheduleEditorFlush()
+  }, [scheduleEditorFlush])
 
   const saveFile = useCallback(async (path) => {
     if (project === null) return
-    const tab = tabs.find((item) => item.path === path)
-    if (tab === undefined || tab.dirty !== true) return
+    const tab = tabsRef.current.find((item) => item !== null && item.path === path)
+    if (tab === undefined) return
+    /* 缓冲里可能有比 tabs 更新的内容（按键后 300ms 内保存/自动保存） */
+    const content = editorBuffersRef.current.has(path) ? editorBuffersRef.current.get(path) : tab.content
+    if (content === tab.savedContent) {
+      editorBuffersRef.current.delete(path)
+      if (tab.dirty === true) patchTab(path, { content, dirty: false })
+      return
+    }
     try {
       const result = await G.api('fs.write', {
         root: project.root,
         path: tab.path,
-        content: tab.content,
+        content,
         expectedRevision: tab.revision,
       })
-      patchTab(path, { revision: result.revision, savedRevision: result.revision, savedContent: tab.content, dirty: false, size: result.size })
+      editorBuffersRef.current.delete(path)
+      patchTab(path, { content, revision: result.revision, savedRevision: result.revision, savedContent: content, dirty: false, size: result.size })
       setBanner('')
       // 内容保存不改变目录结构：只刷新 Git 状态，不重载文件树（避免整页闪烁）
       setGitRefreshToken((token) => token + 1)
@@ -466,7 +541,7 @@ G.GufaApp = function GufaApp(props) {
       if (error.code === 'revision-conflict') setBanner(t('editor.saveConflict'))
       else setBanner(G.errorText(error))
     }
-  }, [project, tabs, patchTab, refreshGit, t])
+  }, [project, patchTab, refreshGit, t])
 
   /** 顶栏提示：错误常驻红色；成功用绿色 toast，1.2 秒后自动消失。 */
   const successTimerRef = useRef(null)
@@ -492,6 +567,8 @@ G.GufaApp = function GufaApp(props) {
   }, [])
 
   const closeTab = useCallback((path) => {
+    editorBuffersRef.current.delete(path)
+    flushBuffersRef.current?.()
     setTabs((current) => {
       const next = current.filter((tab) => tab.path !== path)
       if (activePath === path) {
@@ -1802,10 +1879,7 @@ G.GufaApp = function GufaApp(props) {
     return { path: activeTab.path, content: activeTab.content ?? '', language: activeTab.language }
   }, [activeTab])
 
-  const selectionForChat = useMemo(() => {
-    if (cursor === null || typeof cursor.selectedText !== 'string' || cursor.selectedText === '') return null
-    return { text: cursor.selectedText, path: cursor.path, line: cursor.line, column: cursor.column }
-  }, [cursor])
+  const selectionForChat = useMemo(() => selection, [selection])
 
   /* ── IDE 专属快捷键（参考 VS Code；经典模式下不生效） ──────────────── */
   const editorFocusedRef = useRef(false)
@@ -2017,7 +2091,7 @@ G.GufaApp = function GufaApp(props) {
                 role: 'tab',
                 tabIndex: 0,
                 title: tab.title !== undefined && tab.title !== null ? tab.title : tab.path,
-                onClick: () => setActivePath(tab.path),
+                onClick: () => handleSelectTab(tab.path),
                 onAuxClick: (event) => { if (event.button === 1) closeTabWithConfirm(tab.path) },
               },
               h(G.Icon, { name: 'file', size: 13 }),
@@ -2072,10 +2146,39 @@ G.GufaApp = function GufaApp(props) {
         )
       : null
 
-  const cursorText =
-    cursor !== null && cursor.path === activePath
-      ? `${t('status.ln')} ${cursor.line}，${t('status.col')} ${cursor.column}`
-      : ''
+  const handleEditorCursor = useCallback((value) => {
+    if (value === null || value === undefined) return
+    /* 状态栏订阅 cursorStore，不再触发 App 根组件渲染 */
+    G.cursorStore.set(value)
+    const selectedText = typeof value.selectedText === 'string' ? value.selectedText : ''
+    if (selectedText === '') {
+      if (selectionTimerRef.current !== null) { window.clearTimeout(selectionTimerRef.current); selectionTimerRef.current = null }
+      pendingSelectionRef.current = null
+      setSelection((current) => (current === null ? current : null))
+      return
+    }
+    pendingSelectionRef.current = { text: selectedText, path: value.path, line: value.line, column: value.column }
+    if (selectionTimerRef.current !== null) return
+    selectionTimerRef.current = window.setTimeout(() => {
+      selectionTimerRef.current = null
+      const latest = pendingSelectionRef.current
+      if (latest === null) return
+      setSelection((current) => {
+        if (current !== null && current.text === latest.text && current.path === latest.path &&
+            current.line === latest.line && current.column === latest.column) return current
+        return latest
+      })
+    }, 180)
+  }, [])
+  const handleEditorSave = useCallback((path) => { void saveFile(path) }, [saveFile])
+  const handleSelectTab = useCallback((path) => {
+    flushBuffersRef.current?.()
+    setActivePath(path)
+  }, [])
+  useEffect(() => () => {
+    if (flushTimerRef.current !== null) { window.clearTimeout(flushTimerRef.current); flushTimerRef.current = null }
+    if (selectionTimerRef.current !== null) { window.clearTimeout(selectionTimerRef.current); selectionTimerRef.current = null }
+  }, [])
 
   const statusBranch = project?.isGit === true && gitStatus?.branch ? gitStatus.branch : null
   const lineCount = activeTab === null || activeTab.kind === 'graph' ? 0 : String(activeTab.content ?? '').split('\n').length
@@ -2270,12 +2373,12 @@ G.GufaApp = function GufaApp(props) {
                       theme,
                       palette: solidPalette,
                       root: project?.root ?? '',
-                      onSelectTab: setActivePath,
+                      onSelectTab: handleSelectTab,
                       onCloseTab: closeTabWithConfirm,
                       onChange: changeFile,
-                      onSave: (path) => void saveFile(path),
+                      onSave: handleEditorSave,
                       backdropMode: backdropActive,
-                      onCursor: (value) => setCursor({ ...value, lineCount }),
+                      onCursor: handleEditorCursor,
                     }),
               ),
             ),
@@ -2348,11 +2451,10 @@ G.GufaApp = function GufaApp(props) {
         : h('span', { className: 'gufa-status-item' }, t('status.noGit')),
       h('div', { className: 'gufa-status-fill' }),
       activeTab !== null ? h('span', { className: 'gufa-status-item' }, activeTab.title !== undefined && activeTab.title !== null ? activeTab.title : G.shortPath(activeTab.path, 56)) : null,
-      activeTab !== null ? h('span', { className: 'gufa-status-item' }, `${lineCount} ${t('status.lines')}`) : null,
       activeTab !== null && problems[activeTab.path] !== undefined
         ? h('span', { className: 'gufa-status-item', style: { color: problems[activeTab.path].errors > 0 ? '#f85149' : '#e5c07b' } }, `${problems[activeTab.path].errors} ✕ ${problems[activeTab.path].warnings} ⚠`)
         : null,
-      cursorText !== '' ? h('span', { className: 'gufa-status-item' }, cursorText) : null,
+      h(G.StatusCursor, { activePath, fallbackLineCount: lineCount }),
       activeTab !== null && activeTab.dirty === true ? h('span', { className: 'gufa-status-item', style: { color: 'var(--gufa-accent)' } }, t('status.dirty')) : null,
       activeTab !== null && activeTab.dirty !== true ? h('span', { className: 'gufa-status-item' }, G.Icon ? h(G.Icon, { name: 'check', size: 11 }) : null, t('status.saved')) : null,
       h('button', {

@@ -494,7 +494,7 @@
 
   /* ── 组件 ───────────────────────────────────────────────────────────── */
 
-  G.EditorPane = function EditorPane(props) {
+  function GufaEditorPaneComponent(props) {
     const tabs = useMemo(() => (Array.isArray(props.tabs) ? props.tabs : []), [props.tabs])
     const activePath = typeof props.activePath === 'string' ? props.activePath : null
     const root = typeof props.root === 'string' ? props.root : ''
@@ -1346,6 +1346,56 @@
       ),
     )
   }
+
+  /* 光标事件外部 store：App 不再为每次光标移动重渲染整个 IDE，状态栏订阅即可。 */
+  G.cursorStore = (() => {
+    const listeners = new Set()
+    let value = null
+    return {
+      get: () => value,
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      set: (next) => {
+        if (value === next) return
+        if (value !== null && next !== null &&
+            value.path === next.path && value.line === next.line && value.column === next.column &&
+            value.lineCount === next.lineCount && value.selectedText === next.selectedText) return
+        value = next
+        for (const listener of [...listeners]) {
+          try {
+            listener(next)
+          } catch {
+            /* 订阅者异常不影响编辑器 */
+          }
+        }
+      },
+    }
+  })()
+  G.useCursorStore = function useCursorStore() {
+    const [snapshot, setSnapshot] = React.useState(G.cursorStore.get())
+    React.useEffect(() => {
+      setSnapshot(G.cursorStore.get())
+      return G.cursorStore.subscribe(setSnapshot)
+    }, [])
+    return snapshot
+  }
+  /* 状态栏行数/光标：只订阅 cursorStore，光标移动不会触发 App 根组件重渲染。 */
+  G.StatusCursor = function StatusCursor(props) {
+    const activePath = props !== null && props !== undefined ? props.activePath : null
+    const fallbackLineCount = props !== null && props !== undefined && Number.isFinite(props.fallbackLineCount) ? props.fallbackLineCount : 0
+    const cursor = G.useCursorStore()
+    const matched = cursor !== null && cursor.path === activePath
+    const lineCount = matched && Number.isFinite(cursor.lineCount) ? cursor.lineCount : fallbackLineCount
+    const cursorText = matched ? `${G.t('status.ln')} ${cursor.line}，${G.t('status.col')} ${cursor.column}` : ''
+    return React.createElement(React.Fragment, null,
+      activePath !== null ? React.createElement('span', { className: 'gufa-status-item' }, `${lineCount} ${G.t('status.lines')}`) : null,
+      cursorText !== '' ? React.createElement('span', { className: 'gufa-status-item' }, cursorText) : null,
+    )
+  }
+  /* EditorPane 只在 props 真正变化时重渲染（光标移动不再穿透到 Monaco 外层）。 */
+  G.EditorPane = typeof React.memo === 'function' ? React.memo(GufaEditorPaneComponent) : GufaEditorPaneComponent
 
   /* 纯函数/加载状态测试钩子：供 scripts/test-editor.mjs 在无浏览器环境下校验
    * URI、光标推进、主题映射与 loader 失败降级 / 重试 / 单例注入。 */
