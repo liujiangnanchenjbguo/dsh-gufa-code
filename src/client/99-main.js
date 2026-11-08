@@ -503,6 +503,56 @@ const GUFA_PLUGIN = {
       }
     }
 
+    // 临时诊断（1.3.57）：摸鱼窗口里点不到左树/编辑器时，看看点击落到了哪个元素
+    try {
+      if (document.documentElement.hasAttribute('data-gufa-float') || /[?&]gufa-float=1/.test(location.search)) {
+        setTimeout(() => {
+          const probeAt = (x, y) => {
+            try {
+              const node = document.elementFromPoint(x, y)
+              if (node === null) return `${x},${y}:none`
+              const cls = typeof node.className === 'string' ? node.className : ''
+              return `${x},${y}:${node.tagName}.${String(cls).slice(0, 60)}`
+            } catch (error) {
+              return `${x},${y}:err`
+            }
+          }
+          // 模态框深色可读性：往 portal 里塞一个临时 .gufa-modal 读计算样式
+          let modalInfo = 'none'
+          try {
+            const host = document.getElementById('gufa-portal-root')
+            if (host !== null) {
+              const probe = document.createElement('div')
+              probe.className = 'gufa-modal'
+              probe.style.cssText = 'position:fixed;left:-9999px;top:0;width:120px;height:60px'
+              host.appendChild(probe)
+              const cs = window.getComputedStyle(probe)
+              modalInfo = `bg=${cs.backgroundColor} color=${cs.color}`
+              probe.remove()
+            }
+          } catch {
+            modalInfo = 'err'
+          }
+          // 找树行实际坐标（摸鱼窗半透明，肉眼看不清哪些行是古法的）
+          const rows = []
+          for (let y = 80; y < 1000; y += 22) {
+            try {
+              const node = document.elementFromPoint(100, y)
+              if (node !== null && typeof node.closest === 'function') {
+                const row = node.closest('.gufa-tree-row')
+                if (row !== null) rows.push(`${y}:${String(row.textContent ?? '').trim().slice(0, 24)}`)
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          void G.api('dev.log', { message: `float-hittest ${probeAt(135, 713)} | ${probeAt(300, 713)} | ${probeAt(900, 500)} | ${probeAt(1500, 60)} | modal[${modalInfo}] | rows[${rows.slice(0, 12).join(' ; ')}]` }).catch(() => {})
+        }, 5000)
+      }
+    } catch {
+      /* ignore */
+    }
+
     // 启动诊断：记录页面地址、真实 Host 基址与传输信息（排查桌面壳 dsh-app:// 连接问题）。
     try {
       const transport = typeof globalThis.__DSH_TRANSPORT__ === 'object' && globalThis.__DSH_TRANSPORT__ !== null ? globalThis.__DSH_TRANSPORT__ : null

@@ -63,6 +63,15 @@ static void GufaInstallTermHandler(void);
 
 static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef event, void *userData);
 
+/* 无边框窗口默认 canBecomeKeyWindow=NO；显式允许成为 key/main 窗口，
+   否则悬浮层里的终端/编辑器/聊天输入都收不到键盘事件。 */
+@interface GufaFloatWindow : NSWindow
+@end
+@implementation GufaFloatWindow
+- (BOOL)canBecomeKeyWindow { return YES; }
+- (BOOL)canBecomeMainWindow { return YES; }
+@end
+
 @interface GufaDragStrip : NSView
 @end
 
@@ -341,7 +350,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         }
     }
 
-    self.window = [[NSWindow alloc] initWithContentRect:frame
+    self.window = [[GufaFloatWindow alloc] initWithContentRect:frame
                                              styleMask:(NSWindowStyleMaskBorderless | NSWindowStyleMaskResizable)
                                                backing:NSBackingStoreBuffered
                                                  defer:NO];

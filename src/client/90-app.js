@@ -2180,6 +2180,7 @@ G.GufaApp = function GufaApp(props) {
     if (selectionTimerRef.current !== null) { window.clearTimeout(selectionTimerRef.current); selectionTimerRef.current = null }
   }, [])
 
+  const uiTheme = moyuMode ? 'dark' : theme
   const statusBranch = project?.isGit === true && gitStatus?.branch ? gitStatus.branch : null
   const lineCount = activeTab === null || activeTab.kind === 'graph' ? 0 : String(activeTab.content ?? '').split('\n').length
 
@@ -2370,7 +2371,7 @@ G.GufaApp = function GufaApp(props) {
                   : h(G.EditorPane, {
                       tabs,
                       activePath,
-                      theme,
+                      theme: uiTheme,
                       palette: solidPalette,
                       root: project?.root ?? '',
                       onSelectTab: handleSelectTab,
@@ -2393,7 +2394,7 @@ G.GufaApp = function GufaApp(props) {
                 root: project?.root ?? null,
                 visible: true,
                 height: terminalHeight,
-                theme,
+                theme: uiTheme,
                 palette: solidPalette,
                 onToggleHeight: () => patchUi({ terminalOpen: false }),
               }),
@@ -2413,11 +2414,12 @@ G.GufaApp = function GufaApp(props) {
                 project,
                 activeFile: activeFileForChat,
                 selection: selectionForChat,
-                theme,
+                theme: uiTheme,
                 width: chatWidth,
                 active: true,
                 paused: sessionsOpen,
                 backdrop: backdropActive,
+                theme: uiTheme,
                 sessionTitle,
                 onOpenSessions: () => setSessionsOpen(true),
                 onInsertCode: insertCode,

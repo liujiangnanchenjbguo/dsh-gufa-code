@@ -104,6 +104,19 @@
      `SLSAddWindowsToSpaces` 把自己的窗口加进去（实测 `use-active-space=8234 err=0`）。
   3. 私有 API 全部 dlsym，符号缺失时只记日志不影响主流程。
 
+## 摸鱼窗口里的两个系统性问题（1.3.57 修复）
+
+1. **摸鱼窗口是独立 http origin，DSH 主题默认是浅色**：主窗口（dsh-app://）的深色主题在悬浮窗里不存在，
+   导致 IDE 面板/弹窗呈现浅色：深色半透明底 + 浅色文字/弹窗，字看不清。
+   - 修复：`G.resolveSolidPalette` 在 `html[data-gufa-float]` 下强制返回深色实色板；
+     `html[data-gufa-float] body` 与 `#gufa-portal-root` 强制深色 `--dsw-alias-*` token；
+     App 在摸鱼模式把 `theme` 固定为 `dark`（Monaco/终端）。
+   - 注意：portal/弹窗在 body 层，CSS 变量要用 `!important`，因为 `applyPalette` 会往 portal 上写 inline 变量。
+2. **无边框 NSWindow 默认 `canBecomeKeyWindow=NO`**：悬浮窗收不到键盘事件，终端/编辑器/聊天都输入不了。
+   - 修复：`GufaFloatWindow` 子类覆写 `canBecomeKeyWindow/canBecomeMainWindow` 返回 YES。
+   - 排查要点：`float-hittest` 日志会打印 elementFromPoint 与临时 `.gufa-modal` 的计算样式（bg/color），
+     `float-styles` 打印覆盖层透明度；终端输入问题优先看窗口是否 key，而不是 transport。
+
 ## 5.1 摸鱼会话框比编辑器黑：官方会话根节点自己又画了一层底
 
 - 现象：摸鱼里编辑器/终端都统一了，右侧会话框看起来明显更黑更实。

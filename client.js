@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.56'
+G.BUILD = '1.3.57'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -832,6 +832,19 @@ G.compositeColor = function compositeColor(foreground, background) {
  * @returns {{bg:string, layer:string, layer2:string, overlay:string, sidebar:string}}
  */
 G.resolveSolidPalette = function resolveSolidPalette(container) {
+  /* 摸鱼悬浮窗是独立的 http origin，拿不到主窗口的 DSH 主题（默认会是浅色）；
+     摸鱼整窗本来就是深色半透明，这里强制返回深色实色板，避免出现浅色面板/看不清的弹窗。 */
+  try {
+    if (typeof document !== 'undefined' && document.documentElement !== null && document.documentElement.hasAttribute('data-gufa-float')) {
+      return {
+        bg: 'rgb(13, 15, 19)', layer: 'rgb(20, 22, 27)', layer2: 'rgb(26, 28, 34)', overlay: 'rgb(30, 33, 40)',
+        sidebar: 'rgb(18, 20, 24)', text: 'rgb(244, 241, 232)', textDim: 'rgb(166, 170, 176)',
+        accent: 'rgb(192, 57, 43)', isDark: true,
+      }
+    }
+  } catch {
+    /* ignore */
+  }
   const dark = G.theme() === 'dark'
   const fallbackPage = dark ? [26, 27, 31, 1] : [250, 250, 252, 1]
   const fallbackSurface = dark ? [45, 46, 51, 1] : [255, 255, 255, 1]
@@ -1088,7 +1101,16 @@ G.CSS = `
 .gufa-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
 /* 桌面悬浮层（摸鱼）模式：整窗半透明，透明度由 --gufa-float-alpha 控制（标题栏滑块） */
 html[data-gufa-float]{--gufa-float-alpha:0.55}
-html[data-gufa-float] body{background:transparent!important}
+html[data-gufa-float] body{background:transparent!important;color-scheme:dark;
+  --dsw-alias-label-primary:#f4f1e8!important;--dsw-alias-label-secondary:rgba(244,241,232,0.72)!important;
+  --dsw-alias-bg-base:#0d0f13!important;--dsw-alias-bg-layer-1:#14161b!important;--dsw-alias-bg-layer-2:#1a1e24!important;
+  --dsw-alias-bg-overlay:#22262e!important;
+  --dsw-alias-border-l1:rgba(255,255,255,0.12)!important;--dsw-alias-border-l2:rgba(255,255,255,0.2)!important;
+}
+html[data-gufa-float] .gufa-root,
+html[data-gufa-float] .gufa-overlay-root{
+  --gufa-solid-text:#f4f1e8!important;--gufa-solid-text-dim:rgba(244,241,232,0.68)!important;
+}
 html[data-gufa-float] .gufa-overlay-root,
 html[data-gufa-float] .gufa-root{
   --gufa-solid-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;--gufa-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;
@@ -1108,6 +1130,29 @@ html[data-gufa-float] .gufa-overlay-root::before{
   background:rgba(13,15,19,var(--gufa-float-alpha));z-index:1;
 }
 html[data-gufa-float] .gufa-overlay-root{background:transparent!important;padding-top:22px;box-sizing:border-box}
+/* 摸鱼模式：弹窗/菜单都在 body 级 portal 里，拿不到摸鱼覆盖层的深色主题；
+   强制给 portal 一套深色可读变量，避免出现「浅色弹窗 + 浅色文字」看不清的问题。 */
+html[data-gufa-float] #gufa-portal-root{
+  --gufa-solid-bg:#121418!important;--gufa-solid-layer:#191c21!important;--gufa-solid-layer2:#1e2228!important;--gufa-solid-overlay:#23272e!important;
+  --gufa-solid-text:#f4f1e8!important;--gufa-solid-text-dim:rgba(244,241,232,0.68)!important;
+  --dsw-alias-bg-base:#121418!important;--dsw-alias-bg-layer-1:#191c21!important;--dsw-alias-bg-layer-2:#1e2228!important;--dsw-alias-bg-overlay:#23272e!important;
+  --dsw-alias-label-primary:#f4f1e8!important;--dsw-alias-label-secondary:rgba(244,241,232,0.68)!important;
+  --dsw-alias-border-l1:rgba(255,255,255,0.12)!important;--dsw-alias-border-l2:rgba(255,255,255,0.2)!important;
+  color:#f4f1e8!important;
+}
+html[data-gufa-float] #gufa-portal-root .gufa-modal,
+html[data-gufa-float] #gufa-portal-root .gufa-sessions-dialog,
+html[data-gufa-float] #gufa-portal-root .gufa-workspace-dialog,
+html[data-gufa-float] #gufa-portal-root .gufa-float-picker,
+html[data-gufa-float] #gufa-portal-root .gufa-shortcuts-dialog,
+html[data-gufa-float] #gufa-portal-root .gufa-graph-dialog{background:#1b1f26!important;color:#f4f1e8!important}
+html[data-gufa-float] #gufa-portal-root .gufa-modal-backdrop,
+html[data-gufa-float] .gufa-float-backdrop{
+  background:rgba(0,0,0,0.66)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+}
+/* 摸鱼：所有 portal 弹窗/菜单/输入框不透明，保证字看得清 */
+html[data-gufa-float] #gufa-portal-root *{color:inherit}
+html[data-gufa-float] #gufa-portal-root .gufa-hint{color:rgba(244,241,232,0.72)!important}
 /* 摸鱼：整窗只保留「覆盖层根节点」这一层半透明底，其余面板/会话/终端全部透明，
    保证编辑器、会话框、终端框看到的透明度完全一致（都等于滑块的 alpha）。 */
 html[data-gufa-float] .gufa-overlay-root{background:rgba(13,15,19,var(--gufa-float-alpha))!important}
@@ -11795,6 +11840,7 @@ G.GufaApp = function GufaApp(props) {
     if (selectionTimerRef.current !== null) { window.clearTimeout(selectionTimerRef.current); selectionTimerRef.current = null }
   }, [])
 
+  const uiTheme = moyuMode ? 'dark' : theme
   const statusBranch = project?.isGit === true && gitStatus?.branch ? gitStatus.branch : null
   const lineCount = activeTab === null || activeTab.kind === 'graph' ? 0 : String(activeTab.content ?? '').split('\n').length
 
@@ -11985,7 +12031,7 @@ G.GufaApp = function GufaApp(props) {
                   : h(G.EditorPane, {
                       tabs,
                       activePath,
-                      theme,
+                      theme: uiTheme,
                       palette: solidPalette,
                       root: project?.root ?? '',
                       onSelectTab: handleSelectTab,
@@ -12008,7 +12054,7 @@ G.GufaApp = function GufaApp(props) {
                 root: project?.root ?? null,
                 visible: true,
                 height: terminalHeight,
-                theme,
+                theme: uiTheme,
                 palette: solidPalette,
                 onToggleHeight: () => patchUi({ terminalOpen: false }),
               }),
@@ -12028,11 +12074,12 @@ G.GufaApp = function GufaApp(props) {
                 project,
                 activeFile: activeFileForChat,
                 selection: selectionForChat,
-                theme,
+                theme: uiTheme,
                 width: chatWidth,
                 active: true,
                 paused: sessionsOpen,
                 backdrop: backdropActive,
+                theme: uiTheme,
                 sessionTitle,
                 onOpenSessions: () => setSessionsOpen(true),
                 onInsertCode: insertCode,
@@ -13215,6 +13262,56 @@ const GUFA_PLUGIN = {
       } catch (error) {
         console.error('[gufa-code] 注册文案失败，使用内置中文', error)
       }
+    }
+
+    // 临时诊断（1.3.57）：摸鱼窗口里点不到左树/编辑器时，看看点击落到了哪个元素
+    try {
+      if (document.documentElement.hasAttribute('data-gufa-float') || /[?&]gufa-float=1/.test(location.search)) {
+        setTimeout(() => {
+          const probeAt = (x, y) => {
+            try {
+              const node = document.elementFromPoint(x, y)
+              if (node === null) return `${x},${y}:none`
+              const cls = typeof node.className === 'string' ? node.className : ''
+              return `${x},${y}:${node.tagName}.${String(cls).slice(0, 60)}`
+            } catch (error) {
+              return `${x},${y}:err`
+            }
+          }
+          // 模态框深色可读性：往 portal 里塞一个临时 .gufa-modal 读计算样式
+          let modalInfo = 'none'
+          try {
+            const host = document.getElementById('gufa-portal-root')
+            if (host !== null) {
+              const probe = document.createElement('div')
+              probe.className = 'gufa-modal'
+              probe.style.cssText = 'position:fixed;left:-9999px;top:0;width:120px;height:60px'
+              host.appendChild(probe)
+              const cs = window.getComputedStyle(probe)
+              modalInfo = `bg=${cs.backgroundColor} color=${cs.color}`
+              probe.remove()
+            }
+          } catch {
+            modalInfo = 'err'
+          }
+          // 找树行实际坐标（摸鱼窗半透明，肉眼看不清哪些行是古法的）
+          const rows = []
+          for (let y = 80; y < 1000; y += 22) {
+            try {
+              const node = document.elementFromPoint(100, y)
+              if (node !== null && typeof node.closest === 'function') {
+                const row = node.closest('.gufa-tree-row')
+                if (row !== null) rows.push(`${y}:${String(row.textContent ?? '').trim().slice(0, 24)}`)
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          void G.api('dev.log', { message: `float-hittest ${probeAt(135, 713)} | ${probeAt(300, 713)} | ${probeAt(900, 500)} | ${probeAt(1500, 60)} | modal[${modalInfo}] | rows[${rows.slice(0, 12).join(' ; ')}]` }).catch(() => {})
+        }, 5000)
+      }
+    } catch {
+      /* ignore */
     }
 
     // 启动诊断：记录页面地址、真实 Host 基址与传输信息（排查桌面壳 dsh-app:// 连接问题）。
