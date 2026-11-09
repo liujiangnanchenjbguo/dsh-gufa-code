@@ -62,6 +62,37 @@ G.Explorer = function Explorer(props) {
     void loadDir('')
   }, [root, loadDir])
 
+  /* 刷新已加载过的所有目录（根 + 展开过的子目录），而不是只刷根目录：
+     用户在系统 Finder 里新建/改名/删除文件后，点刷新也能看到子目录里的变化。 */
+  const refreshAll = useCallback(() => {
+    const paths = Object.keys(dirsRef.current)
+    if (paths.length === 0) return
+    for (const path of paths) void loadDir(path)
+  }, [loadDir])
+
+  /* 从别的 App（Finder/终端）切回古法编程时，自动刷新已加载目录，不需要手动点刷新。 */
+  useEffect(() => {
+    if (!root) return undefined
+    let timer = null
+    const scheduleRefresh = () => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        timer = null
+        refreshAll()
+      }, 180)
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') scheduleRefresh()
+    }
+    window.addEventListener('focus', scheduleRefresh)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      if (timer !== null) window.clearTimeout(timer)
+      window.removeEventListener('focus', scheduleRefresh)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [root, refreshAll])
+
   // 刷新令牌：重新读取已展开过的目录，保留展开状态
   const dirsRef = useRef(dirs)
   dirsRef.current = dirs
@@ -385,7 +416,7 @@ G.Explorer = function Explorer(props) {
       multi.length > 1 ? h('span', { className: 'gufa-badge' }, String(multi.length)) : null,
       h(G.IconButton, { title: t('explorer.newFile'), onClick: () => props.onNewFile?.(selectedDir()) }, h(G.Icon, { name: 'plus', size: 14 })),
       h(G.IconButton, { title: t('explorer.newFolder'), onClick: () => props.onNewFolder?.(selectedDir()) }, h(G.Icon, { name: 'folder', size: 14 })),
-      h(G.IconButton, { title: t('explorer.refresh'), onClick: () => void loadDir('') }, h(G.Icon, { name: 'refresh', size: 13 })),
+      h(G.IconButton, { title: t('explorer.refresh'), onClick: () => refreshAll() }, h(G.Icon, { name: 'refresh', size: 13 })),
     ),
     notice !== ''
       ? h('div', { className: 'gufa-explorer-notice', title: notice }, notice)
