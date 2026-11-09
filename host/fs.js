@@ -87,6 +87,97 @@ async function projectOf(env, body) {
   return project.root
 }
 
+/* ── 全项目搜索/替换共用的目录与文件枚举 ───────────────────────────────── */
+const SEARCH_EXCLUDED = new Set([
+  'node_modules', '.git', 'dist', 'build', 'out', '.next', 'vendor', 'target', '.venv', 'venv',
+  '__pycache__', '.idea', '.cache', '.turbo', '.parcel-cache', '.svelte-kit', '.nuxt', '.output',
+  'coverage', '.gradle', 'DerivedData', 'Pods', '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache',
+  '.electron-cache', '.npm-cache', '.pip-cache', '.yarn', '.pnpm-store', '.pnpm',
+])
+const SEARCH_SKIP_EXT = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'icns', 'bmp', 'tiff', 'pdf', 'zip', 'gz', 'tgz', 'tar', '7z', 'rar', 'dmg', 'iso',
+  'mp4', 'mp3', 'wav', 'mov', 'avi', 'mkv', 'flac', 'jar', 'class', 'o', 'a', 'so', 'dylib', 'dll', 'exe', 'bin', 'dat',
+  'woff', 'woff2', 'ttf', 'otf', 'eot', 'wasm', 'pyc', 'node',
+])
+const SEARCH_EXCLUDE_PREFIXES = ['.venv', '.npm-cache', '.pip-cache', '.electron-cache', '.pnpm', '.yarn', '.cache', '.next-cache']
+function searchDirExcluded(name) {
+  if (SEARCH_EXCLUDED.has(name)) return true
+  for (const prefix of SEARCH_EXCLUDE_PREFIXES) {
+    if (name.startsWith(prefix)) return true
+  }
+  return false
+}
+function searchExtensionOf(rel) {
+  const base = String(rel).split('/').pop() ?? ''
+  const dot = base.lastIndexOf('.')
+  return dot <= 0 ? '' : base.slice(dot + 1).toLowerCase()
+}
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+async function isGitProject(root, project) {
+  if (project !== null && project !== undefined && project.isGit === true) return true
+  try {
+    const dotGit = await stat(join(root, '.git'))
+    return dotGit.isDirectory() || dotGit.isFile()
+  } catch {
+    return false
+  }
+}
+/** 枚举项目内可搜索文件：Git 项目用 git ls-files，否则 BFS 遍历并跳过依赖/缓存目录。 */
+async function listProjectCandidates(root, project, maxScanned) {
+  if (await isGitProject(root, project)) {
+    try {
+      const { stdout } = await runCommand('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+        cwd: root,
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: 15000,
+      })
+      const files = stdout.split('\0').filter((item) => item !== '')
+      files.sort((a, b) => a.localeCompare(b))
+      return { files, truncated: false, viaGit: true }
+    } catch {
+      /* 回退到目录遍历 */
+    }
+  }
+  const queue = ['']
+  const files = []
+  let head = 0
+  let scanned = 0
+  let truncated = false
+  while (head < queue.length) {
+    if (files.length >= maxScanned) {
+      truncated = true
+      break
+    }
+    const dirRel = queue[head]
+    head += 1
+    let entries
+    try {
+      entries = await readdir(join(root, dirRel), { withFileTypes: true })
+    } catch {
+      continue
+    }
+    entries.sort((a, b) => String(a.name).localeCompare(String(b.name)))
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!searchDirExcluded(entry.name)) queue.push(dirRel === '' ? entry.name : `${dirRel}/${entry.name}`)
+        continue
+      }
+      if (!entry.isFile() || searchDirExcluded(entry.name)) continue
+      const rel = dirRel === '' ? entry.name : `${dirRel}/${entry.name}`
+      if (SEARCH_SKIP_EXT.has(searchExtensionOf(rel))) continue
+      files.push(rel)
+      scanned += 1
+      if (files.length >= maxScanned) {
+        truncated = true
+        break
+      }
+    }
+  }
+  return { files, truncated, viaGit: false, scanned }
+}
+
 export function register(router, env) {
   router.method('fs.list', async (body) => {
     const root = await projectOf(env, body)
@@ -410,7 +501,7 @@ export function register(router, env) {
         entries.sort((a, b) => String(a.name).localeCompare(String(b.name)))
         for (const entry of entries) {
           if (entry.isDirectory()) {
-            if (!EXCLUDED.has(entry.name)) queue.push(dirRel === '' ? entry.name : `${dirRel}/${entry.name}`)
+            if (!EXCLUDED.has(entry.name) && !SEARCH_EXCLUDE_PREFIXES.some((prefix) => entry.name.startsWith(prefix))) queue.push(dirRel === '' ? entry.name : `${dirRel}/${entry.name}`)
             continue
           }
           if (!entry.isFile() || EXCLUDED.has(entry.name)) continue
@@ -431,6 +522,97 @@ export function register(router, env) {
     }
     files.sort((a, b) => a.path.localeCompare(b.path))
     return { query, files, total, truncated, scanned, viaGit: candidates !== null }
+  })
+
+  /** 全项目批量替换（左侧「搜索」面板的替换功能）。只写内容确实变化的文件。 */
+  router.method('fs.replace', async (body) => {
+    const project = env.projects.ensure(typeof body.root === 'string' ? body.root : '')
+    const root = project.root
+    const query = typeof body.query === 'string' ? body.query.slice(0, 200) : ''
+    const replacement = typeof body.replacement === 'string' ? body.replacement : ''
+    if (query === '') return { replacedFiles: [], replacedCount: 0, failed: [], scanned: 0, truncated: false }
+    const options = body.options !== null && typeof body.options === 'object' ? body.options : {}
+    const caseSensitive = options.caseSensitive === true
+    const useRegex = options.regex === true
+    const clampInt = (value, fallback, min, max) => {
+      const number = Number(value)
+      if (!Number.isFinite(number)) return fallback
+      return Math.min(Math.max(Math.trunc(number), min), max)
+    }
+    const maxReplacements = clampInt(body.maxReplacements, 5000, 1, 50000)
+    const flags = caseSensitive ? 'g' : 'gi'
+    let regex = null
+    try {
+      regex = new RegExp(useRegex ? query : escapeRegExp(query), flags)
+    } catch (error) {
+      throw new ApiError('bad-regex', `正则表达式无效：${error.message}`, 400)
+    }
+    if (useRegex && new RegExp(query, caseSensitive ? '' : 'i').test('')) {
+      throw new ApiError('bad-regex', '正则表达式不能匹配空字符串', 400)
+    }
+    const pathsFilter = Array.isArray(body.paths)
+      ? body.paths.filter((item) => typeof item === 'string' && item !== '').slice(0, 200)
+      : null
+    let candidates = []
+    if (pathsFilter !== null) {
+      for (const raw of pathsFilter) {
+        try {
+          const absolute = await resolveProjectPath(root, raw)
+          candidates.push(relativePath(root, absolute))
+        } catch {
+          /* 路径非法/已删除：跳过 */
+        }
+      }
+    } else {
+      const listed = await listProjectCandidates(root, project, 20000)
+      candidates = listed.files
+    }
+    const fileSizeLimit = 2 * 1024 * 1024
+    const replacedFiles = []
+    const failed = []
+    let replacedCount = 0
+    let truncated = false
+    for (const rel of candidates) {
+      if (replacedCount >= maxReplacements) {
+        truncated = true
+        break
+      }
+      const absolute = join(root, rel)
+      const info = await stat(absolute).catch(() => undefined)
+      if (info === undefined || !info.isFile() || info.size > fileSizeLimit) continue
+      let buffer
+      try {
+        buffer = await readFile(absolute)
+      } catch {
+        failed.push(rel)
+        continue
+      }
+      if (buffer.includes(0)) continue
+      const text = buffer.toString('utf8')
+      regex.lastIndex = 0
+      const matches = text.match(regex)
+      if (matches === null || matches.length === 0) continue
+      if (replacedCount + matches.length > maxReplacements) {
+        truncated = true
+        break
+      }
+      let updated
+      try {
+        updated = text.replace(regex, useRegex ? replacement : () => replacement)
+      } catch (error) {
+        failed.push(rel)
+        continue
+      }
+      if (updated === text) continue
+      try {
+        await writeFile(absolute, updated, 'utf8')
+        replacedFiles.push(rel)
+        replacedCount += matches.length
+      } catch {
+        failed.push(rel)
+      }
+    }
+    return { replacedFiles, replacedCount, failed, scanned: candidates.length, truncated }
   })
 
   router.method('fs.matchFiles', async (body) => {

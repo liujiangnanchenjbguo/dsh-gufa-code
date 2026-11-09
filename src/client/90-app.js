@@ -608,6 +608,49 @@ G.GufaApp = function GufaApp(props) {
     }
   }, [project, patchTab, refreshGit, t])
 
+  /* 搜索面板批量替换前：先把所有未落盘的编辑器缓冲保存掉，避免磁盘旧内容覆盖用户输入 */
+  const beforeSearchReplace = useCallback(async () => {
+    flushBuffersRef.current?.()
+    const pending = new Set(editorBuffersRef.current.keys())
+    for (const tab of tabsRef.current ?? []) {
+      if (tab !== null && tab !== undefined && tab.dirty === true) pending.add(tab.path)
+    }
+    for (const path of pending) {
+      try {
+        await saveFile(path)
+      } catch {
+        /* 单个保存失败不阻断替换 */
+      }
+    }
+  }, [saveFile])
+
+  /* 搜索面板替换完成后：刷新目录/Git，并把已打开标签同步成磁盘最新内容 */
+  const onSearchFilesChanged = useCallback(async (paths) => {
+    if (project !== null && Array.isArray(paths) && paths.length > 0) {
+      for (const path of paths.slice(0, 30)) {
+        const tab = (tabsRef.current ?? []).find((item) => item !== null && item !== undefined && item.path === path)
+        if (tab === undefined) continue
+        try {
+          const doc = await G.api('fs.read', { root: project.root, path })
+          editorBuffersRef.current.delete(path)
+          patchTab(path, {
+            content: doc.content,
+            revision: doc.revision,
+            savedRevision: doc.revision,
+            savedContent: doc.content,
+            dirty: false,
+            size: doc.size,
+          })
+        } catch {
+          /* 文件已被删除：忽略 */
+        }
+      }
+    }
+    setRefreshToken((token) => token + 1)
+    setGitRefreshToken((token) => token + 1)
+    void refreshGit()
+  }, [project, patchTab, refreshGit])
+
   /** 顶栏提示：错误常驻红色；成功用绿色 toast，1.2 秒后自动消失。 */
   const successTimerRef = useRef(null)
   const showBanner = useCallback((text, tone) => {
@@ -2135,6 +2178,8 @@ G.GufaApp = function GufaApp(props) {
         root: project?.root ?? null,
         active: ui.view === 'search',
         onOpenFile: (path, line, column) => void openFileAt(path, line, column),
+        onBeforeReplace: beforeSearchReplace,
+        onFilesChanged: onSearchFilesChanged,
       })),
     h('div', { key: 'git', style: { display: ui.view === 'git' ? 'flex' : 'none', flex: '1 1 auto', minHeight: 0, flexDirection: 'column' } },
       h(G.GitPanel, {

@@ -157,7 +157,14 @@ AI 是通过 Host 工具直接写盘，客户端收不到任何通知。
 - 结果行带 `line/column/start/end/text`，前端高亮 `start..end`；点击结果通过 `G.bus 'editor:reveal'` 让 Monaco 跳到对应行列（tab 切换未完成时事件先存到 `pendingRevealRef`）。
 - **坑**：往 `G.CSS` 模板里加规则时一定插在完整规则之后。曾把搜索样式插进 `.gufa-explorer-notice{...}` 规则中间，CSS nesting 把整块样式变成后代选择器，面板渲染成原生输入框。插入后检查 `client.js` 里 `.gufa-explorer-notice{...}` 的闭合括号是否在搜索块之前。
 
-## 5.1 摸鱼会话框比编辑器黑：官方会话根节点自己又画了一层底
+## 全局替换（1.3.63 新增）
+
+- Host 侧 `fs.replace`：与 `fs.search` 共用 `listProjectCandidates`（Git 项目 `git ls-files`，非 Git BFS 遍历）；按 query 构造正则（字面量走 `escapeRegExp` + 函数 replacer 保持 `$` 字面量，正则模式支持 `$1` 分组），只写内容确实变化的文件。
+- 正则模式禁止「能匹配空字符串」的表达式（如 `a*`），否则会在每个字符间插入替换文本。
+- 替换前客户端先 `beforeSearchReplace`：flush 编辑器缓冲 + 保存所有脏标签，避免磁盘旧内容覆盖用户输入；替换后 `onSearchFilesChanged` 重新读盘并 patch 已打开标签、刷新目录/Git。
+- 前端替换入口在搜索输入框右侧 chevron：展开后出现替换输入、`全部替换`、每个文件头部的单文件替换铅笔按钮；全部替换需要一次内联确认（直接写盘，编辑器撤销无效）。
+
+## 5.1 摸鱼会话框比编辑器黑：官方会话根节点又自己画了一层底
 
 - 现象：摸鱼里编辑器/终端都统一了，右侧会话框看起来明显更黑更实。
 - 实测（同屏同底层对比法）：编辑器有效 alpha=0.570，会话框=0.878 → 会话框多叠了一层 ~0.72 的暗底。

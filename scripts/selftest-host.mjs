@@ -155,6 +155,36 @@ try {
   const gitSearch = await call(router, 'fs.search', { root, query: 'answer' })
   check('search uses git file list', gitSearch.viaGit === true, String(gitSearch.viaGit))
   check('search finds committed file', gitSearch.files.some((file) => file.path === 'src/main.ts'))
+  console.log('fs.replace')
+  await call(router, 'fs.create', { root, path: 'replace.txt', kind: 'file' })
+  await call(router, 'fs.write', { root, path: 'replace.txt', content: 'foo FOO foo\n' })
+  const replaced = await call(router, 'fs.replace', { root, query: 'foo', replacement: 'bar', paths: ['replace.txt'] })
+  check('replace count (case-insensitive)', replaced.replacedCount === 3, String(replaced.replacedCount))
+  const replacedDoc = await call(router, 'fs.read', { root, path: 'replace.txt' })
+  check('replace wrote file', replacedDoc.content === 'bar bar bar\n', JSON.stringify(replacedDoc.content))
+  await call(router, 'fs.write', { root, path: 'replace.txt', content: 'v1.2 v3.4\n', expectedRevision: replacedDoc.revision })
+  const regexReplaced = await call(router, 'fs.replace', {
+    root,
+    query: 'v(\\d)\\.(\\d)',
+    replacement: 'v$1-$2',
+    options: { regex: true },
+    paths: ['replace.txt'],
+  })
+  check('replace regex groups', regexReplaced.replacedCount === 2, String(regexReplaced.replacedCount))
+  const regexDoc = await call(router, 'fs.read', { root, path: 'replace.txt' })
+  check('replace regex result', regexDoc.content === 'v1-2 v3-4\n', JSON.stringify(regexDoc.content))
+  await call(router, 'fs.write', { root, path: 'replace.txt', content: 'abc\n', expectedRevision: regexDoc.revision })
+  const literalDollar = await call(router, 'fs.replace', { root, query: 'abc', replacement: '$1', paths: ['replace.txt'] })
+  const dollarDoc = await call(router, 'fs.read', { root, path: 'replace.txt' })
+  check('literal replacement keeps $', literalDollar.replacedCount === 1 && dollarDoc.content === '$1\n', JSON.stringify(dollarDoc.content))
+  let emptyRegexRejected = false
+  try {
+    await call(router, 'fs.replace', { root, query: 'a*', replacement: 'x', options: { regex: true }, paths: ['replace.txt'] })
+  } catch (error) {
+    emptyRegexRejected = error.code === 'bad-regex'
+  }
+  check('replace rejects empty-matching regex', emptyRegexRejected)
+  await call(router, 'fs.delete', { root, path: 'replace.txt' })
   writeFileSync(join(projectDir, 'src/main.ts'), 'const answer = 43\n')
   const diff = await call(router, 'git.diff', { root, path: 'src/main.ts' })
   check('diff contains change', diff.patch.includes('43'))

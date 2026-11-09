@@ -194,6 +194,16 @@ const DICT_ZH = {
   'search.summary': '{count} 个结果 · {files} 个文件',
   'search.truncated': '结果过多已截断，请缩小范围',
   'search.error': '搜索失败',
+  'search.replaceToggle': '显示/隐藏替换',
+  'search.replacePlaceholder': '替换为…',
+  'search.replaceAll': '全部替换',
+  'search.replaceThisFile': '替换此文件',
+  'search.replacing': '替换中…',
+  'search.replaced': '已替换 {count} 处（{files} 个文件）',
+  'search.confirmReplace': '确定替换 {count} 处（{files} 个文件）？直接写文件，编辑器撤销无效。',
+  'search.confirmYes': '确定替换',
+  'search.confirmNo': '取消',
+  'search.replaceError': '替换失败',
   'explorer.empty': '目录为空',
   'explorer.newFile': '新建文件',
   'explorer.newFolder': '新建文件夹',
@@ -426,6 +436,16 @@ const DICT_EN = {
   'search.summary': '{count} results · {files} files',
   'search.truncated': 'Too many results, truncated — narrow the query',
   'search.error': 'Search failed',
+  'search.replaceToggle': 'Show / hide replace',
+  'search.replacePlaceholder': 'Replace with…',
+  'search.replaceAll': 'Replace all',
+  'search.replaceThisFile': 'Replace in this file',
+  'search.replacing': 'Replacing…',
+  'search.replaced': 'Replaced {count} occurrences ({files} files)',
+  'search.confirmReplace': 'Replace {count} occurrences in {files} files? This writes files directly; editor undo will not work.',
+  'search.confirmYes': 'Replace',
+  'search.confirmNo': 'Cancel',
+  'search.replaceError': 'Replace failed',
   'explorer.empty': 'Folder is empty',
   'explorer.newFile': 'New file',
   'explorer.newFolder': 'New folder',
@@ -1697,6 +1717,18 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-search-line{flex:0 0 auto;min-width:24px;text-align:right;font:11px ui-monospace,Menlo,Consolas,monospace;opacity:.65}
 .gufa-search-text{flex:1 1 auto;min-width:0;font:11.5px ui-monospace,Menlo,Consolas,monospace;white-space:pre;overflow:hidden;text-overflow:ellipsis}
 .gufa-search-hit{background:rgba(192,57,43,.38);color:var(--gufa-text);border-radius:2px;padding:0 1px}
+.gufa-search-replace-row{margin-top:0}
+.gufa-search-actions{display:flex;align-items:center;gap:6px;margin-top:6px}
+.gufa-search-action{height:24px;padding:0 9px;border-radius:6px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);color:var(--gufa-text);font-size:11.5px;cursor:pointer}
+.gufa-search-action:hover:not(:disabled){border-color:var(--gufa-accent)}
+.gufa-search-action:disabled{opacity:.5;cursor:default}
+.gufa-search-action[data-primary]{background:var(--gufa-accent);border-color:var(--gufa-accent);color:#fff}
+.gufa-search-confirm{margin:6px 8px 0;padding:7px 9px;border-radius:7px;border:1px solid var(--gufa-accent);background:color-mix(in srgb, var(--gufa-accent) 12%, transparent);font-size:11.5px;line-height:1.55;color:var(--gufa-text)}
+.gufa-search-confirm-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
+.gufa-search-notice{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-success-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 45%, transparent)}
+.gufa-search-error{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}
+.gufa-search-file-replace{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer}
+.gufa-search-file-replace:hover{background:var(--gufa-active);color:var(--gufa-text)}
 
 .gufa-tree-chevron{width:14px;flex:0 0 auto;opacity:.7;display:flex;align-items:center;justify-content:center}
 .gufa-tree-icon{width:15px;flex:0 0 auto;opacity:.85;display:flex;align-items:center;justify-content:center}

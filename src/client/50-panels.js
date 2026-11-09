@@ -521,6 +521,12 @@ G.SearchPanel = function SearchPanel(props) {
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [collapsed, setCollapsed] = useState({})
+  const [replaceOpen, setReplaceOpen] = useState(false)
+  const [replacement, setReplacement] = useState('')
+  const [replacing, setReplacing] = useState(false)
+  const [confirming, setConfirming] = useState(null)
+  const [replaceError, setReplaceError] = useState('')
+  const [notice, setNotice] = useState('')
   const inputRef = useRef(null)
   const requestRef = useRef(0)
 
@@ -564,6 +570,41 @@ G.SearchPanel = function SearchPanel(props) {
       setStatus('error')
     }
   }, [root, caseSensitive, regex])
+
+  const requestReplace = useCallback((paths, count, files) => {
+    if (typeof root !== 'string' || root === '' || query.trim() === '' || replacing) return
+    setReplaceError('')
+    setNotice('')
+    setConfirming({ paths: Array.isArray(paths) ? paths : null, count: Number(count) || 0, files: Number(files) || 0 })
+  }, [root, query, replacing])
+
+  const doReplace = useCallback(async () => {
+    const pending = confirming
+    if (pending === null || replacing) return
+    setConfirming(null)
+    setReplacing(true)
+    setReplaceError('')
+    setNotice('')
+    try {
+      await props.onBeforeReplace?.()
+      const value = await G.api('fs.replace', {
+        root,
+        query: query.trim(),
+        replacement,
+        options: { caseSensitive, regex },
+        paths: Array.isArray(pending.paths) ? pending.paths : undefined,
+      })
+      const count = Number(value?.replacedCount) || 0
+      const replacedFiles = Array.isArray(value?.replacedFiles) ? value.replacedFiles : []
+      setNotice(t('search.replaced', { count, files: replacedFiles.length }))
+      await props.onFilesChanged?.(replacedFiles)
+      await runSearch(query)
+    } catch (error) {
+      setReplaceError(G.errorText(error))
+    } finally {
+      setReplacing(false)
+    }
+  }, [confirming, replacing, props.onBeforeReplace, props.onFilesChanged, root, query, replacement, caseSensitive, regex, runSearch, t])
 
   /* 输入防抖搜索（回车立即搜索） */
   useEffect(() => {
@@ -643,6 +684,22 @@ G.SearchPanel = function SearchPanel(props) {
             h('span', { className: 'gufa-search-file-name' }, G.basename(file.path)),
             h('span', { className: 'gufa-search-file-dir' }, G.dirname(file.path)),
             h('span', { className: 'gufa-search-file-count' }, String(file.matches.length)),
+            replaceOpen
+              ? h(
+                  'span',
+                  {
+                    className: 'gufa-search-file-replace',
+                    title: t('search.replaceThisFile'),
+                    role: 'button',
+                    onClick: (event) => {
+                      event.stopPropagation()
+                      event.preventDefault()
+                      requestReplace([file.path], file.matches.length, 1)
+                    },
+                  },
+                  h(G.Icon, { name: 'pencil', size: 11 }),
+                )
+              : null,
           ),
           isCollapsed
             ? null
@@ -698,6 +755,7 @@ G.SearchPanel = function SearchPanel(props) {
         query === ''
           ? null
           : h(G.IconButton, { title: t('search.clear'), onClick: () => { setQuery(''); focusInput() } }, h(G.Icon, { name: 'close', size: 11 })),
+        h(G.IconButton, { title: t('search.replaceToggle'), onClick: () => setReplaceOpen((value) => !value) }, h(G.Icon, { name: replaceOpen ? 'chevron-up' : 'chevron-down', size: 12 })),
       ),
       h(
         'div',
@@ -718,6 +776,60 @@ G.SearchPanel = function SearchPanel(props) {
         }, '.*'),
         h('span', { className: 'gufa-search-summary', title: summary }, summary),
       ),
+      replaceOpen
+        ? h(
+            React.Fragment,
+            null,
+            h(
+              'div',
+              { className: 'gufa-search-input-wrap gufa-search-replace-row' },
+              h(G.Icon, { name: 'pencil', size: 12 }),
+              h('input', {
+                className: 'gufa-search-input',
+                type: 'text',
+                value: replacement,
+                placeholder: t('search.replacePlaceholder'),
+                spellCheck: false,
+                onChange: (event) => setReplacement(event.target.value),
+                onKeyDown: (event) => {
+                  if (event.key !== 'Enter') return
+                  event.preventDefault()
+                  requestReplace(null, result?.total ?? 0, result?.files?.length ?? 0)
+                },
+              }),
+            ),
+            h(
+              'div',
+              { className: 'gufa-search-actions' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gufa-search-action',
+                  'data-primary': '',
+                  disabled: replacing || result === null || result.total === 0,
+                  onClick: () => requestReplace(null, result?.total ?? 0, result?.files?.length ?? 0),
+                },
+                replacing ? t('search.replacing') : t('search.replaceAll'),
+              ),
+            ),
+          )
+        : null,
+      confirming !== null
+        ? h(
+            'div',
+            { className: 'gufa-search-confirm' },
+            h('div', null, t('search.confirmReplace', { count: confirming.count, files: confirming.files })),
+            h(
+              'div',
+              { className: 'gufa-search-confirm-actions' },
+              h('button', { type: 'button', className: 'gufa-search-action', onClick: () => setConfirming(null) }, t('search.confirmNo')),
+              h('button', { type: 'button', className: 'gufa-search-action', 'data-primary': '', onClick: () => void doReplace() }, t('search.confirmYes')),
+            ),
+          )
+        : null,
+      notice !== '' ? h('div', { className: 'gufa-search-notice' }, notice) : null,
+      replaceError !== '' ? h('div', { className: 'gufa-search-error' }, `${t('search.replaceError')}：${replaceError}`) : null,
     ),
     h('div', { className: 'gufa-panel-body gufa-scroll' }, body),
   )

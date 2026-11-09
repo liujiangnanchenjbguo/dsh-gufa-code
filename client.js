@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.62'
+G.BUILD = '1.3.63'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -202,6 +202,16 @@ const DICT_ZH = {
   'search.summary': '{count} 个结果 · {files} 个文件',
   'search.truncated': '结果过多已截断，请缩小范围',
   'search.error': '搜索失败',
+  'search.replaceToggle': '显示/隐藏替换',
+  'search.replacePlaceholder': '替换为…',
+  'search.replaceAll': '全部替换',
+  'search.replaceThisFile': '替换此文件',
+  'search.replacing': '替换中…',
+  'search.replaced': '已替换 {count} 处（{files} 个文件）',
+  'search.confirmReplace': '确定替换 {count} 处（{files} 个文件）？直接写文件，编辑器撤销无效。',
+  'search.confirmYes': '确定替换',
+  'search.confirmNo': '取消',
+  'search.replaceError': '替换失败',
   'explorer.empty': '目录为空',
   'explorer.newFile': '新建文件',
   'explorer.newFolder': '新建文件夹',
@@ -434,6 +444,16 @@ const DICT_EN = {
   'search.summary': '{count} results · {files} files',
   'search.truncated': 'Too many results, truncated — narrow the query',
   'search.error': 'Search failed',
+  'search.replaceToggle': 'Show / hide replace',
+  'search.replacePlaceholder': 'Replace with…',
+  'search.replaceAll': 'Replace all',
+  'search.replaceThisFile': 'Replace in this file',
+  'search.replacing': 'Replacing…',
+  'search.replaced': 'Replaced {count} occurrences ({files} files)',
+  'search.confirmReplace': 'Replace {count} occurrences in {files} files? This writes files directly; editor undo will not work.',
+  'search.confirmYes': 'Replace',
+  'search.confirmNo': 'Cancel',
+  'search.replaceError': 'Replace failed',
   'explorer.empty': 'Folder is empty',
   'explorer.newFile': 'New file',
   'explorer.newFolder': 'New folder',
@@ -1705,6 +1725,18 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-search-line{flex:0 0 auto;min-width:24px;text-align:right;font:11px ui-monospace,Menlo,Consolas,monospace;opacity:.65}
 .gufa-search-text{flex:1 1 auto;min-width:0;font:11.5px ui-monospace,Menlo,Consolas,monospace;white-space:pre;overflow:hidden;text-overflow:ellipsis}
 .gufa-search-hit{background:rgba(192,57,43,.38);color:var(--gufa-text);border-radius:2px;padding:0 1px}
+.gufa-search-replace-row{margin-top:0}
+.gufa-search-actions{display:flex;align-items:center;gap:6px;margin-top:6px}
+.gufa-search-action{height:24px;padding:0 9px;border-radius:6px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);color:var(--gufa-text);font-size:11.5px;cursor:pointer}
+.gufa-search-action:hover:not(:disabled){border-color:var(--gufa-accent)}
+.gufa-search-action:disabled{opacity:.5;cursor:default}
+.gufa-search-action[data-primary]{background:var(--gufa-accent);border-color:var(--gufa-accent);color:#fff}
+.gufa-search-confirm{margin:6px 8px 0;padding:7px 9px;border-radius:7px;border:1px solid var(--gufa-accent);background:color-mix(in srgb, var(--gufa-accent) 12%, transparent);font-size:11.5px;line-height:1.55;color:var(--gufa-text)}
+.gufa-search-confirm-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
+.gufa-search-notice{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-success-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 45%, transparent)}
+.gufa-search-error{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}
+.gufa-search-file-replace{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer}
+.gufa-search-file-replace:hover{background:var(--gufa-active);color:var(--gufa-text)}
 
 .gufa-tree-chevron{width:14px;flex:0 0 auto;opacity:.7;display:flex;align-items:center;justify-content:center}
 .gufa-tree-icon{width:15px;flex:0 0 auto;opacity:.85;display:flex;align-items:center;justify-content:center}
@@ -7296,6 +7328,12 @@ G.SearchPanel = function SearchPanel(props) {
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [collapsed, setCollapsed] = useState({})
+  const [replaceOpen, setReplaceOpen] = useState(false)
+  const [replacement, setReplacement] = useState('')
+  const [replacing, setReplacing] = useState(false)
+  const [confirming, setConfirming] = useState(null)
+  const [replaceError, setReplaceError] = useState('')
+  const [notice, setNotice] = useState('')
   const inputRef = useRef(null)
   const requestRef = useRef(0)
 
@@ -7339,6 +7377,41 @@ G.SearchPanel = function SearchPanel(props) {
       setStatus('error')
     }
   }, [root, caseSensitive, regex])
+
+  const requestReplace = useCallback((paths, count, files) => {
+    if (typeof root !== 'string' || root === '' || query.trim() === '' || replacing) return
+    setReplaceError('')
+    setNotice('')
+    setConfirming({ paths: Array.isArray(paths) ? paths : null, count: Number(count) || 0, files: Number(files) || 0 })
+  }, [root, query, replacing])
+
+  const doReplace = useCallback(async () => {
+    const pending = confirming
+    if (pending === null || replacing) return
+    setConfirming(null)
+    setReplacing(true)
+    setReplaceError('')
+    setNotice('')
+    try {
+      await props.onBeforeReplace?.()
+      const value = await G.api('fs.replace', {
+        root,
+        query: query.trim(),
+        replacement,
+        options: { caseSensitive, regex },
+        paths: Array.isArray(pending.paths) ? pending.paths : undefined,
+      })
+      const count = Number(value?.replacedCount) || 0
+      const replacedFiles = Array.isArray(value?.replacedFiles) ? value.replacedFiles : []
+      setNotice(t('search.replaced', { count, files: replacedFiles.length }))
+      await props.onFilesChanged?.(replacedFiles)
+      await runSearch(query)
+    } catch (error) {
+      setReplaceError(G.errorText(error))
+    } finally {
+      setReplacing(false)
+    }
+  }, [confirming, replacing, props.onBeforeReplace, props.onFilesChanged, root, query, replacement, caseSensitive, regex, runSearch, t])
 
   /* 输入防抖搜索（回车立即搜索） */
   useEffect(() => {
@@ -7418,6 +7491,22 @@ G.SearchPanel = function SearchPanel(props) {
             h('span', { className: 'gufa-search-file-name' }, G.basename(file.path)),
             h('span', { className: 'gufa-search-file-dir' }, G.dirname(file.path)),
             h('span', { className: 'gufa-search-file-count' }, String(file.matches.length)),
+            replaceOpen
+              ? h(
+                  'span',
+                  {
+                    className: 'gufa-search-file-replace',
+                    title: t('search.replaceThisFile'),
+                    role: 'button',
+                    onClick: (event) => {
+                      event.stopPropagation()
+                      event.preventDefault()
+                      requestReplace([file.path], file.matches.length, 1)
+                    },
+                  },
+                  h(G.Icon, { name: 'pencil', size: 11 }),
+                )
+              : null,
           ),
           isCollapsed
             ? null
@@ -7473,6 +7562,7 @@ G.SearchPanel = function SearchPanel(props) {
         query === ''
           ? null
           : h(G.IconButton, { title: t('search.clear'), onClick: () => { setQuery(''); focusInput() } }, h(G.Icon, { name: 'close', size: 11 })),
+        h(G.IconButton, { title: t('search.replaceToggle'), onClick: () => setReplaceOpen((value) => !value) }, h(G.Icon, { name: replaceOpen ? 'chevron-up' : 'chevron-down', size: 12 })),
       ),
       h(
         'div',
@@ -7493,6 +7583,60 @@ G.SearchPanel = function SearchPanel(props) {
         }, '.*'),
         h('span', { className: 'gufa-search-summary', title: summary }, summary),
       ),
+      replaceOpen
+        ? h(
+            React.Fragment,
+            null,
+            h(
+              'div',
+              { className: 'gufa-search-input-wrap gufa-search-replace-row' },
+              h(G.Icon, { name: 'pencil', size: 12 }),
+              h('input', {
+                className: 'gufa-search-input',
+                type: 'text',
+                value: replacement,
+                placeholder: t('search.replacePlaceholder'),
+                spellCheck: false,
+                onChange: (event) => setReplacement(event.target.value),
+                onKeyDown: (event) => {
+                  if (event.key !== 'Enter') return
+                  event.preventDefault()
+                  requestReplace(null, result?.total ?? 0, result?.files?.length ?? 0)
+                },
+              }),
+            ),
+            h(
+              'div',
+              { className: 'gufa-search-actions' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gufa-search-action',
+                  'data-primary': '',
+                  disabled: replacing || result === null || result.total === 0,
+                  onClick: () => requestReplace(null, result?.total ?? 0, result?.files?.length ?? 0),
+                },
+                replacing ? t('search.replacing') : t('search.replaceAll'),
+              ),
+            ),
+          )
+        : null,
+      confirming !== null
+        ? h(
+            'div',
+            { className: 'gufa-search-confirm' },
+            h('div', null, t('search.confirmReplace', { count: confirming.count, files: confirming.files })),
+            h(
+              'div',
+              { className: 'gufa-search-confirm-actions' },
+              h('button', { type: 'button', className: 'gufa-search-action', onClick: () => setConfirming(null) }, t('search.confirmNo')),
+              h('button', { type: 'button', className: 'gufa-search-action', 'data-primary': '', onClick: () => void doReplace() }, t('search.confirmYes')),
+            ),
+          )
+        : null,
+      notice !== '' ? h('div', { className: 'gufa-search-notice' }, notice) : null,
+      replaceError !== '' ? h('div', { className: 'gufa-search-error' }, `${t('search.replaceError')}：${replaceError}`) : null,
     ),
     h('div', { className: 'gufa-panel-body gufa-scroll' }, body),
   )
@@ -10609,6 +10753,49 @@ G.GufaApp = function GufaApp(props) {
     }
   }, [project, patchTab, refreshGit, t])
 
+  /* 搜索面板批量替换前：先把所有未落盘的编辑器缓冲保存掉，避免磁盘旧内容覆盖用户输入 */
+  const beforeSearchReplace = useCallback(async () => {
+    flushBuffersRef.current?.()
+    const pending = new Set(editorBuffersRef.current.keys())
+    for (const tab of tabsRef.current ?? []) {
+      if (tab !== null && tab !== undefined && tab.dirty === true) pending.add(tab.path)
+    }
+    for (const path of pending) {
+      try {
+        await saveFile(path)
+      } catch {
+        /* 单个保存失败不阻断替换 */
+      }
+    }
+  }, [saveFile])
+
+  /* 搜索面板替换完成后：刷新目录/Git，并把已打开标签同步成磁盘最新内容 */
+  const onSearchFilesChanged = useCallback(async (paths) => {
+    if (project !== null && Array.isArray(paths) && paths.length > 0) {
+      for (const path of paths.slice(0, 30)) {
+        const tab = (tabsRef.current ?? []).find((item) => item !== null && item !== undefined && item.path === path)
+        if (tab === undefined) continue
+        try {
+          const doc = await G.api('fs.read', { root: project.root, path })
+          editorBuffersRef.current.delete(path)
+          patchTab(path, {
+            content: doc.content,
+            revision: doc.revision,
+            savedRevision: doc.revision,
+            savedContent: doc.content,
+            dirty: false,
+            size: doc.size,
+          })
+        } catch {
+          /* 文件已被删除：忽略 */
+        }
+      }
+    }
+    setRefreshToken((token) => token + 1)
+    setGitRefreshToken((token) => token + 1)
+    void refreshGit()
+  }, [project, patchTab, refreshGit])
+
   /** 顶栏提示：错误常驻红色；成功用绿色 toast，1.2 秒后自动消失。 */
   const successTimerRef = useRef(null)
   const showBanner = useCallback((text, tone) => {
@@ -12136,6 +12323,8 @@ G.GufaApp = function GufaApp(props) {
         root: project?.root ?? null,
         active: ui.view === 'search',
         onOpenFile: (path, line, column) => void openFileAt(path, line, column),
+        onBeforeReplace: beforeSearchReplace,
+        onFilesChanged: onSearchFilesChanged,
       })),
     h('div', { key: 'git', style: { display: ui.view === 'git' ? 'flex' : 'none', flex: '1 1 auto', minHeight: 0, flexDirection: 'column' } },
       h(G.GitPanel, {
