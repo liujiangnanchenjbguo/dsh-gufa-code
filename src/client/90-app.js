@@ -263,6 +263,8 @@ G.GufaApp = function GufaApp(props) {
   const [gitRefreshToken, setGitRefreshToken] = useState(0)
   const [sshRefreshToken, setSshRefreshToken] = useState(0)
   const [gitStatus, setGitStatus] = useState(null)
+  const gitSignatureRef = useRef('')
+  const gitInFlightRef = useRef(false)
   const [modal, setModal] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [trashUndo, setTrashUndo] = useState([])
@@ -386,19 +388,65 @@ G.GufaApp = function GufaApp(props) {
   const refreshGit = useCallback(async () => {
     if (project === null || project.isGit !== true) {
       setGitStatus(null)
+      gitSignatureRef.current = ''
       return
     }
+    if (gitInFlightRef.current) return
+    gitInFlightRef.current = true
     try {
       const value = await G.api('git.status', { root: project.root })
       setGitStatus(value)
+      /* 轮询时如果发现工作区状态变化（AI/外部修改了文件），顺带刷新资源管理器与 Git 面板 */
+      const signature = JSON.stringify({
+        branch: value?.branch ?? '',
+        changes: (Array.isArray(value?.changes) ? value.changes : [])
+          .map((change) => `${String(change?.path ?? '')}:${String(change?.status ?? '')}`)
+          .sort(),
+      })
+      const previous = gitSignatureRef.current
+      gitSignatureRef.current = signature
+      if (previous !== '' && previous !== signature) {
+        setRefreshToken((token) => token + 1)
+        setGitRefreshToken((token) => token + 1)
+      }
     } catch {
       setGitStatus(null)
+    } finally {
+      gitInFlightRef.current = false
     }
   }, [project])
 
   useEffect(() => {
     void refreshGit()
   }, [refreshGit, gitRefreshToken])
+
+  /* AI/外部进程改了文件时，Git 面板与资源管理器要能自动出现标识，不需要手动点 Git 按钮。
+     - 3.5s 轮询 git.status（窗口可见时）；状态签名变化 → 刷新 Git 面板 + 资源管理器
+     - 非 Git 项目：6s 静默重读已加载目录，至少能看到外部新建/删除的文件 */
+  useEffect(() => {
+    if (project === null) return undefined
+    const tickGit = () => {
+      if (document.visibilityState !== 'visible') return
+      void refreshGit()
+    }
+    const tickTree = () => {
+      if (document.visibilityState !== 'visible') return
+      if (project.isGit !== true) setRefreshToken((token) => token + 1)
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshGit()
+    }
+    const gitTimer = window.setInterval(tickGit, 3500)
+    const treeTimer = window.setInterval(tickTree, 6000)
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(gitTimer)
+      window.clearInterval(treeTimer)
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [project, refreshGit])
 
   const gitStatuses = useMemo(() => {
     const map = {}
