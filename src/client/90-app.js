@@ -268,7 +268,6 @@ G.GufaApp = function GufaApp(props) {
   const [modal, setModal] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [trashUndo, setTrashUndo] = useState([])
-  const [bannerTone, setBannerTone] = useState('error')
   const [branchMenu, setBranchMenu] = useState(null)
   const [workspaceDialog, setWorkspaceDialog] = useState(null)
   const [workspaceSessions, setWorkspaceSessions] = useState({ status: 'idle', sessions: [], groups: [], sessionIds: [], archivedSessionIds: [] })
@@ -651,27 +650,10 @@ G.GufaApp = function GufaApp(props) {
     void refreshGit()
   }, [project, patchTab, refreshGit])
 
-  /** 顶栏提示：错误常驻红色；成功用绿色 toast，1.2 秒后自动消失。 */
-  const successTimerRef = useRef(null)
+  /** 顶栏提示：只显示错误/需要用户处理的提示；成功类操作直接看界面结果，不再弹 toast。 */
   const showBanner = useCallback((text, tone) => {
-    if (successTimerRef.current !== null) {
-      window.clearTimeout(successTimerRef.current)
-      successTimerRef.current = null
-    }
-    if (tone === 'success') {
-      setBannerTone('success')
-      setBanner(text)
-      successTimerRef.current = window.setTimeout(() => {
-        successTimerRef.current = null
-        setBanner('')
-      }, 1200)
-      return
-    }
-    setBannerTone('error')
+    if (tone === 'success') return
     setBanner(text)
-  }, [])
-  useEffect(() => () => {
-    if (successTimerRef.current !== null) window.clearTimeout(successTimerRef.current)
   }, [])
 
   const closeTab = useCallback((path) => {
@@ -800,7 +782,6 @@ G.GufaApp = function GufaApp(props) {
     try {
       await G.api('git.checkout', { root: project.root, branch: name })
       closeBranchMenu()
-      showBanner(`已切换到分支 ${name}`, 'success')
       setGitRefreshToken((token) => token + 1)
       setRefreshToken((token) => token + 1)
       void refreshGit()
@@ -816,7 +797,6 @@ G.GufaApp = function GufaApp(props) {
     try {
       await G.api('git.createBranch', { root: project.root, name })
       closeBranchMenu()
-      showBanner(`已创建并切换到分支 ${name}`, 'success')
       setGitRefreshToken((token) => token + 1)
       setRefreshToken((token) => token + 1)
       void refreshGit()
@@ -980,7 +960,6 @@ G.GufaApp = function GufaApp(props) {
     if (project === null) return
     try {
       await G.api('git.discard', { root: project.root, paths: [path] })
-      showBanner('已还原该文件的改动', 'success')
       // 改动已还原：关掉该 diff 标签（内容已与暂存区一致）
       setTabs((current) => current.filter((tab) => tab.path !== path))
       setActivePath((current) => (current === path ? null : current))
@@ -996,7 +975,6 @@ G.GufaApp = function GufaApp(props) {
     if (project === null) return
     try {
       await G.api('git.stage', { root: project.root, paths: [path] })
-      showBanner('已暂存该文件', 'success')
       setGitRefreshToken((token) => token + 1)
       void refreshGit()
     } catch (error) {
@@ -1481,7 +1459,6 @@ G.GufaApp = function GufaApp(props) {
     const missingSet = new Set(missing)
     setTabs((current) => current.filter((tab) => tab !== null && !missingSet.has(tab.path)))
     setActivePath((current) => (current !== null && missingSet.has(current) ? null : current))
-    showBanner(`已关闭 ${missing.length} 个已删除文件的标签`, 'success')
   }, [project, tabs, showBanner])
   const pruneMissingTabsRef = useRef(null)
   pruneMissingTabsRef.current = pruneMissingTabs
@@ -1651,7 +1628,6 @@ G.GufaApp = function GufaApp(props) {
         await openProjectPath(workspace.path)
       }
       closeWorkspaceDialog()
-      showBanner(`已切换到工作区 ${workspace.title || workspace.path || ''}`, 'success')
     } catch (error) {
       setWorkspaceDialog((current) => (current === null ? current : { ...current, error: G.errorText(error) }))
     }
@@ -1682,7 +1658,6 @@ G.GufaApp = function GufaApp(props) {
       }
       await openProjectPath(directory)
       closeWorkspaceDialog()
-      showBanner('已创建工作区', 'success')
     } catch (error) {
       setBanner(G.errorText(error))
     } finally {
@@ -2459,10 +2434,7 @@ G.GufaApp = function GufaApp(props) {
           h(
             'div',
             { className: 'gufa-editor-area' },
-            banner !== '' && bannerTone === 'success'
-              ? h('div', { className: 'gufa-toast-success' }, h(G.Icon, { name: 'check', size: 13 }), h('span', null, banner))
-              : null,
-            banner !== '' && bannerTone !== 'success'
+            banner !== ''
               ? h(
                   'div',
                   { className: 'gufa-error-banner' },

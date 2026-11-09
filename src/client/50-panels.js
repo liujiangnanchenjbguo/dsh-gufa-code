@@ -199,7 +199,6 @@ G.Explorer = function Explorer(props) {
       await loadDir(targetDir)
       await loadDir('')
       props.onChanged?.()
-      showNotice(`已粘贴 ${written.length} 个文件到 ${targetDir === '' ? '项目根目录' : targetDir}`)
     } catch (error) {
       showNotice(`粘贴失败：${G.errorText(error)}`)
     }
@@ -530,7 +529,6 @@ G.SearchPanel = function SearchPanel(props) {
   const [confirming, setConfirming] = useState(null)
   const [replacing, setReplacing] = useState(false)
   const [replaceError, setReplaceError] = useState('')
-  const [notice, setNotice] = useState('')
   const inputRef = useRef(null)
   const requestRef = useRef(0)
 
@@ -652,7 +650,6 @@ G.SearchPanel = function SearchPanel(props) {
     if (typeof root !== 'string' || root === '' || replacing) return
     setReplacing(true)
     setReplaceError('')
-    setNotice('')
     try {
       await props.onBeforeReplace?.()
       const value = await G.api('fs.replace', payload)
@@ -662,9 +659,7 @@ G.SearchPanel = function SearchPanel(props) {
         await runSearch(query)
         return
       }
-      const count = Number(value?.replacedCount) || 0
       const files = Array.isArray(value?.replacedFiles) ? value.replacedFiles : []
-      setNotice(t('search.replaced', { count, files: files.length }))
       await props.onFilesChanged?.(files)
       setIgnored(new Set())
       await runSearch(query)
@@ -678,7 +673,6 @@ G.SearchPanel = function SearchPanel(props) {
   const requestReplaceAll = () => {
     if (view === null || view.total === 0 || replacing) return
     setReplaceError('')
-    setNotice('')
     setConfirming({ count: view.total, files: view.files.length })
   }
   const doReplaceAll = () => {
@@ -990,7 +984,6 @@ G.SearchPanel = function SearchPanel(props) {
             ),
           )
         : null,
-      notice !== '' ? h('div', { className: 'gufa-search-notice' }, notice) : null,
       replaceError !== '' ? h('div', { className: 'gufa-search-error' }, `${t('search.replaceError')}：${replaceError}`) : null,
     ),
     h('div', { className: 'gufa-panel-body gufa-scroll' }, body),
@@ -1005,14 +998,6 @@ G.GitPanel = function GitPanel(props) {
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState('')
-  const [info, setInfo] = useState('')
-
-  /* 操作结果提示（已推送 / 拉取完成 等）自动消失 */
-  useEffect(() => {
-    if (info === '') return undefined
-    const timer = window.setTimeout(() => setInfo(''), 1500)
-    return () => window.clearTimeout(timer)
-  }, [info])
   const [discardArmed, setDiscardArmed] = useState(false)
   const [headMenu, setHeadMenu] = useState(null)
   const [rowMenu, setRowMenu] = useState(null)
@@ -1061,7 +1046,6 @@ G.GitPanel = function GitPanel(props) {
   const act = async (fn) => {
     setPending(true)
     setError('')
-    setInfo('')
     try {
       await fn()
       await refresh()
@@ -1076,21 +1060,17 @@ G.GitPanel = function GitPanel(props) {
   /* 推送 / 拉取：点 ↑/↓ 直接执行 */
   const push = () => void act(async () => {
     await G.api('git.push', { root })
-    setInfo(t('git.pushDone'))
   })
   const pull = () => void act(async () => {
     await G.api('git.pull', { root })
-    setInfo(t('git.pullDone'))
   })
 
   /* 推送 / 拉取（新建分支还没有上游时也能直接发布：Host 会自动 -u <remote> <branch>） */
   const pushBranch = () => void act(async () => {
     await G.api('git.push', { root })
-    setInfo(t('git.pushDone'))
   })
   const pullBranch = () => void act(async () => {
     await G.api('git.pull', { root })
-    setInfo(t('git.pullDone'))
   })
 
   /* 一键撤销所有未暂存改动：第一次点击进入「再点确认」，3 秒后自动取消 */
@@ -1103,7 +1083,6 @@ G.GitPanel = function GitPanel(props) {
     setDiscardArmed(false)
     void act(async () => {
       await G.api('git.discardAll', { root })
-      setInfo(t('git.discardDone'))
     })
   }
 
@@ -1112,7 +1091,7 @@ G.GitPanel = function GitPanel(props) {
     if (root === null || pending) return
     const text = typeof message === 'string' ? message.trim() : ''
     if (text === '') {
-      setInfo(t('git.commitNeedsMessage'))
+      setError(t('git.commitNeedsMessage'))
       return
     }
     void act(async () => {
@@ -1121,7 +1100,6 @@ G.GitPanel = function GitPanel(props) {
       if (toStage.length > 0) await G.api('git.stage', { root, paths: toStage })
       await G.api('git.commit', { root, message: text })
       setMessage('')
-      setInfo(t('git.commitDone'))
     })
   }
   commitRef.current = commit
@@ -1243,7 +1221,6 @@ G.GitPanel = function GitPanel(props) {
       'div',
       { className: 'gufa-panel-body gufa-scroll', style: { display: 'flex', flexDirection: 'column' } },
       error !== '' ? h('div', { className: 'gufa-error-banner' }, G.Icon ? h(G.Icon, { name: 'warn', size: 13 }) : null, error) : null,
-      info !== '' ? h('div', { className: 'gufa-info-banner' }, info) : null,
       !root
         ? h(G.Empty, { icon: 'git', title: t('explorer.openProjectFirst') })
         : status === null

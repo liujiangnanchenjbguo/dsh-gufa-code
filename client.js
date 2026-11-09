@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.64'
+G.BUILD = '1.3.65'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -216,7 +216,6 @@ const DICT_ZH = {
   'search.replaceAll': '全部替换',
   'search.replaceThisFile': '替换此文件',
   'search.replacing': '替换中…',
-  'search.replaced': '已替换 {count} 处（{files} 个文件）',
   'search.confirmReplace': '确定替换 {count} 处（{files} 个文件）？直接写文件，编辑器撤销无效。',
   'search.confirmYes': '确定替换',
   'search.confirmNo': '取消',
@@ -257,11 +256,9 @@ const DICT_ZH = {
   'git.behindCount': '待拉取',
   'git.pull': '拉取',
   'git.noUpstreamHint': '当前分支还没有上游：点标题栏 ↑ 推送一次即可自动创建上游（git push -u）',
-  'git.pushDone': '已推送（如需首次建立上游会自动 -u）',
   'git.discardFile': '还原该文件的改动',
   'git.autoStageHint': '提交时会自动暂存所有未暂存改动（也可以先手动选择要暂存的文件）',
   'git.commitNeedsMessage': '请先填写提交信息，再按 ⌘⇧↵ 提交',
-  'git.commitDone': '提交成功',
   'git.more': '更多操作',
   'git.viewDiff': '查看改动对比',
   'git.copyPath': '复制文件路径',
@@ -289,8 +286,6 @@ const DICT_ZH = {
   'diff.stageFile': '暂存文件',
   'git.discardAll': '撤销所有未暂存改动',
   'git.discardConfirm': '再点一次确认撤销（未跟踪文件不会被删除）',
-  'git.discardDone': '已撤销所有改动（未跟踪文件保留）',
-  'git.pullDone': '拉取完成',
   'git.committed': '已提交',
   'git.refresh': '刷新',
   'git.staged': '已暂存',
@@ -467,7 +462,6 @@ const DICT_EN = {
   'search.replaceAll': 'Replace all',
   'search.replaceThisFile': 'Replace in this file',
   'search.replacing': 'Replacing…',
-  'search.replaced': 'Replaced {count} occurrences ({files} files)',
   'search.confirmReplace': 'Replace {count} occurrences in {files} files? This writes files directly; editor undo will not work.',
   'search.confirmYes': 'Replace',
   'search.confirmNo': 'Cancel',
@@ -508,11 +502,9 @@ const DICT_EN = {
   'git.behindCount': 'to pull',
   'git.pull': 'Pull',
   'git.noUpstreamHint': 'No upstream for this branch yet: click ↑ in the header to push once (auto git push -u)',
-  'git.pushDone': 'Pushed',
   'git.discardFile': 'Revert this file',
   'git.autoStageHint': 'Committing auto-stages all unstaged changes',
   'git.commitNeedsMessage': 'Write a commit message first, then press ⌘⇧↵',
-  'git.commitDone': 'Committed',
   'git.more': 'More actions',
   'git.viewDiff': 'View diff',
   'git.copyPath': 'Copy file path',
@@ -540,8 +532,6 @@ const DICT_EN = {
   'diff.stageFile': 'Stage file',
   'git.discardAll': 'Discard all unstaged changes',
   'git.discardConfirm': 'Click again to confirm (untracked files are kept)',
-  'git.discardDone': 'All changes discarded (untracked files kept)',
-  'git.pullDone': 'Pull complete',
   'git.committed': 'Committed',
   'git.refresh': 'Refresh',
   'git.staged': 'Staged',
@@ -1751,7 +1741,6 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-search-action[data-primary]{background:var(--gufa-accent);border-color:var(--gufa-accent);color:#fff}
 .gufa-search-confirm{margin:6px 8px 0;padding:7px 9px;border-radius:7px;border:1px solid var(--gufa-accent);background:color-mix(in srgb, var(--gufa-accent) 12%, transparent);font-size:11.5px;line-height:1.55;color:var(--gufa-text)}
 .gufa-search-confirm-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
-.gufa-search-notice{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-success-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 45%, transparent)}
 .gufa-search-error{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}
 .gufa-search-file-replace{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer}
 .gufa-search-file-replace:hover{background:var(--gufa-active);color:var(--gufa-text)}
@@ -1889,15 +1878,6 @@ html[data-gufa-ide] .liang-skin-backdrop{display:none!important}
 .gufa-git-sync[data-active]{color:var(--gufa-accent)}
 .gufa-git-sync-count{font-size:10.5px;font-variant-numeric:tabular-nums;min-width:8px;text-align:center}
 .gufa-git-sync[data-active] .gufa-git-sync-count{font-weight:700}
-.gufa-info-banner{display:flex;align-items:center;gap:6px;margin:8px 10px 0;padding:4px 8px;border-radius:6px;font-size:11.5px;
-  color:var(--dsw-alias-state-success-primary, #3fa66f);border:1px solid color-mix(in srgb, currentColor 35%, transparent);
-  background:color-mix(in srgb, currentColor 10%, transparent)}
-.gufa-toast-success{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2147483300;
-  display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;font-size:12px;pointer-events:none;
-  color:var(--dsw-alias-state-success-primary, #3fb950);
-  background:color-mix(in srgb, #3fb950 16%, var(--gufa-solid-overlay-bg, #1c1c1c));
-  border:1px solid color-mix(in srgb, #3fb950 50%, transparent);
-  box-shadow:0 8px 24px rgba(0,0,0,.35);backdrop-filter:blur(8px)}
 /* 资源管理器：Git 改动状态颜色（M/A/D/R/??） */
 .gufa-tree-row[data-git-status="M"] .gufa-tree-name{color:#e5c07b}
 .gufa-tree-row[data-git-status="A"] .gufa-tree-name{color:#3fb950}
@@ -7041,7 +7021,6 @@ G.Explorer = function Explorer(props) {
       await loadDir(targetDir)
       await loadDir('')
       props.onChanged?.()
-      showNotice(`已粘贴 ${written.length} 个文件到 ${targetDir === '' ? '项目根目录' : targetDir}`)
     } catch (error) {
       showNotice(`粘贴失败：${G.errorText(error)}`)
     }
@@ -7372,7 +7351,6 @@ G.SearchPanel = function SearchPanel(props) {
   const [confirming, setConfirming] = useState(null)
   const [replacing, setReplacing] = useState(false)
   const [replaceError, setReplaceError] = useState('')
-  const [notice, setNotice] = useState('')
   const inputRef = useRef(null)
   const requestRef = useRef(0)
 
@@ -7494,7 +7472,6 @@ G.SearchPanel = function SearchPanel(props) {
     if (typeof root !== 'string' || root === '' || replacing) return
     setReplacing(true)
     setReplaceError('')
-    setNotice('')
     try {
       await props.onBeforeReplace?.()
       const value = await G.api('fs.replace', payload)
@@ -7504,9 +7481,7 @@ G.SearchPanel = function SearchPanel(props) {
         await runSearch(query)
         return
       }
-      const count = Number(value?.replacedCount) || 0
       const files = Array.isArray(value?.replacedFiles) ? value.replacedFiles : []
-      setNotice(t('search.replaced', { count, files: files.length }))
       await props.onFilesChanged?.(files)
       setIgnored(new Set())
       await runSearch(query)
@@ -7520,7 +7495,6 @@ G.SearchPanel = function SearchPanel(props) {
   const requestReplaceAll = () => {
     if (view === null || view.total === 0 || replacing) return
     setReplaceError('')
-    setNotice('')
     setConfirming({ count: view.total, files: view.files.length })
   }
   const doReplaceAll = () => {
@@ -7832,7 +7806,6 @@ G.SearchPanel = function SearchPanel(props) {
             ),
           )
         : null,
-      notice !== '' ? h('div', { className: 'gufa-search-notice' }, notice) : null,
       replaceError !== '' ? h('div', { className: 'gufa-search-error' }, `${t('search.replaceError')}：${replaceError}`) : null,
     ),
     h('div', { className: 'gufa-panel-body gufa-scroll' }, body),
@@ -7847,14 +7820,6 @@ G.GitPanel = function GitPanel(props) {
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState('')
-  const [info, setInfo] = useState('')
-
-  /* 操作结果提示（已推送 / 拉取完成 等）自动消失 */
-  useEffect(() => {
-    if (info === '') return undefined
-    const timer = window.setTimeout(() => setInfo(''), 1500)
-    return () => window.clearTimeout(timer)
-  }, [info])
   const [discardArmed, setDiscardArmed] = useState(false)
   const [headMenu, setHeadMenu] = useState(null)
   const [rowMenu, setRowMenu] = useState(null)
@@ -7903,7 +7868,6 @@ G.GitPanel = function GitPanel(props) {
   const act = async (fn) => {
     setPending(true)
     setError('')
-    setInfo('')
     try {
       await fn()
       await refresh()
@@ -7918,21 +7882,17 @@ G.GitPanel = function GitPanel(props) {
   /* 推送 / 拉取：点 ↑/↓ 直接执行 */
   const push = () => void act(async () => {
     await G.api('git.push', { root })
-    setInfo(t('git.pushDone'))
   })
   const pull = () => void act(async () => {
     await G.api('git.pull', { root })
-    setInfo(t('git.pullDone'))
   })
 
   /* 推送 / 拉取（新建分支还没有上游时也能直接发布：Host 会自动 -u <remote> <branch>） */
   const pushBranch = () => void act(async () => {
     await G.api('git.push', { root })
-    setInfo(t('git.pushDone'))
   })
   const pullBranch = () => void act(async () => {
     await G.api('git.pull', { root })
-    setInfo(t('git.pullDone'))
   })
 
   /* 一键撤销所有未暂存改动：第一次点击进入「再点确认」，3 秒后自动取消 */
@@ -7945,7 +7905,6 @@ G.GitPanel = function GitPanel(props) {
     setDiscardArmed(false)
     void act(async () => {
       await G.api('git.discardAll', { root })
-      setInfo(t('git.discardDone'))
     })
   }
 
@@ -7954,7 +7913,7 @@ G.GitPanel = function GitPanel(props) {
     if (root === null || pending) return
     const text = typeof message === 'string' ? message.trim() : ''
     if (text === '') {
-      setInfo(t('git.commitNeedsMessage'))
+      setError(t('git.commitNeedsMessage'))
       return
     }
     void act(async () => {
@@ -7963,7 +7922,6 @@ G.GitPanel = function GitPanel(props) {
       if (toStage.length > 0) await G.api('git.stage', { root, paths: toStage })
       await G.api('git.commit', { root, message: text })
       setMessage('')
-      setInfo(t('git.commitDone'))
     })
   }
   commitRef.current = commit
@@ -8085,7 +8043,6 @@ G.GitPanel = function GitPanel(props) {
       'div',
       { className: 'gufa-panel-body gufa-scroll', style: { display: 'flex', flexDirection: 'column' } },
       error !== '' ? h('div', { className: 'gufa-error-banner' }, G.Icon ? h(G.Icon, { name: 'warn', size: 13 }) : null, error) : null,
-      info !== '' ? h('div', { className: 'gufa-info-banner' }, info) : null,
       !root
         ? h(G.Empty, { icon: 'git', title: t('explorer.openProjectFirst') })
         : status === null
@@ -10610,7 +10567,6 @@ G.GufaApp = function GufaApp(props) {
   const [modal, setModal] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [trashUndo, setTrashUndo] = useState([])
-  const [bannerTone, setBannerTone] = useState('error')
   const [branchMenu, setBranchMenu] = useState(null)
   const [workspaceDialog, setWorkspaceDialog] = useState(null)
   const [workspaceSessions, setWorkspaceSessions] = useState({ status: 'idle', sessions: [], groups: [], sessionIds: [], archivedSessionIds: [] })
@@ -10993,27 +10949,10 @@ G.GufaApp = function GufaApp(props) {
     void refreshGit()
   }, [project, patchTab, refreshGit])
 
-  /** 顶栏提示：错误常驻红色；成功用绿色 toast，1.2 秒后自动消失。 */
-  const successTimerRef = useRef(null)
+  /** 顶栏提示：只显示错误/需要用户处理的提示；成功类操作直接看界面结果，不再弹 toast。 */
   const showBanner = useCallback((text, tone) => {
-    if (successTimerRef.current !== null) {
-      window.clearTimeout(successTimerRef.current)
-      successTimerRef.current = null
-    }
-    if (tone === 'success') {
-      setBannerTone('success')
-      setBanner(text)
-      successTimerRef.current = window.setTimeout(() => {
-        successTimerRef.current = null
-        setBanner('')
-      }, 1200)
-      return
-    }
-    setBannerTone('error')
+    if (tone === 'success') return
     setBanner(text)
-  }, [])
-  useEffect(() => () => {
-    if (successTimerRef.current !== null) window.clearTimeout(successTimerRef.current)
   }, [])
 
   const closeTab = useCallback((path) => {
@@ -11142,7 +11081,6 @@ G.GufaApp = function GufaApp(props) {
     try {
       await G.api('git.checkout', { root: project.root, branch: name })
       closeBranchMenu()
-      showBanner(`已切换到分支 ${name}`, 'success')
       setGitRefreshToken((token) => token + 1)
       setRefreshToken((token) => token + 1)
       void refreshGit()
@@ -11158,7 +11096,6 @@ G.GufaApp = function GufaApp(props) {
     try {
       await G.api('git.createBranch', { root: project.root, name })
       closeBranchMenu()
-      showBanner(`已创建并切换到分支 ${name}`, 'success')
       setGitRefreshToken((token) => token + 1)
       setRefreshToken((token) => token + 1)
       void refreshGit()
@@ -11322,7 +11259,6 @@ G.GufaApp = function GufaApp(props) {
     if (project === null) return
     try {
       await G.api('git.discard', { root: project.root, paths: [path] })
-      showBanner('已还原该文件的改动', 'success')
       // 改动已还原：关掉该 diff 标签（内容已与暂存区一致）
       setTabs((current) => current.filter((tab) => tab.path !== path))
       setActivePath((current) => (current === path ? null : current))
@@ -11338,7 +11274,6 @@ G.GufaApp = function GufaApp(props) {
     if (project === null) return
     try {
       await G.api('git.stage', { root: project.root, paths: [path] })
-      showBanner('已暂存该文件', 'success')
       setGitRefreshToken((token) => token + 1)
       void refreshGit()
     } catch (error) {
@@ -11823,7 +11758,6 @@ G.GufaApp = function GufaApp(props) {
     const missingSet = new Set(missing)
     setTabs((current) => current.filter((tab) => tab !== null && !missingSet.has(tab.path)))
     setActivePath((current) => (current !== null && missingSet.has(current) ? null : current))
-    showBanner(`已关闭 ${missing.length} 个已删除文件的标签`, 'success')
   }, [project, tabs, showBanner])
   const pruneMissingTabsRef = useRef(null)
   pruneMissingTabsRef.current = pruneMissingTabs
@@ -11993,7 +11927,6 @@ G.GufaApp = function GufaApp(props) {
         await openProjectPath(workspace.path)
       }
       closeWorkspaceDialog()
-      showBanner(`已切换到工作区 ${workspace.title || workspace.path || ''}`, 'success')
     } catch (error) {
       setWorkspaceDialog((current) => (current === null ? current : { ...current, error: G.errorText(error) }))
     }
@@ -12024,7 +11957,6 @@ G.GufaApp = function GufaApp(props) {
       }
       await openProjectPath(directory)
       closeWorkspaceDialog()
-      showBanner('已创建工作区', 'success')
     } catch (error) {
       setBanner(G.errorText(error))
     } finally {
@@ -12801,10 +12733,7 @@ G.GufaApp = function GufaApp(props) {
           h(
             'div',
             { className: 'gufa-editor-area' },
-            banner !== '' && bannerTone === 'success'
-              ? h('div', { className: 'gufa-toast-success' }, h(G.Icon, { name: 'check', size: 13 }), h('span', null, banner))
-              : null,
-            banner !== '' && bannerTone !== 'success'
+            banner !== ''
               ? h(
                   'div',
                   { className: 'gufa-error-banner' },

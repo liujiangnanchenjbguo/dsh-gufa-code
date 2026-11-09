@@ -208,7 +208,6 @@ const DICT_ZH = {
   'search.replaceAll': '全部替换',
   'search.replaceThisFile': '替换此文件',
   'search.replacing': '替换中…',
-  'search.replaced': '已替换 {count} 处（{files} 个文件）',
   'search.confirmReplace': '确定替换 {count} 处（{files} 个文件）？直接写文件，编辑器撤销无效。',
   'search.confirmYes': '确定替换',
   'search.confirmNo': '取消',
@@ -249,11 +248,9 @@ const DICT_ZH = {
   'git.behindCount': '待拉取',
   'git.pull': '拉取',
   'git.noUpstreamHint': '当前分支还没有上游：点标题栏 ↑ 推送一次即可自动创建上游（git push -u）',
-  'git.pushDone': '已推送（如需首次建立上游会自动 -u）',
   'git.discardFile': '还原该文件的改动',
   'git.autoStageHint': '提交时会自动暂存所有未暂存改动（也可以先手动选择要暂存的文件）',
   'git.commitNeedsMessage': '请先填写提交信息，再按 ⌘⇧↵ 提交',
-  'git.commitDone': '提交成功',
   'git.more': '更多操作',
   'git.viewDiff': '查看改动对比',
   'git.copyPath': '复制文件路径',
@@ -281,8 +278,6 @@ const DICT_ZH = {
   'diff.stageFile': '暂存文件',
   'git.discardAll': '撤销所有未暂存改动',
   'git.discardConfirm': '再点一次确认撤销（未跟踪文件不会被删除）',
-  'git.discardDone': '已撤销所有改动（未跟踪文件保留）',
-  'git.pullDone': '拉取完成',
   'git.committed': '已提交',
   'git.refresh': '刷新',
   'git.staged': '已暂存',
@@ -459,7 +454,6 @@ const DICT_EN = {
   'search.replaceAll': 'Replace all',
   'search.replaceThisFile': 'Replace in this file',
   'search.replacing': 'Replacing…',
-  'search.replaced': 'Replaced {count} occurrences ({files} files)',
   'search.confirmReplace': 'Replace {count} occurrences in {files} files? This writes files directly; editor undo will not work.',
   'search.confirmYes': 'Replace',
   'search.confirmNo': 'Cancel',
@@ -500,11 +494,9 @@ const DICT_EN = {
   'git.behindCount': 'to pull',
   'git.pull': 'Pull',
   'git.noUpstreamHint': 'No upstream for this branch yet: click ↑ in the header to push once (auto git push -u)',
-  'git.pushDone': 'Pushed',
   'git.discardFile': 'Revert this file',
   'git.autoStageHint': 'Committing auto-stages all unstaged changes',
   'git.commitNeedsMessage': 'Write a commit message first, then press ⌘⇧↵',
-  'git.commitDone': 'Committed',
   'git.more': 'More actions',
   'git.viewDiff': 'View diff',
   'git.copyPath': 'Copy file path',
@@ -532,8 +524,6 @@ const DICT_EN = {
   'diff.stageFile': 'Stage file',
   'git.discardAll': 'Discard all unstaged changes',
   'git.discardConfirm': 'Click again to confirm (untracked files are kept)',
-  'git.discardDone': 'All changes discarded (untracked files kept)',
-  'git.pullDone': 'Pull complete',
   'git.committed': 'Committed',
   'git.refresh': 'Refresh',
   'git.staged': 'Staged',
@@ -1743,7 +1733,6 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-search-action[data-primary]{background:var(--gufa-accent);border-color:var(--gufa-accent);color:#fff}
 .gufa-search-confirm{margin:6px 8px 0;padding:7px 9px;border-radius:7px;border:1px solid var(--gufa-accent);background:color-mix(in srgb, var(--gufa-accent) 12%, transparent);font-size:11.5px;line-height:1.55;color:var(--gufa-text)}
 .gufa-search-confirm-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
-.gufa-search-notice{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-success-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 45%, transparent)}
 .gufa-search-error{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}
 .gufa-search-file-replace{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer}
 .gufa-search-file-replace:hover{background:var(--gufa-active);color:var(--gufa-text)}
@@ -1881,15 +1870,6 @@ html[data-gufa-ide] .liang-skin-backdrop{display:none!important}
 .gufa-git-sync[data-active]{color:var(--gufa-accent)}
 .gufa-git-sync-count{font-size:10.5px;font-variant-numeric:tabular-nums;min-width:8px;text-align:center}
 .gufa-git-sync[data-active] .gufa-git-sync-count{font-weight:700}
-.gufa-info-banner{display:flex;align-items:center;gap:6px;margin:8px 10px 0;padding:4px 8px;border-radius:6px;font-size:11.5px;
-  color:var(--dsw-alias-state-success-primary, #3fa66f);border:1px solid color-mix(in srgb, currentColor 35%, transparent);
-  background:color-mix(in srgb, currentColor 10%, transparent)}
-.gufa-toast-success{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:2147483300;
-  display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;font-size:12px;pointer-events:none;
-  color:var(--dsw-alias-state-success-primary, #3fb950);
-  background:color-mix(in srgb, #3fb950 16%, var(--gufa-solid-overlay-bg, #1c1c1c));
-  border:1px solid color-mix(in srgb, #3fb950 50%, transparent);
-  box-shadow:0 8px 24px rgba(0,0,0,.35);backdrop-filter:blur(8px)}
 /* 资源管理器：Git 改动状态颜色（M/A/D/R/??） */
 .gufa-tree-row[data-git-status="M"] .gufa-tree-name{color:#e5c07b}
 .gufa-tree-row[data-git-status="A"] .gufa-tree-name{color:#3fb950}
