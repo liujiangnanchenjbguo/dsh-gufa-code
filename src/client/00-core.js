@@ -112,6 +112,7 @@ const DICT_ZH = {
   'shortcuts.toggleSidebar': '显示 / 隐藏左侧栏',
   'shortcuts.closeTab': '关闭当前标签页',
   'shortcuts.explorer': '聚焦资源管理器',
+  'shortcuts.search': '聚焦全局搜索',
   'shortcuts.git': '聚焦源代码管理',
   'shortcuts.ssh': '聚焦 SSH 主机',
   'shortcuts.newTerminal': '新建终端',
@@ -176,12 +177,23 @@ const DICT_ZH = {
   'app.manualPath': '或直接输入路径',
   'app.pathPlaceholder': '例如 /Users/me/project',
   'activity.explorer': '资源管理器',
+  'activity.search': '搜索',
   'activity.git': '源代码管理',
   'activity.ssh': 'SSH 远程',
   'activity.terminal': '终端',
   'activity.chat': '古法 AI 助手',
   'activity.collapseChat': '收起 AI 面板',
   'activity.expandChat': '展开 AI 面板',
+  'search.placeholder': '搜索项目中的文本，回车立即搜索',
+  'search.caseSensitive': '区分大小写',
+  'search.regex': '使用正则表达式',
+  'search.clear': '清空搜索',
+  'search.searching': '搜索中…',
+  'search.idle': '输入关键字搜索整个项目',
+  'search.noResult': '没有找到匹配结果',
+  'search.summary': '{count} 个结果 · {files} 个文件',
+  'search.truncated': '结果过多已截断，请缩小范围',
+  'search.error': '搜索失败',
   'explorer.empty': '目录为空',
   'explorer.newFile': '新建文件',
   'explorer.newFolder': '新建文件夹',
@@ -341,6 +353,7 @@ const DICT_EN = {
   'shortcuts.toggleSidebar': 'Toggle sidebar',
   'shortcuts.closeTab': 'Close current tab',
   'shortcuts.explorer': 'Focus explorer',
+  'shortcuts.search': 'Focus search',
   'shortcuts.git': 'Focus source control',
   'shortcuts.ssh': 'Focus SSH hosts',
   'shortcuts.newTerminal': 'New terminal',
@@ -396,12 +409,23 @@ const DICT_EN = {
   'app.manualPath': 'Or type a path',
   'app.pathPlaceholder': 'e.g. /Users/me/project',
   'activity.explorer': 'Explorer',
+  'activity.search': 'Search',
   'activity.git': 'Source control',
   'activity.ssh': 'SSH',
   'activity.terminal': 'Terminal',
   'activity.chat': 'Gufa AI',
   'activity.collapseChat': 'Collapse AI panel',
   'activity.expandChat': 'Expand AI panel',
+  'search.placeholder': 'Search text across the project (Enter to run)',
+  'search.caseSensitive': 'Match case',
+  'search.regex': 'Use regular expression',
+  'search.clear': 'Clear search',
+  'search.searching': 'Searching…',
+  'search.idle': 'Type a keyword to search the whole project',
+  'search.noResult': 'No matches found',
+  'search.summary': '{count} results · {files} files',
+  'search.truncated': 'Too many results, truncated — narrow the query',
+  'search.error': 'Search failed',
   'explorer.empty': 'Folder is empty',
   'explorer.newFile': 'New file',
   'explorer.newFolder': 'New folder',
@@ -1651,6 +1675,29 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-explorer-notice{margin:4px 10px 0;padding:3px 8px;border-radius:6px;font-size:11px;line-height:1.5;color:var(--gufa-text);
   background:color-mix(in srgb, var(--gufa-accent) 14%, transparent);border:0.5px solid color-mix(in srgb, var(--gufa-accent) 40%, transparent);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ── 搜索面板（全局文本搜索） ───────────────────────────────────────── */
+.gufa-search-bar{display:flex;flex-direction:column;gap:6px;padding:6px 8px;border-bottom:1px solid var(--gufa-border);flex:0 0 auto}
+.gufa-search-input-wrap{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:7px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);color:var(--gufa-text-dim)}
+.gufa-search-input-wrap:focus-within{border-color:var(--gufa-accent)}
+.gufa-search-input{flex:1 1 auto;min-width:0;height:100%;border:0;background:transparent;color:var(--gufa-text);font-size:12px;outline:none}
+.gufa-search-input::placeholder{color:var(--gufa-text-dim)}
+.gufa-search-toggles{display:flex;align-items:center;gap:5px;min-height:22px}
+.gufa-search-toggle{height:22px;min-width:25px;padding:0 5px;border-radius:5px;border:1px solid var(--gufa-border);background:transparent;color:var(--gufa-text-dim);font:600 11px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
+.gufa-search-toggle:hover{color:var(--gufa-text);background:var(--gufa-hover)}
+.gufa-search-toggle[data-active]{background:var(--gufa-accent);border-color:var(--gufa-accent);color:#fff}
+.gufa-search-summary{margin-left:auto;font-size:11px;color:var(--gufa-text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gufa-search-file{margin:0 6px}
+.gufa-search-file-head{display:flex;align-items:center;gap:5px;width:100%;height:24px;padding:0 6px;border:0;background:transparent;color:var(--gufa-text);border-radius:5px;cursor:pointer;text-align:left}
+.gufa-search-file-head:hover{background:var(--gufa-hover)}
+.gufa-search-file-name{flex:0 0 auto;max-width:55%;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-search-file-dir{flex:1 1 auto;min-width:0;font-size:10.5px;color:var(--gufa-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-search-file-count{flex:0 0 auto;font-size:10.5px;color:var(--gufa-text-dim);border:1px solid var(--gufa-border);border-radius:999px;padding:0 6px;line-height:15px}
+.gufa-search-match{display:flex;align-items:baseline;gap:8px;width:100%;padding:2px 6px 2px 24px;border:0;background:transparent;color:var(--gufa-text-dim);cursor:pointer;border-radius:5px;text-align:left}
+.gufa-search-match:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-search-line{flex:0 0 auto;min-width:24px;text-align:right;font:11px ui-monospace,Menlo,Consolas,monospace;opacity:.65}
+.gufa-search-text{flex:1 1 auto;min-width:0;font:11.5px ui-monospace,Menlo,Consolas,monospace;white-space:pre;overflow:hidden;text-overflow:ellipsis}
+.gufa-search-hit{background:rgba(192,57,43,.38);color:var(--gufa-text);border-radius:2px;padding:0 1px}
+
 .gufa-tree-chevron{width:14px;flex:0 0 auto;opacity:.7;display:flex;align-items:center;justify-content:center}
 .gufa-tree-icon{width:15px;flex:0 0 auto;opacity:.85;display:flex;align-items:center;justify-content:center}
 .gufa-tree-badge{font-size:10px;color:var(--gufa-accent);flex:0 0 auto;font-weight:600}

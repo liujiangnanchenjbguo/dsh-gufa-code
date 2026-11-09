@@ -46,6 +46,7 @@ G.shortcutAction = function shortcutAction(event) {
   }
   if (event.shiftKey === true) {
     if (key === 'e') return 'panelExplorer'
+    if (key === 'f') return 'panelSearch'
     if (key === 'g') return 'panelGit'
     if (key === 'h' || key === 'u') return 'panelSsh'
     if (key === 'b') return 'toggleSidebar'
@@ -160,6 +161,7 @@ const GUFA_SHORTCUT_COMMANDS = [
   { action: 'toggleSidebar', id: 'gufa.ide.toggleSidebar', labelKey: 'shortcuts.toggleSidebar', code: 'KeyB', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'closeTab', id: 'gufa.ide.closeTab', labelKey: 'shortcuts.closeTab', code: 'KeyW', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'panelExplorer', id: 'gufa.ide.panelExplorer', labelKey: 'shortcuts.explorer', code: 'KeyE', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
+  { action: 'panelSearch', id: 'gufa.ide.panelSearch', labelKey: 'shortcuts.search', code: 'KeyF', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'panelGit', id: 'gufa.ide.panelGit', labelKey: 'shortcuts.git', code: 'KeyG', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'panelSsh', id: 'gufa.ide.panelSsh', labelKey: 'shortcuts.ssh', code: 'KeyU', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'newTerminal', id: 'gufa.ide.newTerminal', labelKey: 'shortcuts.newTerminal', code: 'Backquote', modifiers: ['control', 'shift'], regions: ['page', 'editable', 'terminal'] },
@@ -480,6 +482,7 @@ G.SHORTCUTS = [
   { action: 'toggleSidebar', labelKey: 'shortcuts.toggleSidebar', keys: ['B'], shift: false },
   { action: 'closeTab', labelKey: 'shortcuts.closeTab', keys: ['W'], shift: false },
   { action: 'panelExplorer', labelKey: 'shortcuts.explorer', keys: ['E'], shift: true },
+  { action: 'panelSearch', labelKey: 'shortcuts.search', keys: ['F'], shift: true },
   { action: 'panelGit', labelKey: 'shortcuts.git', keys: ['G'], shift: true },
   { action: 'panelSsh', labelKey: 'shortcuts.ssh', keys: ['U'], shift: true },
   { action: 'newTerminal', labelKey: 'shortcuts.newTerminal', keys: ['`'], shift: true, macText: '⌃⇧`', otherText: 'Ctrl+Shift+`' },

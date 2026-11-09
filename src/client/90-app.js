@@ -477,6 +477,21 @@ G.GufaApp = function GufaApp(props) {
     }
   }, [project, tabs])
 
+  /* 从搜索/定位结果打开文件并跳到指定行列（等 tab 切换完成后再触发编辑器 reveal） */
+  const openFileAt = useCallback(async (path, line, column) => {
+    if (typeof path !== 'string' || path === '') return
+    await openFile(path)
+    const targetLine = Number.isFinite(Number(line)) ? Math.max(1, Math.trunc(Number(line))) : 1
+    const targetColumn = Number.isFinite(Number(column)) ? Math.max(1, Math.trunc(Number(column))) : 1
+    window.setTimeout(() => {
+      try {
+        G.bus.emit('editor:reveal', { path, line: targetLine, column: targetColumn })
+      } catch {
+        /* ignore */
+      }
+    }, 120)
+  }, [openFile])
+
   /* 原子恢复标签集合：按快照顺序、去重、最后激活指定文件（避免 openFile 并发产生重复标签） */
   const applyTabs = useCallback(async (paths, active) => {
     if (project === null || !Array.isArray(paths)) return
@@ -1977,6 +1992,10 @@ G.GufaApp = function GufaApp(props) {
       if (activePath !== null) closeTabWithConfirm(activePath)
     },
     panelExplorer: () => patchUi({ view: 'explorer', sidebarOpen: true }),
+    panelSearch: () => {
+      patchUi({ view: 'search', sidebarOpen: true })
+      window.setTimeout(() => { G.bus.emit('search:focus') }, 0)
+    },
     panelGit: () => {
       patchUi({ view: 'git', sidebarOpen: true })
       setGitRefreshToken((token) => token + 1)
@@ -2084,6 +2103,7 @@ G.GufaApp = function GufaApp(props) {
   /* ── 渲染 ─────────────────────────────────────────────────────────── */
   const activityItems = [
     { id: 'explorer', icon: 'files', label: t('activity.explorer'), onClick: () => patchUi({ view: 'explorer', sidebarOpen: true }) },
+    { id: 'search', icon: 'search', label: t('activity.search'), onClick: () => { patchUi({ view: 'search', sidebarOpen: true }); G.bus.emit('search:focus') } },
     { id: 'git', icon: 'git', label: t('activity.git'), badge: gitStatus?.changes?.length ?? 0, onClick: () => { patchUi({ view: 'git', sidebarOpen: true }); setGitRefreshToken((token) => token + 1) } },
     { id: 'ssh', icon: 'server', label: t('activity.ssh'), onClick: () => { patchUi({ view: 'ssh', sidebarOpen: true }); setSshRefreshToken((token) => token + 1) } },
     { id: 'terminal', icon: 'terminal', label: t('activity.terminal'), active: ui.terminalOpen, onClick: () => patchUi({ terminalOpen: !ui.terminalOpen }) },
@@ -2109,6 +2129,12 @@ G.GufaApp = function GufaApp(props) {
         onNewFolder: (dir) => setModal({ type: 'newFolder', dir: dir ?? '' }),
         onRename: (path) => setModal({ type: 'rename', path }),
         onDelete: (path) => void deleteEntry(path),
+      })),
+    h('div', { key: 'search', style: { display: ui.view === 'search' ? 'flex' : 'none', flex: '1 1 auto', minHeight: 0, flexDirection: 'column' } },
+      h(G.SearchPanel, {
+        root: project?.root ?? null,
+        active: ui.view === 'search',
+        onOpenFile: (path, line, column) => void openFileAt(path, line, column),
       })),
     h('div', { key: 'git', style: { display: ui.view === 'git' ? 'flex' : 'none', flex: '1 1 auto', minHeight: 0, flexDirection: 'column' } },
       h(G.GitPanel, {

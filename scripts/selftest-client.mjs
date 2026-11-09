@@ -252,6 +252,7 @@ if (windowStub.__GUFA_CODE__?.G?.shortcutAction !== undefined) {
     G0.shortcutAction(mod({ key: 'e', code: 'KeyE', shiftKey: true })) === 'panelExplorer' &&
     G0.shortcutAction(mod({ key: 'g', code: 'KeyG', shiftKey: true })) === 'panelGit' &&
     G0.shortcutAction(mod({ key: 'h', code: 'KeyH', shiftKey: true })) === 'panelSsh')
+  check('shortcut: Cmd/Ctrl+Shift+F = panelSearch', G0.shortcutAction(mod({ key: 'f', code: 'KeyF', shiftKey: true })) === 'panelSearch')
   check('shortcut: Shift+Cmd/Ctrl+` = newTerminal', G0.shortcutAction(mod({ code: 'Backquote', shiftKey: true })) === 'newTerminal')
   check('shortcut: Cmd/Ctrl+/ = shortcuts help', G0.shortcutAction(mod({ key: '/', code: 'Slash' })) === 'shortcuts')
   check('shortcut: no modifier ignored', G0.shortcutAction({ ...base, key: 'k', code: 'KeyK' }) === null)

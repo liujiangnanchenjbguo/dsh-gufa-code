@@ -150,6 +150,13 @@ AI 是通过 Host 工具直接写盘，客户端收不到任何通知。
 签名变化就自动刷新 Git 面板和资源管理器；非 Git 项目每 6s 静默重读已加载目录。
 窗口 focus / visibilitychange 时也会立即刷新一次。
 
+## 全局搜索（1.3.62 新增）
+
+- Host 侧新增 `fs.search`：Git 项目先用 `git ls-files -z --cached --others --exclude-standard` 拿文件清单（快、尊重 .gitignore、含未跟踪文件），非 Git 项目才目录遍历（BFS，跳过 node_modules/dist/.venv 等，明显二进制扩展名直接跳过）。
+- 搜索有时限（12s）与扫描上限（默认 20000 文件 / 500 命中 / 200 文件），超出返回 `truncated: true`，UI 会提示「结果过多已截断」。
+- 结果行带 `line/column/start/end/text`，前端高亮 `start..end`；点击结果通过 `G.bus 'editor:reveal'` 让 Monaco 跳到对应行列（tab 切换未完成时事件先存到 `pendingRevealRef`）。
+- **坑**：往 `G.CSS` 模板里加规则时一定插在完整规则之后。曾把搜索样式插进 `.gufa-explorer-notice{...}` 规则中间，CSS nesting 把整块样式变成后代选择器，面板渲染成原生输入框。插入后检查 `client.js` 里 `.gufa-explorer-notice{...}` 的闭合括号是否在搜索块之前。
+
 ## 5.1 摸鱼会话框比编辑器黑：官方会话根节点自己又画了一层底
 
 - 现象：摸鱼里编辑器/终端都统一了，右侧会话框看起来明显更黑更实。

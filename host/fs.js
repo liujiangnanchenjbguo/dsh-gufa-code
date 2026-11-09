@@ -4,7 +4,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { access, cp, lstat, mkdir, open, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, cp, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { constants } from 'node:fs'
@@ -241,6 +241,198 @@ export function register(router, env) {
   })
 
   /** 把系统剪贴板里的文件匹配回项目内已有文件（供聊天框「粘贴文件→@引用」使用）。 */
+  /** 全项目文本搜索（左侧「搜索」面板用）。返回按文件分组、带上行列号的匹配。 */
+  router.method('fs.search', async (body) => {
+    const project = env.projects.ensure(typeof body.root === 'string' ? body.root : '')
+    const root = project.root
+    const rawQuery = typeof body.query === 'string' ? body.query : ''
+    const query = rawQuery.slice(0, 200)
+    if (query === '') return { query: '', files: [], total: 0, truncated: false, scanned: 0, viaGit: false }
+    const options = body.options !== null && typeof body.options === 'object' ? body.options : {}
+    const caseSensitive = options.caseSensitive === true
+    const useRegex = options.regex === true
+    const clampInt = (value, fallback, min, max) => {
+      const number = Number(value)
+      if (!Number.isFinite(number)) return fallback
+      return Math.min(Math.max(Math.trunc(number), min), max)
+    }
+    const maxFiles = clampInt(options.maxFiles, 200, 1, 500)
+    const maxMatches = clampInt(options.maxMatches, 500, 1, 2000)
+    const maxScanned = clampInt(options.maxScanned, 20000, 100, 100000)
+    const fileSizeLimit = 2 * 1024 * 1024
+    const timeBudget = 12000
+    const startedAt = Date.now()
+    let regex = null
+    let needle = ''
+    if (useRegex) {
+      try {
+        regex = new RegExp(query, caseSensitive ? 'g' : 'gi')
+      } catch (error) {
+        throw new ApiError('bad-regex', `正则表达式无效：${error.message}`, 400)
+      }
+    } else {
+      needle = caseSensitive ? query : query.toLowerCase()
+    }
+    const EXCLUDED = new Set([
+      'node_modules', '.git', 'dist', 'build', 'out', '.next', 'vendor', 'target', '.venv', 'venv',
+      '__pycache__', '.idea', '.cache', '.turbo', '.parcel-cache', '.svelte-kit', '.nuxt', '.output',
+      'coverage', '.gradle', 'DerivedData', 'Pods', '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache',
+      '.electron-cache', '.npm-cache', '.pip-cache', '.yarn', '.pnpm-store', '.pnpm',
+    ])
+    /* 明显是二进制的扩展名：不读文件，避免把大量图片/压缩包计入扫描数 */
+    const SKIP_EXT = new Set([
+      'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'icns', 'bmp', 'tiff', 'pdf', 'zip', 'gz', 'tgz', 'tar', '7z', 'rar', 'dmg', 'iso',
+      'mp4', 'mp3', 'wav', 'mov', 'avi', 'mkv', 'flac', 'jar', 'class', 'o', 'a', 'so', 'dylib', 'dll', 'exe', 'bin', 'dat',
+      'woff', 'woff2', 'ttf', 'otf', 'eot', 'wasm', 'pyc', 'node',
+    ])
+    const extensionOf = (rel) => {
+      const base = String(rel).split('/').pop() ?? ''
+      const dot = base.lastIndexOf('.')
+      return dot <= 0 ? '' : base.slice(dot + 1).toLowerCase()
+    }
+    const files = []
+    let total = 0
+    let scanned = 0
+    let truncated = false
+    const readMatches = (line) => {
+      const raw = []
+      if (regex !== null) {
+        regex.lastIndex = 0
+        let match
+        while ((match = regex.exec(line)) !== null) {
+          if (match[0].length === 0) {
+            regex.lastIndex += 1
+            continue
+          }
+          raw.push([match.index, match.index + match[0].length])
+          if (raw.length >= 50) break
+        }
+        return raw
+      }
+      const haystack = caseSensitive ? line : line.toLowerCase()
+      let from = 0
+      while (raw.length < 50) {
+        const index = haystack.indexOf(needle, from)
+        if (index === -1) break
+        raw.push([index, index + needle.length])
+        from = index + Math.max(needle.length, 1)
+      }
+      return raw
+    }
+    const searchFile = async (rel) => {
+      const absolute = join(root, rel)
+      const info = await stat(absolute).catch(() => undefined)
+      if (info === undefined || !info.isFile() || info.size > fileSizeLimit) return []
+      let buffer
+      try {
+        buffer = await readFile(absolute)
+      } catch {
+        return []
+      }
+      if (buffer.includes(0)) return []
+      const lines = buffer.toString('utf8').split(/\r?\n/)
+      const matches = []
+      for (let index = 0; index < lines.length && matches.length < 50; index += 1) {
+        const line = lines[index]
+        for (const range of readMatches(line)) {
+          if (matches.length >= 50 || total >= maxMatches) break
+          const WINDOW = 300
+          const windowStart = line.length > WINDOW ? Math.max(0, Math.min(line.length - WINDOW, range[0] - 80)) : 0
+          matches.push({
+            line: index + 1,
+            column: range[0] + 1,
+            start: range[0] - windowStart,
+            end: range[1] - windowStart,
+            text: line.slice(windowStart, windowStart + WINDOW),
+          })
+          total += 1
+        }
+      }
+      return matches
+    }
+    const acceptFile = async (rel) => {
+      const matches = await searchFile(rel)
+      if (matches.length === 0) return
+      files.push({ path: rel, matches })
+    }
+    /* Git 项目用 git ls-files 拿文件清单（快、尊重 .gitignore、包含未跟踪文件）；
+       非 Git 项目才走目录遍历。 */
+    let isGitRepo = project.isGit === true
+    if (!isGitRepo) {
+      try {
+        const dotGit = await stat(join(root, '.git'))
+        isGitRepo = dotGit.isDirectory() || dotGit.isFile()
+      } catch {
+        isGitRepo = false
+      }
+    }
+    let candidates = null
+    if (isGitRepo) {
+      try {
+        const { stdout } = await runCommand('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+          cwd: root,
+          maxBuffer: 64 * 1024 * 1024,
+          timeout: 15000,
+        })
+        candidates = stdout.split('\0').filter((item) => item !== '')
+        candidates.sort((a, b) => a.localeCompare(b))
+      } catch {
+        candidates = null
+      }
+    }
+    if (candidates !== null) {
+      for (const rel of candidates) {
+        if (files.length >= maxFiles || total >= maxMatches || scanned >= maxScanned || Date.now() - startedAt > timeBudget) {
+          truncated = true
+          break
+        }
+        if (SKIP_EXT.has(extensionOf(rel))) continue
+        scanned += 1
+        await acceptFile(rel)
+      }
+      if (!truncated && files.length >= maxFiles) truncated = true
+    } else {
+      const queue = ['']
+      let head = 0
+      while (head < queue.length) {
+        if (files.length >= maxFiles || total >= maxMatches || scanned >= maxScanned || Date.now() - startedAt > timeBudget) {
+          truncated = true
+          break
+        }
+        const dirRel = queue[head]
+        head += 1
+        let entries
+        try {
+          entries = await readdir(join(root, dirRel), { withFileTypes: true })
+        } catch {
+          continue
+        }
+        entries.sort((a, b) => String(a.name).localeCompare(String(b.name)))
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            if (!EXCLUDED.has(entry.name)) queue.push(dirRel === '' ? entry.name : `${dirRel}/${entry.name}`)
+            continue
+          }
+          if (!entry.isFile() || EXCLUDED.has(entry.name)) continue
+          const rel = dirRel === '' ? entry.name : `${dirRel}/${entry.name}`
+          if (SKIP_EXT.has(extensionOf(rel))) continue
+          if (scanned >= maxScanned) {
+            truncated = true
+            break
+          }
+          scanned += 1
+          await acceptFile(rel)
+          if (files.length >= maxFiles || total >= maxMatches) {
+            truncated = true
+            break
+          }
+        }
+      }
+    }
+    files.sort((a, b) => a.path.localeCompare(b.path))
+    return { query, files, total, truncated, scanned, viaGit: candidates !== null }
+  })
+
   router.method('fs.matchFiles', async (body) => {
     const root = await projectOf(env, body)
     const wanted = Array.isArray(body.files)

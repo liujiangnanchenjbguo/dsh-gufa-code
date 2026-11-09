@@ -111,6 +111,32 @@ try {
   const afterDelete = await call(router, 'fs.list', { root, path: 'src' })
   check('delete applied', !afterDelete.entries.some((entry) => entry.name === 'helper.ts'))
 
+  console.log('fs.search')
+  await call(router, 'fs.create', { root, path: 'search.txt', kind: 'file' })
+  await call(router, 'fs.write', { root, path: 'search.txt', content: 'Alpha beta\nBETA gamma\nbeta BETA\n' })
+  await call(router, 'fs.create', { root, path: 'node_modules', kind: 'dir' }).catch(() => {})
+  await call(router, 'fs.create', { root, path: 'node_modules/hidden.txt', kind: 'file' }).catch(() => {})
+  await call(router, 'fs.write', { root, path: 'node_modules/hidden.txt', content: 'beta hidden\n' }).catch(() => {})
+  const searchAll = await call(router, 'fs.search', { root, query: 'beta' })
+  check('search finds file', searchAll.files.some((file) => file.path === 'search.txt'))
+  check('search total (case-insensitive)', searchAll.total === 4, String(searchAll.total))
+  check('search excludes node_modules', !searchAll.files.some((file) => file.path.startsWith('node_modules/')))
+  const searchFile = searchAll.files.find((file) => file.path === 'search.txt')
+  check('search line numbers', searchFile.matches[0].line === 1 && searchFile.matches[0].column === 7, JSON.stringify(searchFile.matches[0]))
+  const searchCased = await call(router, 'fs.search', { root, query: 'beta', options: { caseSensitive: true } })
+  check('search case sensitive', searchCased.total === 2, String(searchCased.total))
+  const searchRegex = await call(router, 'fs.search', { root, query: 'b(eta|ETA)', options: { regex: true } })
+  check('search regex', searchRegex.total === 4, String(searchRegex.total))
+  let badRegex = false
+  try {
+    await call(router, 'fs.search', { root, query: '([', options: { regex: true } })
+  } catch (error) {
+    badRegex = error.code === 'bad-regex'
+  }
+  check('search invalid regex rejected', badRegex)
+  await call(router, 'fs.delete', { root, path: 'search.txt' }).catch(() => {})
+  await call(router, 'fs.delete', { root, path: 'node_modules' }).catch(() => {})
+
   console.log('git.status / stage / commit')
   execFileSync('git', ['init', '-q'], { cwd: projectDir })
   execFileSync('git', ['config', 'user.email', 'selftest@example.com'], { cwd: projectDir })
@@ -126,6 +152,9 @@ try {
   check('working tree clean after commit', clean.changes.length === 0, JSON.stringify(clean.changes))
   const log = await call(router, 'git.log', { root, limit: 5 })
   check('commit in log', log.commits.length === 1 && log.commits[0].subject === 'feat: selftest')
+  const gitSearch = await call(router, 'fs.search', { root, query: 'answer' })
+  check('search uses git file list', gitSearch.viaGit === true, String(gitSearch.viaGit))
+  check('search finds committed file', gitSearch.files.some((file) => file.path === 'src/main.ts'))
   writeFileSync(join(projectDir, 'src/main.ts'), 'const answer = 43\n')
   const diff = await call(router, 'git.diff', { root, path: 'src/main.ts' })
   check('diff contains change', diff.patch.includes('43'))

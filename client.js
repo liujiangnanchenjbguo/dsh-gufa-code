@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.61'
+G.BUILD = '1.3.62'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -120,6 +120,7 @@ const DICT_ZH = {
   'shortcuts.toggleSidebar': '显示 / 隐藏左侧栏',
   'shortcuts.closeTab': '关闭当前标签页',
   'shortcuts.explorer': '聚焦资源管理器',
+  'shortcuts.search': '聚焦全局搜索',
   'shortcuts.git': '聚焦源代码管理',
   'shortcuts.ssh': '聚焦 SSH 主机',
   'shortcuts.newTerminal': '新建终端',
@@ -184,12 +185,23 @@ const DICT_ZH = {
   'app.manualPath': '或直接输入路径',
   'app.pathPlaceholder': '例如 /Users/me/project',
   'activity.explorer': '资源管理器',
+  'activity.search': '搜索',
   'activity.git': '源代码管理',
   'activity.ssh': 'SSH 远程',
   'activity.terminal': '终端',
   'activity.chat': '古法 AI 助手',
   'activity.collapseChat': '收起 AI 面板',
   'activity.expandChat': '展开 AI 面板',
+  'search.placeholder': '搜索项目中的文本，回车立即搜索',
+  'search.caseSensitive': '区分大小写',
+  'search.regex': '使用正则表达式',
+  'search.clear': '清空搜索',
+  'search.searching': '搜索中…',
+  'search.idle': '输入关键字搜索整个项目',
+  'search.noResult': '没有找到匹配结果',
+  'search.summary': '{count} 个结果 · {files} 个文件',
+  'search.truncated': '结果过多已截断，请缩小范围',
+  'search.error': '搜索失败',
   'explorer.empty': '目录为空',
   'explorer.newFile': '新建文件',
   'explorer.newFolder': '新建文件夹',
@@ -349,6 +361,7 @@ const DICT_EN = {
   'shortcuts.toggleSidebar': 'Toggle sidebar',
   'shortcuts.closeTab': 'Close current tab',
   'shortcuts.explorer': 'Focus explorer',
+  'shortcuts.search': 'Focus search',
   'shortcuts.git': 'Focus source control',
   'shortcuts.ssh': 'Focus SSH hosts',
   'shortcuts.newTerminal': 'New terminal',
@@ -404,12 +417,23 @@ const DICT_EN = {
   'app.manualPath': 'Or type a path',
   'app.pathPlaceholder': 'e.g. /Users/me/project',
   'activity.explorer': 'Explorer',
+  'activity.search': 'Search',
   'activity.git': 'Source control',
   'activity.ssh': 'SSH',
   'activity.terminal': 'Terminal',
   'activity.chat': 'Gufa AI',
   'activity.collapseChat': 'Collapse AI panel',
   'activity.expandChat': 'Expand AI panel',
+  'search.placeholder': 'Search text across the project (Enter to run)',
+  'search.caseSensitive': 'Match case',
+  'search.regex': 'Use regular expression',
+  'search.clear': 'Clear search',
+  'search.searching': 'Searching…',
+  'search.idle': 'Type a keyword to search the whole project',
+  'search.noResult': 'No matches found',
+  'search.summary': '{count} results · {files} files',
+  'search.truncated': 'Too many results, truncated — narrow the query',
+  'search.error': 'Search failed',
   'explorer.empty': 'Folder is empty',
   'explorer.newFile': 'New file',
   'explorer.newFolder': 'New folder',
@@ -1659,6 +1683,29 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-explorer-notice{margin:4px 10px 0;padding:3px 8px;border-radius:6px;font-size:11px;line-height:1.5;color:var(--gufa-text);
   background:color-mix(in srgb, var(--gufa-accent) 14%, transparent);border:0.5px solid color-mix(in srgb, var(--gufa-accent) 40%, transparent);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ── 搜索面板（全局文本搜索） ───────────────────────────────────────── */
+.gufa-search-bar{display:flex;flex-direction:column;gap:6px;padding:6px 8px;border-bottom:1px solid var(--gufa-border);flex:0 0 auto}
+.gufa-search-input-wrap{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:7px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);color:var(--gufa-text-dim)}
+.gufa-search-input-wrap:focus-within{border-color:var(--gufa-accent)}
+.gufa-search-input{flex:1 1 auto;min-width:0;height:100%;border:0;background:transparent;color:var(--gufa-text);font-size:12px;outline:none}
+.gufa-search-input::placeholder{color:var(--gufa-text-dim)}
+.gufa-search-toggles{display:flex;align-items:center;gap:5px;min-height:22px}
+.gufa-search-toggle{height:22px;min-width:25px;padding:0 5px;border-radius:5px;border:1px solid var(--gufa-border);background:transparent;color:var(--gufa-text-dim);font:600 11px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
+.gufa-search-toggle:hover{color:var(--gufa-text);background:var(--gufa-hover)}
+.gufa-search-toggle[data-active]{background:var(--gufa-accent);border-color:var(--gufa-accent);color:#fff}
+.gufa-search-summary{margin-left:auto;font-size:11px;color:var(--gufa-text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gufa-search-file{margin:0 6px}
+.gufa-search-file-head{display:flex;align-items:center;gap:5px;width:100%;height:24px;padding:0 6px;border:0;background:transparent;color:var(--gufa-text);border-radius:5px;cursor:pointer;text-align:left}
+.gufa-search-file-head:hover{background:var(--gufa-hover)}
+.gufa-search-file-name{flex:0 0 auto;max-width:55%;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-search-file-dir{flex:1 1 auto;min-width:0;font-size:10.5px;color:var(--gufa-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gufa-search-file-count{flex:0 0 auto;font-size:10.5px;color:var(--gufa-text-dim);border:1px solid var(--gufa-border);border-radius:999px;padding:0 6px;line-height:15px}
+.gufa-search-match{display:flex;align-items:baseline;gap:8px;width:100%;padding:2px 6px 2px 24px;border:0;background:transparent;color:var(--gufa-text-dim);cursor:pointer;border-radius:5px;text-align:left}
+.gufa-search-match:hover{background:var(--gufa-hover);color:var(--gufa-text)}
+.gufa-search-line{flex:0 0 auto;min-width:24px;text-align:right;font:11px ui-monospace,Menlo,Consolas,monospace;opacity:.65}
+.gufa-search-text{flex:1 1 auto;min-width:0;font:11.5px ui-monospace,Menlo,Consolas,monospace;white-space:pre;overflow:hidden;text-overflow:ellipsis}
+.gufa-search-hit{background:rgba(192,57,43,.38);color:var(--gufa-text);border-radius:2px;padding:0 1px}
+
 .gufa-tree-chevron{width:14px;flex:0 0 auto;opacity:.7;display:flex;align-items:center;justify-content:center}
 .gufa-tree-icon{width:15px;flex:0 0 auto;opacity:.85;display:flex;align-items:center;justify-content:center}
 .gufa-tree-badge{font-size:10px;color:var(--gufa-accent);flex:0 0 auto;font-weight:600}
@@ -2774,6 +2821,7 @@ G.FooterAction = function FooterAction(props) {
     const propsRef = useRef(props)
     const activePathRef = useRef(activePath)
     const statusRef = useRef('loading')
+    const pendingRevealRef = useRef(null)
 
     /** idle → loading → ready / error */
     const [status, setStatus] = useState('loading')
@@ -3211,12 +3259,48 @@ G.FooterAction = function FooterAction(props) {
             }
           }
           reportCursor()
+          const pending = pendingRevealRef.current
+          if (pending !== null && pending !== undefined && pending.path === targetTab.path) {
+            pendingRevealRef.current = null
+            try {
+              editor.setPosition({ lineNumber: pending.line, column: pending.column })
+              editor.revealLineInCenter(pending.line)
+              editor.focus()
+            } catch {
+              /* ignore */
+            }
+          }
           /* 打开/切换文件不抢焦点：只有用户点击编辑区时才进入键盘编辑 */
         }
       } else if (targetTab !== null) {
         modelPathRef.current = targetTab.path
       }
     }, [status, tabs, activePath, root, reportCursor, disposeAllModels, disposeModelAt])
+
+    /* 搜索面板点击结果 → 打开文件并跳到对应行列（由 App 通过 bus 发来） */
+    useEffect(() => {
+      if (G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function') return undefined
+      return G.bus.on('editor:reveal', (detail) => {
+        const editor = editorRef.current
+        if (editor === null || editor === undefined) return
+        const rawLine = Number(detail?.line)
+        const rawColumn = Number(detail?.column)
+        const line = Number.isFinite(rawLine) ? Math.max(1, Math.trunc(rawLine)) : 1
+        const column = Number.isFinite(rawColumn) ? Math.max(1, Math.trunc(rawColumn)) : 1
+        const path = typeof detail?.path === 'string' && detail.path !== '' ? detail.path : null
+        if (path !== null && modelPathRef.current !== path) {
+          pendingRevealRef.current = { path, line, column }
+          return
+        }
+        try {
+          editor.setPosition({ lineNumber: line, column })
+          editor.revealLineInCenter(line)
+          editor.focus()
+        } catch (error) {
+          /* ignore */
+        }
+      })
+    }, [])
 
     /* ── Git diff 视图：Monaco DiffEditor（未暂存的一侧可编辑并保存） ── */
     useEffect(() => {
@@ -7201,6 +7285,219 @@ G.MenuItem = function MenuItem(props) {
   )
 }
 
+/* ── 全局搜索（左侧「搜索」面板） ──────────────────────────────────────── */
+G.SearchPanel = function SearchPanel(props) {
+  const t = G.useT()
+  const root = props.root
+  const [query, setQuery] = useState('')
+  const [caseSensitive, setCaseSensitive] = useState(false)
+  const [regex, setRegex] = useState(false)
+  const [status, setStatus] = useState('idle')
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState('')
+  const [collapsed, setCollapsed] = useState({})
+  const inputRef = useRef(null)
+  const requestRef = useRef(0)
+
+  const focusInput = useCallback(() => {
+    const node = inputRef.current
+    if (node === null || node === undefined) return
+    try {
+      node.focus()
+      if (typeof node.select === 'function') node.select()
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const runSearch = useCallback(async (value) => {
+    const text = String(value ?? '').trim()
+    if (text === '' || typeof root !== 'string' || root === '') {
+      requestRef.current += 1
+      setResult(null)
+      setStatus('idle')
+      setError('')
+      return
+    }
+    const seq = requestRef.current + 1
+    requestRef.current = seq
+    setStatus('loading')
+    setError('')
+    try {
+      const value = await G.api('fs.search', {
+        root,
+        query: text,
+        options: { caseSensitive, regex, maxFiles: 200, maxMatches: 500 },
+      })
+      if (seq !== requestRef.current) return
+      setResult(value)
+      setStatus('ready')
+    } catch (err) {
+      if (seq !== requestRef.current) return
+      setResult(null)
+      setError(G.errorText(err))
+      setStatus('error')
+    }
+  }, [root, caseSensitive, regex])
+
+  /* 输入防抖搜索（回车立即搜索） */
+  useEffect(() => {
+    if (typeof root !== 'string' || root === '') return undefined
+    const text = query.trim()
+    if (text === '') {
+      setResult(null)
+      setStatus('idle')
+      setError('')
+      return undefined
+    }
+    const timer = window.setTimeout(() => { void runSearch(text) }, 320)
+    return () => window.clearTimeout(timer)
+  }, [query, runSearch, root])
+
+  /* 快捷键/按钮打开搜索面板时聚焦输入框 */
+  useEffect(() => {
+    if (G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function') return undefined
+    return G.bus.on('search:focus', focusInput)
+  }, [focusInput])
+
+  useEffect(() => {
+    if (props.active === true) focusInput()
+  }, [props.active, focusInput])
+
+  const summary = (() => {
+    if (status === 'loading') return t('search.searching')
+    if (status === 'error' || result === null) return ''
+    if (result.total === 0) return result.truncated === true ? t('search.truncated') : t('search.noResult')
+    const base = t('search.summary', { count: result.total, files: result.files.length })
+    return result.truncated === true ? `${base} · ${t('search.truncated')}` : base
+  })()
+
+  const highlight = (match) => {
+    const text = typeof match.text === 'string' ? match.text : ''
+    const start = Number.isFinite(match.start) ? match.start : -1
+    const end = Number.isFinite(match.end) ? match.end : -1
+    if (start < 0 || end <= start || start >= text.length) return [text]
+    const safeEnd = Math.min(end, text.length)
+    return [
+      text.slice(0, start),
+      h('mark', { key: 'hit', className: 'gufa-search-hit' }, text.slice(start, safeEnd)),
+      text.slice(safeEnd),
+    ]
+  }
+
+  const body = (() => {
+    if (typeof root !== 'string' || root === '') {
+      return h('div', { className: 'gufa-hint', style: { padding: '10px 12px' } }, t('explorer.openProjectFirst'))
+    }
+    if (error !== '') {
+      return h('div', { className: 'gufa-error-banner', style: { margin: '8px' } }, h(G.Icon, { name: 'warn', size: 12 }), h('span', null, `${t('search.error')}：${error}`))
+    }
+    if (status === 'idle') return h('div', { className: 'gufa-hint', style: { padding: '10px 12px' } }, t('search.idle'))
+    if (status === 'loading') return h('div', { className: 'gufa-hint', style: { padding: '10px 12px', display: 'flex', gap: 8, alignItems: 'center' } }, h(G.Spinner), t('search.searching'))
+    if (result === null || result.total === 0) {
+      const emptyText = result !== null && result.truncated === true ? t('search.truncated') : t('search.noResult')
+      return h('div', { className: 'gufa-hint', style: { padding: '10px 12px' } }, emptyText)
+    }
+    return h(
+      'div',
+      { className: 'gufa-search-results' },
+      ...result.files.map((file) => {
+        const isCollapsed = collapsed[file.path] === true
+        return h(
+          'div',
+          { key: file.path, className: 'gufa-search-file' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'gufa-search-file-head',
+              title: file.path,
+              onClick: () => setCollapsed((current) => ({ ...current, [file.path]: !isCollapsed })),
+            },
+            h(G.Icon, { name: isCollapsed ? 'chevron-right' : 'chevron-down', size: 11 }),
+            h('span', { className: 'gufa-search-file-name' }, G.basename(file.path)),
+            h('span', { className: 'gufa-search-file-dir' }, G.dirname(file.path)),
+            h('span', { className: 'gufa-search-file-count' }, String(file.matches.length)),
+          ),
+          isCollapsed
+            ? null
+            : file.matches.map((match, index) =>
+                h(
+                  'button',
+                  {
+                    key: `${file.path}:${match.line}:${match.column}:${index}`,
+                    type: 'button',
+                    className: 'gufa-search-match',
+                    title: `${file.path}:${match.line}:${match.column}`,
+                    onClick: () => props.onOpenFile?.(file.path, match.line, match.column),
+                  },
+                  h('span', { className: 'gufa-search-line' }, String(match.line)),
+                  h('span', { className: 'gufa-search-text' }, ...highlight(match)),
+                ),
+              ),
+        )
+      }),
+    )
+  })()
+
+  return h(
+    'div',
+    { className: 'gufa-search-panel', style: { display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 } },
+    h('div', { className: 'gufa-panel-head' }, h('span', { className: 'gufa-panel-head-title' }, t('activity.search'))),
+    h(
+      'div',
+      { className: 'gufa-search-bar' },
+      h(
+        'div',
+        { className: 'gufa-search-input-wrap' },
+        h(G.Icon, { name: 'search', size: 13 }),
+        h('input', {
+          ref: inputRef,
+          className: 'gufa-search-input',
+          type: 'text',
+          value: query,
+          placeholder: t('search.placeholder'),
+          spellCheck: false,
+          onChange: (event) => setQuery(event.target.value),
+          onKeyDown: (event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              void runSearch(query)
+            } else if (event.key === 'Escape') {
+              event.preventDefault()
+              setQuery('')
+              inputRef.current?.blur?.()
+            }
+          },
+        }),
+        query === ''
+          ? null
+          : h(G.IconButton, { title: t('search.clear'), onClick: () => { setQuery(''); focusInput() } }, h(G.Icon, { name: 'close', size: 11 })),
+      ),
+      h(
+        'div',
+        { className: 'gufa-search-toggles' },
+        h('button', {
+          type: 'button',
+          className: 'gufa-search-toggle',
+          'data-active': caseSensitive ? '' : undefined,
+          title: t('search.caseSensitive'),
+          onClick: () => setCaseSensitive((value) => !value),
+        }, 'Aa'),
+        h('button', {
+          type: 'button',
+          className: 'gufa-search-toggle',
+          'data-active': regex ? '' : undefined,
+          title: t('search.regex'),
+          onClick: () => setRegex((value) => !value),
+        }, '.*'),
+        h('span', { className: 'gufa-search-summary', title: summary }, summary),
+      ),
+    ),
+    h('div', { className: 'gufa-panel-body gufa-scroll' }, body),
+  )
+}
+
 /* ── 源代码管理（Git） ─────────────────────────────────────────────────── */
 G.GitPanel = function GitPanel(props) {
   const t = G.useT()
@@ -9222,6 +9519,7 @@ G.shortcutAction = function shortcutAction(event) {
   }
   if (event.shiftKey === true) {
     if (key === 'e') return 'panelExplorer'
+    if (key === 'f') return 'panelSearch'
     if (key === 'g') return 'panelGit'
     if (key === 'h' || key === 'u') return 'panelSsh'
     if (key === 'b') return 'toggleSidebar'
@@ -9336,6 +9634,7 @@ const GUFA_SHORTCUT_COMMANDS = [
   { action: 'toggleSidebar', id: 'gufa.ide.toggleSidebar', labelKey: 'shortcuts.toggleSidebar', code: 'KeyB', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'closeTab', id: 'gufa.ide.closeTab', labelKey: 'shortcuts.closeTab', code: 'KeyW', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'panelExplorer', id: 'gufa.ide.panelExplorer', labelKey: 'shortcuts.explorer', code: 'KeyE', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
+  { action: 'panelSearch', id: 'gufa.ide.panelSearch', labelKey: 'shortcuts.search', code: 'KeyF', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'panelGit', id: 'gufa.ide.panelGit', labelKey: 'shortcuts.git', code: 'KeyG', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'panelSsh', id: 'gufa.ide.panelSsh', labelKey: 'shortcuts.ssh', code: 'KeyU', modifiers: ['primary', 'shift'], regions: ['page', 'editable'] },
   { action: 'newTerminal', id: 'gufa.ide.newTerminal', labelKey: 'shortcuts.newTerminal', code: 'Backquote', modifiers: ['control', 'shift'], regions: ['page', 'editable', 'terminal'] },
@@ -9656,6 +9955,7 @@ G.SHORTCUTS = [
   { action: 'toggleSidebar', labelKey: 'shortcuts.toggleSidebar', keys: ['B'], shift: false },
   { action: 'closeTab', labelKey: 'shortcuts.closeTab', keys: ['W'], shift: false },
   { action: 'panelExplorer', labelKey: 'shortcuts.explorer', keys: ['E'], shift: true },
+  { action: 'panelSearch', labelKey: 'shortcuts.search', keys: ['F'], shift: true },
   { action: 'panelGit', labelKey: 'shortcuts.git', keys: ['G'], shift: true },
   { action: 'panelSsh', labelKey: 'shortcuts.ssh', keys: ['U'], shift: true },
   { action: 'newTerminal', labelKey: 'shortcuts.newTerminal', keys: ['`'], shift: true, macText: '⌃⇧`', otherText: 'Ctrl+Shift+`' },
@@ -10177,6 +10477,21 @@ G.GufaApp = function GufaApp(props) {
       setBanner(G.errorText(error))
     }
   }, [project, tabs])
+
+  /* 从搜索/定位结果打开文件并跳到指定行列（等 tab 切换完成后再触发编辑器 reveal） */
+  const openFileAt = useCallback(async (path, line, column) => {
+    if (typeof path !== 'string' || path === '') return
+    await openFile(path)
+    const targetLine = Number.isFinite(Number(line)) ? Math.max(1, Math.trunc(Number(line))) : 1
+    const targetColumn = Number.isFinite(Number(column)) ? Math.max(1, Math.trunc(Number(column))) : 1
+    window.setTimeout(() => {
+      try {
+        G.bus.emit('editor:reveal', { path, line: targetLine, column: targetColumn })
+      } catch {
+        /* ignore */
+      }
+    }, 120)
+  }, [openFile])
 
   /* 原子恢复标签集合：按快照顺序、去重、最后激活指定文件（避免 openFile 并发产生重复标签） */
   const applyTabs = useCallback(async (paths, active) => {
@@ -11678,6 +11993,10 @@ G.GufaApp = function GufaApp(props) {
       if (activePath !== null) closeTabWithConfirm(activePath)
     },
     panelExplorer: () => patchUi({ view: 'explorer', sidebarOpen: true }),
+    panelSearch: () => {
+      patchUi({ view: 'search', sidebarOpen: true })
+      window.setTimeout(() => { G.bus.emit('search:focus') }, 0)
+    },
     panelGit: () => {
       patchUi({ view: 'git', sidebarOpen: true })
       setGitRefreshToken((token) => token + 1)
@@ -11785,6 +12104,7 @@ G.GufaApp = function GufaApp(props) {
   /* ── 渲染 ─────────────────────────────────────────────────────────── */
   const activityItems = [
     { id: 'explorer', icon: 'files', label: t('activity.explorer'), onClick: () => patchUi({ view: 'explorer', sidebarOpen: true }) },
+    { id: 'search', icon: 'search', label: t('activity.search'), onClick: () => { patchUi({ view: 'search', sidebarOpen: true }); G.bus.emit('search:focus') } },
     { id: 'git', icon: 'git', label: t('activity.git'), badge: gitStatus?.changes?.length ?? 0, onClick: () => { patchUi({ view: 'git', sidebarOpen: true }); setGitRefreshToken((token) => token + 1) } },
     { id: 'ssh', icon: 'server', label: t('activity.ssh'), onClick: () => { patchUi({ view: 'ssh', sidebarOpen: true }); setSshRefreshToken((token) => token + 1) } },
     { id: 'terminal', icon: 'terminal', label: t('activity.terminal'), active: ui.terminalOpen, onClick: () => patchUi({ terminalOpen: !ui.terminalOpen }) },
@@ -11810,6 +12130,12 @@ G.GufaApp = function GufaApp(props) {
         onNewFolder: (dir) => setModal({ type: 'newFolder', dir: dir ?? '' }),
         onRename: (path) => setModal({ type: 'rename', path }),
         onDelete: (path) => void deleteEntry(path),
+      })),
+    h('div', { key: 'search', style: { display: ui.view === 'search' ? 'flex' : 'none', flex: '1 1 auto', minHeight: 0, flexDirection: 'column' } },
+      h(G.SearchPanel, {
+        root: project?.root ?? null,
+        active: ui.view === 'search',
+        onOpenFile: (path, line, column) => void openFileAt(path, line, column),
       })),
     h('div', { key: 'git', style: { display: ui.view === 'git' ? 'flex' : 'none', flex: '1 1 auto', minHeight: 0, flexDirection: 'column' } },
       h(G.GitPanel, {

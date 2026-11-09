@@ -533,6 +533,7 @@
     const propsRef = useRef(props)
     const activePathRef = useRef(activePath)
     const statusRef = useRef('loading')
+    const pendingRevealRef = useRef(null)
 
     /** idle → loading → ready / error */
     const [status, setStatus] = useState('loading')
@@ -970,12 +971,48 @@
             }
           }
           reportCursor()
+          const pending = pendingRevealRef.current
+          if (pending !== null && pending !== undefined && pending.path === targetTab.path) {
+            pendingRevealRef.current = null
+            try {
+              editor.setPosition({ lineNumber: pending.line, column: pending.column })
+              editor.revealLineInCenter(pending.line)
+              editor.focus()
+            } catch {
+              /* ignore */
+            }
+          }
           /* 打开/切换文件不抢焦点：只有用户点击编辑区时才进入键盘编辑 */
         }
       } else if (targetTab !== null) {
         modelPathRef.current = targetTab.path
       }
     }, [status, tabs, activePath, root, reportCursor, disposeAllModels, disposeModelAt])
+
+    /* 搜索面板点击结果 → 打开文件并跳到对应行列（由 App 通过 bus 发来） */
+    useEffect(() => {
+      if (G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function') return undefined
+      return G.bus.on('editor:reveal', (detail) => {
+        const editor = editorRef.current
+        if (editor === null || editor === undefined) return
+        const rawLine = Number(detail?.line)
+        const rawColumn = Number(detail?.column)
+        const line = Number.isFinite(rawLine) ? Math.max(1, Math.trunc(rawLine)) : 1
+        const column = Number.isFinite(rawColumn) ? Math.max(1, Math.trunc(rawColumn)) : 1
+        const path = typeof detail?.path === 'string' && detail.path !== '' ? detail.path : null
+        if (path !== null && modelPathRef.current !== path) {
+          pendingRevealRef.current = { path, line, column }
+          return
+        }
+        try {
+          editor.setPosition({ lineNumber: line, column })
+          editor.revealLineInCenter(line)
+          editor.focus()
+        } catch (error) {
+          /* ignore */
+        }
+      })
+    }, [])
 
     /* ── Git diff 视图：Monaco DiffEditor（未暂存的一侧可编辑并保存） ── */
     useEffect(() => {
