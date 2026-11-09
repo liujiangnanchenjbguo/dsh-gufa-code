@@ -202,11 +202,12 @@ const DICT_ZH = {
   'search.preserveCase': '保留大小写（AB）',
   'search.replaceOne': '替换此匹配',
   'search.dismiss': '忽略此匹配',
+  'search.dismissFile': '忽略该文件的所有匹配',
   'search.openInEditor': '在编辑器中打开',
   'search.stale': '匹配位置已变化，已重新搜索',
   'search.replacePlaceholder': '替换为…',
   'search.replaceAll': '全部替换',
-  'search.replaceThisFile': '替换此文件',
+  'search.replaceThisFile': '替换该文件所有匹配',
   'search.replacing': '替换中…',
   'search.confirmReplace': '确定替换 {count} 处（{files} 个文件）？直接写文件，编辑器撤销无效。',
   'search.confirmYes': '确定替换',
@@ -448,11 +449,12 @@ const DICT_EN = {
   'search.preserveCase': 'Preserve case (AB)',
   'search.replaceOne': 'Replace this match',
   'search.dismiss': 'Dismiss this match',
+  'search.dismissFile': 'Dismiss all matches in this file',
   'search.openInEditor': 'Open in editor',
   'search.stale': 'Match moved; search refreshed',
   'search.replacePlaceholder': 'Replace with…',
   'search.replaceAll': 'Replace all',
-  'search.replaceThisFile': 'Replace in this file',
+  'search.replaceThisFile': 'Replace all matches in this file',
   'search.replacing': 'Replacing…',
   'search.confirmReplace': 'Replace {count} occurrences in {files} files? This writes files directly; editor undo will not work.',
   'search.confirmYes': 'Replace',
@@ -1751,6 +1753,10 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-search-summarybar{display:flex;align-items:center;gap:8px}
 .gufa-search-summarybar .gufa-search-summary{flex:1 1 auto;margin-left:0}
 .gufa-search-summarybar .gufa-search-link{flex:0 0 auto}
+.gufa-tip{position:fixed;z-index:2147483600;max-width:320px;padding:4px 8px;border-radius:5px;background:#2c2f36;color:#f2f2f2;border:1px solid rgba(255,255,255,.18);font-size:11px;line-height:1.45;white-space:normal;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+.gufa-search-file-dismiss{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer;opacity:0;transition:opacity .12s ease}
+.gufa-search-file-head:hover .gufa-search-file-dismiss,.gufa-search-file-head:focus-within .gufa-search-file-dismiss{opacity:1}
+.gufa-search-file-dismiss:hover{background:var(--gufa-active);color:var(--gufa-text)}
 .gufa-search-link{border:0;background:transparent;color:var(--gufa-accent);font-size:11px;cursor:pointer;padding:0}
 .gufa-search-link:hover{text-decoration:underline}
 

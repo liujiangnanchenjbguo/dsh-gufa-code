@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.65'
+G.BUILD = '1.3.67'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -210,11 +210,12 @@ const DICT_ZH = {
   'search.preserveCase': '保留大小写（AB）',
   'search.replaceOne': '替换此匹配',
   'search.dismiss': '忽略此匹配',
+  'search.dismissFile': '忽略该文件的所有匹配',
   'search.openInEditor': '在编辑器中打开',
   'search.stale': '匹配位置已变化，已重新搜索',
   'search.replacePlaceholder': '替换为…',
   'search.replaceAll': '全部替换',
-  'search.replaceThisFile': '替换此文件',
+  'search.replaceThisFile': '替换该文件所有匹配',
   'search.replacing': '替换中…',
   'search.confirmReplace': '确定替换 {count} 处（{files} 个文件）？直接写文件，编辑器撤销无效。',
   'search.confirmYes': '确定替换',
@@ -456,11 +457,12 @@ const DICT_EN = {
   'search.preserveCase': 'Preserve case (AB)',
   'search.replaceOne': 'Replace this match',
   'search.dismiss': 'Dismiss this match',
+  'search.dismissFile': 'Dismiss all matches in this file',
   'search.openInEditor': 'Open in editor',
   'search.stale': 'Match moved; search refreshed',
   'search.replacePlaceholder': 'Replace with…',
   'search.replaceAll': 'Replace all',
-  'search.replaceThisFile': 'Replace in this file',
+  'search.replaceThisFile': 'Replace all matches in this file',
   'search.replacing': 'Replacing…',
   'search.confirmReplace': 'Replace {count} occurrences in {files} files? This writes files directly; editor undo will not work.',
   'search.confirmYes': 'Replace',
@@ -1759,6 +1761,10 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-search-summarybar{display:flex;align-items:center;gap:8px}
 .gufa-search-summarybar .gufa-search-summary{flex:1 1 auto;margin-left:0}
 .gufa-search-summarybar .gufa-search-link{flex:0 0 auto}
+.gufa-tip{position:fixed;z-index:2147483600;max-width:320px;padding:4px 8px;border-radius:5px;background:#2c2f36;color:#f2f2f2;border:1px solid rgba(255,255,255,.18);font-size:11px;line-height:1.45;white-space:normal;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+.gufa-search-file-dismiss{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer;opacity:0;transition:opacity .12s ease}
+.gufa-search-file-head:hover .gufa-search-file-dismiss,.gufa-search-file-head:focus-within .gufa-search-file-dismiss{opacity:1}
+.gufa-search-file-dismiss:hover{background:var(--gufa-active);color:var(--gufa-text)}
 .gufa-search-link{border:0;background:transparent;color:var(--gufa-accent);font-size:11px;cursor:pointer;padding:0}
 .gufa-search-link:hover{text-decoration:underline}
 
@@ -2197,6 +2203,11 @@ const ICON_PATHS = {
     ['path', { d: 'M12 2.8l1 2.6 2.7.7 2-1.8 2.2 2.2-1.8 2 .7 2.7 2.6 1v3l-2.6 1-.7 2.7 1.8 2-2.2 2.2-2-1.8-2.7.7-1 2.6h-3l-1-2.6-2.7-.7-2 1.8-2.2-2.2 1.8-2-.7-2.7-2.6-1v-3l2.6-1 .7-2.7-1.8-2 2.2-2.2 2 1.8 2.7-.7 1-2.6h3z' }],
   ],
   code: [['path', { d: 'M8.5 6L3 12l5.5 6M15.5 6L21 12l-5.5 6' }]],
+  replace: [
+    ['rect', { x: 7, y: 4.5, width: 12.5, height: 15, rx: 2 }],
+    ['path', { d: 'M3 12h9' }],
+    ['path', { d: 'M9.5 9.5L12 12l-2.5 2.5' }],
+  ],
   search: [['circle', { cx: 11, cy: 11, r: 6.5 }], ['path', { d: 'M16 16l4.5 4.5' }]],
   message: [['path', { d: 'M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1z' }]],
   'panel-right': [['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }], ['path', { d: 'M14 4v16' }]],
@@ -7351,6 +7362,7 @@ G.SearchPanel = function SearchPanel(props) {
   const [confirming, setConfirming] = useState(null)
   const [replacing, setReplacing] = useState(false)
   const [replaceError, setReplaceError] = useState('')
+  const [tip, setTip] = useState(null)
   const inputRef = useRef(null)
   const requestRef = useRef(0)
 
@@ -7535,6 +7547,34 @@ G.SearchPanel = function SearchPanel(props) {
       return next
     })
   }
+  const dismissFile = (file) => {
+    setIgnored((current) => {
+      const next = new Set(current)
+      for (const match of file.matches) next.add(matchKey(file.path, match))
+      return next
+    })
+  }
+  /* 悬停提示：鼠标进入时在图标下方显示一行说明（原生 title 在 WebView 里要等很久，体验差） */
+  const tipProps = (text) => ({
+    onMouseEnter: (event) => {
+      try {
+        const rect = event.currentTarget.getBoundingClientRect()
+        setTip({ text, left: Math.min(rect.left, window.innerWidth - 330), top: Math.min(rect.bottom + 6, window.innerHeight - 40) })
+      } catch {
+        /* ignore */
+      }
+    },
+    onMouseLeave: () => setTip(null),
+    onFocus: (event) => {
+      try {
+        const rect = event.currentTarget.getBoundingClientRect()
+        setTip({ text, left: Math.min(rect.left, window.innerWidth - 330), top: Math.min(rect.bottom + 6, window.innerHeight - 40) })
+      } catch {
+        /* ignore */
+      }
+    },
+    onBlur: () => setTip(null),
+  })
   const openFirst = () => {
     const file = view?.files?.[0]
     const match = file?.matches?.[0]
@@ -7589,15 +7629,31 @@ G.SearchPanel = function SearchPanel(props) {
                     className: 'gufa-search-file-replace',
                     title: t('search.replaceThisFile'),
                     role: 'button',
+                    ...tipProps(t('search.replaceThisFile')),
                     onClick: (event) => {
                       event.stopPropagation()
                       event.preventDefault()
                       replaceFile(file)
                     },
                   },
-                  h(G.Icon, { name: 'pencil', size: 11 }),
+                  h(G.Icon, { name: 'replace', size: 12 }),
                 )
               : null,
+            h(
+              'span',
+              {
+                className: 'gufa-search-file-dismiss',
+                title: t('search.dismissFile'),
+                role: 'button',
+                ...tipProps(t('search.dismissFile')),
+                onClick: (event) => {
+                  event.stopPropagation()
+                  event.preventDefault()
+                  dismissFile(file)
+                },
+              },
+              h(G.Icon, { name: 'close', size: 11 }),
+            ),
           ),
           isCollapsed
             ? null
@@ -7629,13 +7685,14 @@ G.SearchPanel = function SearchPanel(props) {
                             className: 'gufa-search-row-action',
                             title: t('search.replaceOne'),
                             role: 'button',
+                            ...tipProps(t('search.replaceOne')),
                             onClick: (event) => {
                               event.stopPropagation()
                               event.preventDefault()
                               replaceOne(file.path, match)
                             },
                           },
-                          h(G.Icon, { name: 'pencil', size: 11 }),
+                          h(G.Icon, { name: 'replace', size: 12 }),
                         )
                       : null,
                     h(
@@ -7644,6 +7701,7 @@ G.SearchPanel = function SearchPanel(props) {
                         className: 'gufa-search-row-action',
                         title: t('search.dismiss'),
                         role: 'button',
+                        ...tipProps(t('search.dismiss')),
                         onClick: (event) => {
                           event.stopPropagation()
                           event.preventDefault()
@@ -7693,7 +7751,11 @@ G.SearchPanel = function SearchPanel(props) {
         query === ''
           ? null
           : h(G.IconButton, { title: t('search.clear'), onClick: () => { setQuery(''); focusInput() } }, h(G.Icon, { name: 'close', size: 11 })),
-        h(G.IconButton, { title: t('search.replaceToggle'), onClick: () => setReplaceOpen((value) => !value) }, h(G.Icon, { name: replaceOpen ? 'chevron-up' : 'chevron-down', size: 12 })),
+        h(
+          'span',
+          { style: { display: 'inline-flex' }, ...tipProps(t('search.replaceToggle')) },
+          h(G.IconButton, { title: t('search.replaceToggle'), onClick: () => setReplaceOpen((value) => !value) }, h(G.Icon, { name: replaceOpen ? 'chevron-up' : 'chevron-down', size: 12 })),
+        ),
       ),
       h(
         'div',
@@ -7739,6 +7801,7 @@ G.SearchPanel = function SearchPanel(props) {
                 className: 'gufa-search-toggle',
                 'data-active': preserveCase ? '' : undefined,
                 title: t('search.preserveCase'),
+                ...tipProps(t('search.preserveCase')),
                 onClick: () => setPreserveCase((value) => !value),
               }, 'AB'),
             ),
@@ -7809,6 +7872,7 @@ G.SearchPanel = function SearchPanel(props) {
       replaceError !== '' ? h('div', { className: 'gufa-search-error' }, `${t('search.replaceError')}：${replaceError}`) : null,
     ),
     h('div', { className: 'gufa-panel-body gufa-scroll' }, body),
+    tip !== null ? h('div', { className: 'gufa-tip', style: { left: `${tip.left}px`, top: `${tip.top}px` } }, tip.text) : null,
   )
 }
 

@@ -529,6 +529,7 @@ G.SearchPanel = function SearchPanel(props) {
   const [confirming, setConfirming] = useState(null)
   const [replacing, setReplacing] = useState(false)
   const [replaceError, setReplaceError] = useState('')
+  const [tip, setTip] = useState(null)
   const inputRef = useRef(null)
   const requestRef = useRef(0)
 
@@ -713,6 +714,34 @@ G.SearchPanel = function SearchPanel(props) {
       return next
     })
   }
+  const dismissFile = (file) => {
+    setIgnored((current) => {
+      const next = new Set(current)
+      for (const match of file.matches) next.add(matchKey(file.path, match))
+      return next
+    })
+  }
+  /* 悬停提示：鼠标进入时在图标下方显示一行说明（原生 title 在 WebView 里要等很久，体验差） */
+  const tipProps = (text) => ({
+    onMouseEnter: (event) => {
+      try {
+        const rect = event.currentTarget.getBoundingClientRect()
+        setTip({ text, left: Math.min(rect.left, window.innerWidth - 330), top: Math.min(rect.bottom + 6, window.innerHeight - 40) })
+      } catch {
+        /* ignore */
+      }
+    },
+    onMouseLeave: () => setTip(null),
+    onFocus: (event) => {
+      try {
+        const rect = event.currentTarget.getBoundingClientRect()
+        setTip({ text, left: Math.min(rect.left, window.innerWidth - 330), top: Math.min(rect.bottom + 6, window.innerHeight - 40) })
+      } catch {
+        /* ignore */
+      }
+    },
+    onBlur: () => setTip(null),
+  })
   const openFirst = () => {
     const file = view?.files?.[0]
     const match = file?.matches?.[0]
@@ -767,15 +796,31 @@ G.SearchPanel = function SearchPanel(props) {
                     className: 'gufa-search-file-replace',
                     title: t('search.replaceThisFile'),
                     role: 'button',
+                    ...tipProps(t('search.replaceThisFile')),
                     onClick: (event) => {
                       event.stopPropagation()
                       event.preventDefault()
                       replaceFile(file)
                     },
                   },
-                  h(G.Icon, { name: 'pencil', size: 11 }),
+                  h(G.Icon, { name: 'replace', size: 12 }),
                 )
               : null,
+            h(
+              'span',
+              {
+                className: 'gufa-search-file-dismiss',
+                title: t('search.dismissFile'),
+                role: 'button',
+                ...tipProps(t('search.dismissFile')),
+                onClick: (event) => {
+                  event.stopPropagation()
+                  event.preventDefault()
+                  dismissFile(file)
+                },
+              },
+              h(G.Icon, { name: 'close', size: 11 }),
+            ),
           ),
           isCollapsed
             ? null
@@ -807,13 +852,14 @@ G.SearchPanel = function SearchPanel(props) {
                             className: 'gufa-search-row-action',
                             title: t('search.replaceOne'),
                             role: 'button',
+                            ...tipProps(t('search.replaceOne')),
                             onClick: (event) => {
                               event.stopPropagation()
                               event.preventDefault()
                               replaceOne(file.path, match)
                             },
                           },
-                          h(G.Icon, { name: 'pencil', size: 11 }),
+                          h(G.Icon, { name: 'replace', size: 12 }),
                         )
                       : null,
                     h(
@@ -822,6 +868,7 @@ G.SearchPanel = function SearchPanel(props) {
                         className: 'gufa-search-row-action',
                         title: t('search.dismiss'),
                         role: 'button',
+                        ...tipProps(t('search.dismiss')),
                         onClick: (event) => {
                           event.stopPropagation()
                           event.preventDefault()
@@ -871,7 +918,11 @@ G.SearchPanel = function SearchPanel(props) {
         query === ''
           ? null
           : h(G.IconButton, { title: t('search.clear'), onClick: () => { setQuery(''); focusInput() } }, h(G.Icon, { name: 'close', size: 11 })),
-        h(G.IconButton, { title: t('search.replaceToggle'), onClick: () => setReplaceOpen((value) => !value) }, h(G.Icon, { name: replaceOpen ? 'chevron-up' : 'chevron-down', size: 12 })),
+        h(
+          'span',
+          { style: { display: 'inline-flex' }, ...tipProps(t('search.replaceToggle')) },
+          h(G.IconButton, { title: t('search.replaceToggle'), onClick: () => setReplaceOpen((value) => !value) }, h(G.Icon, { name: replaceOpen ? 'chevron-up' : 'chevron-down', size: 12 })),
+        ),
       ),
       h(
         'div',
@@ -917,6 +968,7 @@ G.SearchPanel = function SearchPanel(props) {
                 className: 'gufa-search-toggle',
                 'data-active': preserveCase ? '' : undefined,
                 title: t('search.preserveCase'),
+                ...tipProps(t('search.preserveCase')),
                 onClick: () => setPreserveCase((value) => !value),
               }, 'AB'),
             ),
@@ -987,6 +1039,7 @@ G.SearchPanel = function SearchPanel(props) {
       replaceError !== '' ? h('div', { className: 'gufa-search-error' }, `${t('search.replaceError')}：${replaceError}`) : null,
     ),
     h('div', { className: 'gufa-panel-body gufa-scroll' }, body),
+    tip !== null ? h('div', { className: 'gufa-tip', style: { left: `${tip.left}px`, top: `${tip.top}px` } }, tip.text) : null,
   )
 }
 
