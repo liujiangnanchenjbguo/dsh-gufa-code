@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.57'
+G.BUILD = '1.3.58'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3160,14 +3160,24 @@ G.FooterAction = function FooterAction(props) {
           lastPropContentRef.current.set(tab.path, content)
           continue
         }
-        if (lastPropContentRef.current.get(tab.path) !== content) {
+        const knownContent = lastPropContentRef.current.get(tab.path)
+        if (knownContent !== content) {
           lastPropContentRef.current.set(tab.path, content)
           if (model.getValue() !== content) {
-            suppressChangeRef.current = true
-            try {
-              model.setValue(content)
-            } finally {
-              suppressChangeRef.current = false
+            /* 用户在编辑器里持续输入时，App 的 tabs 状态可能落后（内容缓冲/React 批处理）。
+               如果当前 model 正好还是上次上报的内容，说明这是「状态落后」而不是外部修改，
+               绝不能 setValue 回灌旧内容——否则光标会跳回开头、刚输入的字符也会被覆盖。
+               外部修改（如切回文件、外部刷新）通常发生在编辑器没有焦点时，仍然照常同步。 */
+            const modelValue = model.getValue()
+            const modelMatchesKnown = knownContent === undefined || knownContent === null || knownContent === modelValue
+            const focused = typeof editor.hasTextFocus === 'function' ? editor.hasTextFocus() : false
+            if (!(focused && modelMatchesKnown)) {
+              suppressChangeRef.current = true
+              try {
+                model.setValue(content)
+              } finally {
+                suppressChangeRef.current = false
+              }
             }
           }
         }
@@ -10160,10 +10170,12 @@ G.GufaApp = function GufaApp(props) {
         let changed = false
         const next = current.map((item) => {
           if (item === null || item.path !== path) return item
-          const dirty = content !== item.savedContent
+          /* 用缓冲里的最新内容而不是本次按键的内容：避免 React 批处理时把「第一次按键」的旧内容回灌给编辑器。 */
+          const latest = editorBuffersRef.current.has(path) ? editorBuffersRef.current.get(path) : content
+          const dirty = latest !== item.savedContent
           if (item.dirty === dirty) return item
           changed = true
-          return { ...item, dirty }
+          return { ...item, content: latest, dirty }
         })
         if (!changed) return current
         tabsRef.current = next

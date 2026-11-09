@@ -919,14 +919,24 @@
           lastPropContentRef.current.set(tab.path, content)
           continue
         }
-        if (lastPropContentRef.current.get(tab.path) !== content) {
+        const knownContent = lastPropContentRef.current.get(tab.path)
+        if (knownContent !== content) {
           lastPropContentRef.current.set(tab.path, content)
           if (model.getValue() !== content) {
-            suppressChangeRef.current = true
-            try {
-              model.setValue(content)
-            } finally {
-              suppressChangeRef.current = false
+            /* 用户在编辑器里持续输入时，App 的 tabs 状态可能落后（内容缓冲/React 批处理）。
+               如果当前 model 正好还是上次上报的内容，说明这是「状态落后」而不是外部修改，
+               绝不能 setValue 回灌旧内容——否则光标会跳回开头、刚输入的字符也会被覆盖。
+               外部修改（如切回文件、外部刷新）通常发生在编辑器没有焦点时，仍然照常同步。 */
+            const modelValue = model.getValue()
+            const modelMatchesKnown = knownContent === undefined || knownContent === null || knownContent === modelValue
+            const focused = typeof editor.hasTextFocus === 'function' ? editor.hasTextFocus() : false
+            if (!(focused && modelMatchesKnown)) {
+              suppressChangeRef.current = true
+              try {
+                model.setValue(content)
+              } finally {
+                suppressChangeRef.current = false
+              }
             }
           }
         }

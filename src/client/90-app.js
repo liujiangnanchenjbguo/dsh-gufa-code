@@ -500,10 +500,12 @@ G.GufaApp = function GufaApp(props) {
         let changed = false
         const next = current.map((item) => {
           if (item === null || item.path !== path) return item
-          const dirty = content !== item.savedContent
+          /* 用缓冲里的最新内容而不是本次按键的内容：避免 React 批处理时把「第一次按键」的旧内容回灌给编辑器。 */
+          const latest = editorBuffersRef.current.has(path) ? editorBuffersRef.current.get(path) : content
+          const dirty = latest !== item.savedContent
           if (item.dirty === dirty) return item
           changed = true
-          return { ...item, dirty }
+          return { ...item, content: latest, dirty }
         })
         if (!changed) return current
         tabsRef.current = next
