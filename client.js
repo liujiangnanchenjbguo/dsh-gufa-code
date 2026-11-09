@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.63'
+G.BUILD = '1.3.64'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -199,10 +199,19 @@ const DICT_ZH = {
   'search.searching': '搜索中…',
   'search.idle': '输入关键字搜索整个项目',
   'search.noResult': '没有找到匹配结果',
-  'search.summary': '{count} 个结果 · {files} 个文件',
+  'search.summary': '{files} 个文件中有 {count} 个结果',
   'search.truncated': '结果过多已截断，请缩小范围',
   'search.error': '搜索失败',
   'search.replaceToggle': '显示/隐藏替换',
+  'search.include': '包含的文件',
+  'search.exclude': '排除的文件',
+  'search.includePlaceholder': '例如 *.js, src/**',
+  'search.excludePlaceholder': '例如 **/*.min.js, test/**',
+  'search.preserveCase': '保留大小写（AB）',
+  'search.replaceOne': '替换此匹配',
+  'search.dismiss': '忽略此匹配',
+  'search.openInEditor': '在编辑器中打开',
+  'search.stale': '匹配位置已变化，已重新搜索',
   'search.replacePlaceholder': '替换为…',
   'search.replaceAll': '全部替换',
   'search.replaceThisFile': '替换此文件',
@@ -441,10 +450,19 @@ const DICT_EN = {
   'search.searching': 'Searching…',
   'search.idle': 'Type a keyword to search the whole project',
   'search.noResult': 'No matches found',
-  'search.summary': '{count} results · {files} files',
+  'search.summary': '{count} results in {files} files',
   'search.truncated': 'Too many results, truncated — narrow the query',
   'search.error': 'Search failed',
   'search.replaceToggle': 'Show / hide replace',
+  'search.include': 'files to include',
+  'search.exclude': 'files to exclude',
+  'search.includePlaceholder': 'e.g. *.js, src/**',
+  'search.excludePlaceholder': 'e.g. **/*.min.js, test/**',
+  'search.preserveCase': 'Preserve case (AB)',
+  'search.replaceOne': 'Replace this match',
+  'search.dismiss': 'Dismiss this match',
+  'search.openInEditor': 'Open in editor',
+  'search.stale': 'Match moved; search refreshed',
   'search.replacePlaceholder': 'Replace with…',
   'search.replaceAll': 'Replace all',
   'search.replaceThisFile': 'Replace in this file',
@@ -1737,6 +1755,23 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-search-error{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}
 .gufa-search-file-replace{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer}
 .gufa-search-file-replace:hover{background:var(--gufa-active);color:var(--gufa-text)}
+.gufa-search-file-replace{opacity:0;transition:opacity .12s ease}
+.gufa-search-file-head:hover .gufa-search-file-replace,.gufa-search-file-head:focus-within .gufa-search-file-replace{opacity:1}
+.gufa-search-match{min-height:23px;align-items:center}
+.gufa-search-match-actions{display:none;flex:0 0 auto;align-items:center;gap:4px;margin-left:auto}
+.gufa-search-match:hover .gufa-search-match-actions,.gufa-search-match:focus-within .gufa-search-match-actions{display:flex}
+.gufa-search-row-action{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer}
+.gufa-search-row-action:hover{background:var(--gufa-active);color:var(--gufa-text)}
+.gufa-search-filter{display:flex;flex-direction:column;gap:3px;margin-top:5px}
+.gufa-search-filter-label{font-size:10.5px;color:var(--gufa-text-dim)}
+.gufa-search-filter-input{width:100%;height:24px;padding:0 8px;border-radius:6px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);color:var(--gufa-text);font-size:11.5px;outline:none}
+.gufa-search-filter-input:focus{border-color:var(--gufa-accent)}
+.gufa-search-filter-input::placeholder{color:var(--gufa-text-dim)}
+.gufa-search-summarybar{display:flex;align-items:center;gap:8px}
+.gufa-search-summarybar .gufa-search-summary{flex:1 1 auto;margin-left:0}
+.gufa-search-summarybar .gufa-search-link{flex:0 0 auto}
+.gufa-search-link{border:0;background:transparent;color:var(--gufa-accent);font-size:11px;cursor:pointer;padding:0}
+.gufa-search-link:hover{text-decoration:underline}
 
 .gufa-tree-chevron{width:14px;flex:0 0 auto;opacity:.7;display:flex;align-items:center;justify-content:center}
 .gufa-tree-icon{width:15px;flex:0 0 auto;opacity:.85;display:flex;align-items:center;justify-content:center}
@@ -7322,16 +7357,20 @@ G.SearchPanel = function SearchPanel(props) {
   const t = G.useT()
   const root = props.root
   const [query, setQuery] = useState('')
+  const [replacement, setReplacement] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [regex, setRegex] = useState(false)
+  const [preserveCase, setPreserveCase] = useState(false)
+  const [includeText, setIncludeText] = useState('')
+  const [excludeText, setExcludeText] = useState('')
+  const [replaceOpen, setReplaceOpen] = useState(false)
   const [status, setStatus] = useState('idle')
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [collapsed, setCollapsed] = useState({})
-  const [replaceOpen, setReplaceOpen] = useState(false)
-  const [replacement, setReplacement] = useState('')
-  const [replacing, setReplacing] = useState(false)
+  const [ignored, setIgnored] = useState(() => new Set())
   const [confirming, setConfirming] = useState(null)
+  const [replacing, setReplacing] = useState(false)
   const [replaceError, setReplaceError] = useState('')
   const [notice, setNotice] = useState('')
   const inputRef = useRef(null)
@@ -7362,13 +7401,20 @@ G.SearchPanel = function SearchPanel(props) {
     setStatus('loading')
     setError('')
     try {
-      const value = await G.api('fs.search', {
+      const found = await G.api('fs.search', {
         root,
         query: text,
-        options: { caseSensitive, regex, maxFiles: 200, maxMatches: 500 },
+        options: {
+          caseSensitive,
+          regex,
+          include: includeText,
+          exclude: excludeText,
+          maxFiles: 200,
+          maxMatches: 500,
+        },
       })
       if (seq !== requestRef.current) return
-      setResult(value)
+      setResult(found)
       setStatus('ready')
     } catch (err) {
       if (seq !== requestRef.current) return
@@ -7376,42 +7422,7 @@ G.SearchPanel = function SearchPanel(props) {
       setError(G.errorText(err))
       setStatus('error')
     }
-  }, [root, caseSensitive, regex])
-
-  const requestReplace = useCallback((paths, count, files) => {
-    if (typeof root !== 'string' || root === '' || query.trim() === '' || replacing) return
-    setReplaceError('')
-    setNotice('')
-    setConfirming({ paths: Array.isArray(paths) ? paths : null, count: Number(count) || 0, files: Number(files) || 0 })
-  }, [root, query, replacing])
-
-  const doReplace = useCallback(async () => {
-    const pending = confirming
-    if (pending === null || replacing) return
-    setConfirming(null)
-    setReplacing(true)
-    setReplaceError('')
-    setNotice('')
-    try {
-      await props.onBeforeReplace?.()
-      const value = await G.api('fs.replace', {
-        root,
-        query: query.trim(),
-        replacement,
-        options: { caseSensitive, regex },
-        paths: Array.isArray(pending.paths) ? pending.paths : undefined,
-      })
-      const count = Number(value?.replacedCount) || 0
-      const replacedFiles = Array.isArray(value?.replacedFiles) ? value.replacedFiles : []
-      setNotice(t('search.replaced', { count, files: replacedFiles.length }))
-      await props.onFilesChanged?.(replacedFiles)
-      await runSearch(query)
-    } catch (error) {
-      setReplaceError(G.errorText(error))
-    } finally {
-      setReplacing(false)
-    }
-  }, [confirming, replacing, props.onBeforeReplace, props.onFilesChanged, root, query, replacement, caseSensitive, regex, runSearch, t])
+  }, [root, caseSensitive, regex, includeText, excludeText])
 
   /* 输入防抖搜索（回车立即搜索） */
   useEffect(() => {
@@ -7427,6 +7438,11 @@ G.SearchPanel = function SearchPanel(props) {
     return () => window.clearTimeout(timer)
   }, [query, runSearch, root])
 
+  /* 搜索条件变化后，之前「忽略的匹配」不再适用 */
+  useEffect(() => {
+    setIgnored(new Set())
+  }, [query, caseSensitive, regex, includeText, excludeText])
+
   /* 快捷键/按钮打开搜索面板时聚焦输入框 */
   useEffect(() => {
     if (G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function') return undefined
@@ -7437,12 +7453,28 @@ G.SearchPanel = function SearchPanel(props) {
     if (props.active === true) focusInput()
   }, [props.active, focusInput])
 
+  const matchKey = useCallback((path, match) => `${path}:${match.line}:${match.column}`, [])
+
+  /* 过滤掉用户手动「忽略」的匹配，并重新汇总数量 */
+  const view = useMemo(() => {
+    if (result === null) return null
+    const files = []
+    let total = 0
+    for (const file of result.files) {
+      const matches = file.matches.filter((match) => !ignored.has(matchKey(file.path, match)))
+      if (matches.length === 0) continue
+      files.push({ path: file.path, matches })
+      total += matches.length
+    }
+    return { ...result, files, total }
+  }, [result, ignored, matchKey])
+
   const summary = (() => {
     if (status === 'loading') return t('search.searching')
-    if (status === 'error' || result === null) return ''
-    if (result.total === 0) return result.truncated === true ? t('search.truncated') : t('search.noResult')
-    const base = t('search.summary', { count: result.total, files: result.files.length })
-    return result.truncated === true ? `${base} · ${t('search.truncated')}` : base
+    if (status === 'error' || view === null) return ''
+    if (view.total === 0) return view.truncated === true ? t('search.truncated') : t('search.noResult')
+    const base = t('search.summary', { count: view.total, files: view.files.length })
+    return view.truncated === true ? `${base} · ${t('search.truncated')}` : base
   })()
 
   const highlight = (match) => {
@@ -7458,6 +7490,85 @@ G.SearchPanel = function SearchPanel(props) {
     ]
   }
 
+  const applyReplace = useCallback(async (payload) => {
+    if (typeof root !== 'string' || root === '' || replacing) return
+    setReplacing(true)
+    setReplaceError('')
+    setNotice('')
+    try {
+      await props.onBeforeReplace?.()
+      const value = await G.api('fs.replace', payload)
+      if (value?.stale === true) {
+        setReplaceError(t('search.stale'))
+        setIgnored(new Set())
+        await runSearch(query)
+        return
+      }
+      const count = Number(value?.replacedCount) || 0
+      const files = Array.isArray(value?.replacedFiles) ? value.replacedFiles : []
+      setNotice(t('search.replaced', { count, files: files.length }))
+      await props.onFilesChanged?.(files)
+      setIgnored(new Set())
+      await runSearch(query)
+    } catch (err) {
+      setReplaceError(G.errorText(err))
+    } finally {
+      setReplacing(false)
+    }
+  }, [root, replacing, props.onBeforeReplace, props.onFilesChanged, t, runSearch, query])
+
+  const requestReplaceAll = () => {
+    if (view === null || view.total === 0 || replacing) return
+    setReplaceError('')
+    setNotice('')
+    setConfirming({ count: view.total, files: view.files.length })
+  }
+  const doReplaceAll = () => {
+    const pending = confirming
+    setConfirming(null)
+    if (pending === null) return
+    void applyReplace({
+      root,
+      query: query.trim(),
+      replacement,
+      options: { caseSensitive, regex, preserveCase, include: includeText, exclude: excludeText },
+    })
+  }
+  const replaceFile = (file) => {
+    if (replacing) return
+    void applyReplace({
+      root,
+      query: query.trim(),
+      replacement,
+      options: { caseSensitive, regex, preserveCase },
+      paths: [file.path],
+    })
+  }
+  const replaceOne = (path, match) => {
+    if (replacing) return
+    void applyReplace({
+      root,
+      query: query.trim(),
+      replacement,
+      options: { caseSensitive, regex, preserveCase },
+      target: { path, line: match.line, column: match.column },
+    })
+  }
+  const dismiss = (path, match) => {
+    setIgnored((current) => {
+      const next = new Set(current)
+      next.add(matchKey(path, match))
+      return next
+    })
+  }
+  const openFirst = () => {
+    const file = view?.files?.[0]
+    const match = file?.matches?.[0]
+    if (file !== undefined && file !== null && match !== undefined && match !== null) {
+      props.onOpenFile?.(file.path, match.line, match.column)
+    }
+  }
+
   const body = (() => {
     if (typeof root !== 'string' || root === '') {
       return h('div', { className: 'gufa-hint', style: { padding: '10px 12px' } }, t('explorer.openProjectFirst'))
@@ -7467,25 +7578,31 @@ G.SearchPanel = function SearchPanel(props) {
     }
     if (status === 'idle') return h('div', { className: 'gufa-hint', style: { padding: '10px 12px' } }, t('search.idle'))
     if (status === 'loading') return h('div', { className: 'gufa-hint', style: { padding: '10px 12px', display: 'flex', gap: 8, alignItems: 'center' } }, h(G.Spinner), t('search.searching'))
-    if (result === null || result.total === 0) {
-      const emptyText = result !== null && result.truncated === true ? t('search.truncated') : t('search.noResult')
+    if (view === null || view.total === 0) {
+      const emptyText = view !== null && view.truncated === true ? t('search.truncated') : t('search.noResult')
       return h('div', { className: 'gufa-hint', style: { padding: '10px 12px' } }, emptyText)
     }
     return h(
       'div',
       { className: 'gufa-search-results' },
-      ...result.files.map((file) => {
+      ...view.files.map((file) => {
         const isCollapsed = collapsed[file.path] === true
         return h(
           'div',
           { key: file.path, className: 'gufa-search-file' },
           h(
-            'button',
+            'div',
             {
-              type: 'button',
               className: 'gufa-search-file-head',
+              role: 'button',
+              tabIndex: 0,
               title: file.path,
               onClick: () => setCollapsed((current) => ({ ...current, [file.path]: !isCollapsed })),
+              onKeyDown: (event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                setCollapsed((current) => ({ ...current, [file.path]: !isCollapsed }))
+              },
             },
             h(G.Icon, { name: isCollapsed ? 'chevron-right' : 'chevron-down', size: 11 }),
             h('span', { className: 'gufa-search-file-name' }, G.basename(file.path)),
@@ -7501,7 +7618,7 @@ G.SearchPanel = function SearchPanel(props) {
                     onClick: (event) => {
                       event.stopPropagation()
                       event.preventDefault()
-                      requestReplace([file.path], file.matches.length, 1)
+                      replaceFile(file)
                     },
                   },
                   h(G.Icon, { name: 'pencil', size: 11 }),
@@ -7512,16 +7629,56 @@ G.SearchPanel = function SearchPanel(props) {
             ? null
             : file.matches.map((match, index) =>
                 h(
-                  'button',
+                  'div',
                   {
                     key: `${file.path}:${match.line}:${match.column}:${index}`,
-                    type: 'button',
                     className: 'gufa-search-match',
+                    role: 'button',
+                    tabIndex: 0,
                     title: `${file.path}:${match.line}:${match.column}`,
                     onClick: () => props.onOpenFile?.(file.path, match.line, match.column),
+                    onKeyDown: (event) => {
+                      if (event.key !== 'Enter') return
+                      event.preventDefault()
+                      props.onOpenFile?.(file.path, match.line, match.column)
+                    },
                   },
                   h('span', { className: 'gufa-search-line' }, String(match.line)),
                   h('span', { className: 'gufa-search-text' }, ...highlight(match)),
+                  h(
+                    'span',
+                    { className: 'gufa-search-match-actions' },
+                    replaceOpen
+                      ? h(
+                          'span',
+                          {
+                            className: 'gufa-search-row-action',
+                            title: t('search.replaceOne'),
+                            role: 'button',
+                            onClick: (event) => {
+                              event.stopPropagation()
+                              event.preventDefault()
+                              replaceOne(file.path, match)
+                            },
+                          },
+                          h(G.Icon, { name: 'pencil', size: 11 }),
+                        )
+                      : null,
+                    h(
+                      'span',
+                      {
+                        className: 'gufa-search-row-action',
+                        title: t('search.dismiss'),
+                        role: 'button',
+                        onClick: (event) => {
+                          event.stopPropagation()
+                          event.preventDefault()
+                          dismiss(file.path, match)
+                        },
+                      },
+                      h(G.Icon, { name: 'close', size: 11 }),
+                    ),
+                  ),
                 ),
               ),
         )
@@ -7581,7 +7738,6 @@ G.SearchPanel = function SearchPanel(props) {
           title: t('search.regex'),
           onClick: () => setRegex((value) => !value),
         }, '.*'),
-        h('span', { className: 'gufa-search-summary', title: summary }, summary),
       ),
       replaceOpen
         ? h(
@@ -7601,9 +7757,16 @@ G.SearchPanel = function SearchPanel(props) {
                 onKeyDown: (event) => {
                   if (event.key !== 'Enter') return
                   event.preventDefault()
-                  requestReplace(null, result?.total ?? 0, result?.files?.length ?? 0)
+                  requestReplaceAll()
                 },
               }),
+              h('button', {
+                type: 'button',
+                className: 'gufa-search-toggle',
+                'data-active': preserveCase ? '' : undefined,
+                title: t('search.preserveCase'),
+                onClick: () => setPreserveCase((value) => !value),
+              }, 'AB'),
             ),
             h(
               'div',
@@ -7614,14 +7777,48 @@ G.SearchPanel = function SearchPanel(props) {
                   type: 'button',
                   className: 'gufa-search-action',
                   'data-primary': '',
-                  disabled: replacing || result === null || result.total === 0,
-                  onClick: () => requestReplace(null, result?.total ?? 0, result?.files?.length ?? 0),
+                  disabled: replacing || view === null || view.total === 0,
+                  onClick: requestReplaceAll,
                 },
                 replacing ? t('search.replacing') : t('search.replaceAll'),
               ),
             ),
           )
         : null,
+      h(
+        'label',
+        { className: 'gufa-search-filter' },
+        h('span', { className: 'gufa-search-filter-label' }, t('search.include')),
+        h('input', {
+          className: 'gufa-search-filter-input',
+          type: 'text',
+          value: includeText,
+          placeholder: t('search.includePlaceholder'),
+          spellCheck: false,
+          onChange: (event) => setIncludeText(event.target.value),
+        }),
+      ),
+      h(
+        'label',
+        { className: 'gufa-search-filter' },
+        h('span', { className: 'gufa-search-filter-label' }, t('search.exclude')),
+        h('input', {
+          className: 'gufa-search-filter-input',
+          type: 'text',
+          value: excludeText,
+          placeholder: t('search.excludePlaceholder'),
+          spellCheck: false,
+          onChange: (event) => setExcludeText(event.target.value),
+        }),
+      ),
+      h(
+        'div',
+        { className: 'gufa-search-summarybar' },
+        h('span', { className: 'gufa-search-summary', title: summary }, summary),
+        view !== null && view.total > 0
+          ? h('button', { type: 'button', className: 'gufa-search-link', onClick: openFirst }, t('search.openInEditor'))
+          : null,
+      ),
       confirming !== null
         ? h(
             'div',
@@ -7631,7 +7828,7 @@ G.SearchPanel = function SearchPanel(props) {
               'div',
               { className: 'gufa-search-confirm-actions' },
               h('button', { type: 'button', className: 'gufa-search-action', onClick: () => setConfirming(null) }, t('search.confirmNo')),
-              h('button', { type: 'button', className: 'gufa-search-action', 'data-primary': '', onClick: () => void doReplace() }, t('search.confirmYes')),
+              h('button', { type: 'button', className: 'gufa-search-action', 'data-primary': '', onClick: doReplaceAll }, t('search.confirmYes')),
             ),
           )
         : null,

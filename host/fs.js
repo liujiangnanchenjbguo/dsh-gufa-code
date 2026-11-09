@@ -115,6 +115,70 @@ function searchExtensionOf(rel) {
 function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
+/** 解析「包含/排除的文件」：数组或逗号/换行分隔字符串。 */
+function readPatternList(value) {
+  if (Array.isArray(value)) return value.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
+  if (typeof value === 'string') return value.split(/[,\n]/).map((item) => item.trim()).filter(Boolean)
+  return []
+}
+/** 把 VS Code 风格 glob 编译成正则（支持 **、*、?；无 / 的模式匹配任意层级 basename）。 */
+function globToRegExp(pattern) {
+  let text = String(pattern).replace(/\\/g, '/').trim()
+  if (text === '') return null
+  if (text.startsWith('./')) text = text.slice(2)
+  let body = ''
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === '*') {
+      if (text[index + 1] === '*') {
+        index += 1
+        if (text[index + 1] === '/') {
+          index += 1
+          body += '(?:.*/)?'
+        } else {
+          body += '.*'
+        }
+      } else {
+        body += '[^/]*'
+      }
+      continue
+    }
+    if (char === '?') {
+      body += '[^/]'
+      continue
+    }
+    body += char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+  const hasSlash = text.includes('/')
+  const anchored = text.startsWith('/') ? `^/${body}$` : hasSlash ? `^${body}$` : `(?:^|/)${body}$`
+  try {
+    return new RegExp(anchored, 'i')
+  } catch {
+    return null
+  }
+}
+/** 构造路径过滤器：include 任一命中 + 不被 exclude 命中。 */
+function buildPathFilter(options) {
+  const include = readPatternList(options.include).map(globToRegExp).filter(Boolean)
+  const exclude = readPatternList(options.exclude).map(globToRegExp).filter(Boolean)
+  return (rel) => {
+    if (include.length > 0 && !include.some((regex) => regex.test(rel))) return false
+    if (exclude.length > 0 && exclude.some((regex) => regex.test(rel))) return false
+    return true
+  }
+}
+/** VS Code 式「保留大小写」：全大写/全小写/首字母大写分别跟随匹配项。 */
+function applyPreserveCase(matched, replacement) {
+  const text = String(matched ?? '')
+  if (text === '' || replacement === '') return replacement
+  const upper = text === text.toUpperCase() && text !== text.toLowerCase()
+  const lower = text === text.toLowerCase() && text !== text.toUpperCase()
+  if (upper) return replacement.toUpperCase()
+  if (lower) return replacement.toLowerCase()
+  if (/^[A-Z]/.test(text)) return replacement.charAt(0).toUpperCase() + replacement.slice(1)
+  return replacement
+}
+
 async function isGitProject(root, project) {
   if (project !== null && project !== undefined && project.isGit === true) return true
   try {
@@ -342,6 +406,7 @@ export function register(router, env) {
     const options = body.options !== null && typeof body.options === 'object' ? body.options : {}
     const caseSensitive = options.caseSensitive === true
     const useRegex = options.regex === true
+    const pathFilter = buildPathFilter(options)
     const clampInt = (value, fallback, min, max) => {
       const number = Number(value)
       if (!Number.isFinite(number)) return fallback
@@ -442,6 +507,7 @@ export function register(router, env) {
       return matches
     }
     const acceptFile = async (rel) => {
+      if (!pathFilter(rel)) return
       const matches = await searchFile(rel)
       if (matches.length === 0) return
       files.push({ path: rel, matches })
@@ -530,10 +596,11 @@ export function register(router, env) {
     const root = project.root
     const query = typeof body.query === 'string' ? body.query.slice(0, 200) : ''
     const replacement = typeof body.replacement === 'string' ? body.replacement : ''
-    if (query === '') return { replacedFiles: [], replacedCount: 0, failed: [], scanned: 0, truncated: false }
+    if (query === '') return { replacedFiles: [], replacedCount: 0, failed: [], scanned: 0, truncated: false, stale: false }
     const options = body.options !== null && typeof body.options === 'object' ? body.options : {}
     const caseSensitive = options.caseSensitive === true
     const useRegex = options.regex === true
+    const preserveCase = options.preserveCase === true
     const clampInt = (value, fallback, min, max) => {
       const number = Number(value)
       if (!Number.isFinite(number)) return fallback
@@ -550,6 +617,85 @@ export function register(router, env) {
     if (useRegex && new RegExp(query, caseSensitive ? '' : 'i').test('')) {
       throw new ApiError('bad-regex', '正则表达式不能匹配空字符串', 400)
     }
+    const fileSizeLimit = 2 * 1024 * 1024
+    const pathFilter = buildPathFilter(options)
+
+    /* 模式 A：只替换某一个匹配（搜索结果行上的替换按钮），用行/列定位。 */
+    const target = body.target !== null && typeof body.target === 'object' ? body.target : null
+    if (target !== null) {
+      const rawPath = typeof target.path === 'string' ? target.path : ''
+      const targetLine = Number(target.line)
+      const targetColumn = Number(target.column)
+      if (rawPath === '' || !Number.isInteger(targetLine) || targetLine < 1 || !Number.isInteger(targetColumn) || targetColumn < 1) {
+        throw badRequest('target.line / target.column is required')
+      }
+      let absolute
+      try {
+        absolute = await resolveProjectPath(root, rawPath)
+      } catch {
+        return { replacedFiles: [], replacedCount: 0, failed: [rawPath], scanned: 1, truncated: false, stale: true }
+      }
+      const info = await stat(absolute).catch(() => undefined)
+      if (info === undefined || !info.isFile() || info.size > fileSizeLimit) {
+        return { replacedFiles: [], replacedCount: 0, failed: [rawPath], scanned: 1, truncated: false, stale: true }
+      }
+      let buffer
+      try {
+        buffer = await readFile(absolute)
+      } catch {
+        return { replacedFiles: [], replacedCount: 0, failed: [rawPath], scanned: 1, truncated: false, stale: false }
+      }
+      if (buffer.includes(0)) return { replacedFiles: [], replacedCount: 0, failed: [rawPath], scanned: 1, truncated: false, stale: false }
+      const text = buffer.toString('utf8')
+      regex.lastIndex = 0
+      let found = null
+      let cursor = 0
+      let line = 1
+      let lineStart = 0
+      let match
+      while ((match = regex.exec(text)) !== null) {
+        if (match[0].length === 0) {
+          regex.lastIndex += 1
+          continue
+        }
+        const index = match.index
+        if (index > cursor) {
+          const chunk = text.slice(cursor, index)
+          const newlines = chunk.split('\n').length - 1
+          line += newlines
+          const lastNewline = chunk.lastIndexOf('\n')
+          if (lastNewline !== -1) lineStart = cursor + lastNewline + 1
+          cursor = index
+        }
+        const column = index - lineStart + 1
+        if (line === targetLine && column === targetColumn) {
+          found = { index, value: match[0] }
+          break
+        }
+        if (line > targetLine || (line === targetLine && column > targetColumn)) break
+      }
+      if (found === null) {
+        return { replacedFiles: [], replacedCount: 0, failed: [], scanned: 1, truncated: false, stale: true }
+      }
+      let replacedValue = replacement
+      if (useRegex) {
+        try {
+          replacedValue = found.value.replace(new RegExp(`^(?:${query})$`, caseSensitive ? '' : 'i'), replacement)
+        } catch {
+          replacedValue = replacement
+        }
+      }
+      if (preserveCase) replacedValue = applyPreserveCase(found.value, replacedValue)
+      const updated = `${text.slice(0, found.index)}${replacedValue}${text.slice(found.index + found.value.length)}`
+      try {
+        await writeFile(absolute, updated, 'utf8')
+      } catch {
+        return { replacedFiles: [], replacedCount: 0, failed: [rawPath], scanned: 1, truncated: false, stale: false }
+      }
+      return { replacedFiles: [relativePath(root, absolute)], replacedCount: 1, failed: [], scanned: 1, truncated: false, stale: false }
+    }
+
+    /* 模式 B：批量替换（全部替换 / 单个文件替换）。 */
     const pathsFilter = Array.isArray(body.paths)
       ? body.paths.filter((item) => typeof item === 'string' && item !== '').slice(0, 200)
       : null
@@ -558,20 +704,35 @@ export function register(router, env) {
       for (const raw of pathsFilter) {
         try {
           const absolute = await resolveProjectPath(root, raw)
-          candidates.push(relativePath(root, absolute))
+          const rel = relativePath(root, absolute)
+          if (pathFilter(rel)) candidates.push(rel)
         } catch {
           /* 路径非法/已删除：跳过 */
         }
       }
     } else {
       const listed = await listProjectCandidates(root, project, 20000)
-      candidates = listed.files
+      candidates = listed.files.filter((rel) => pathFilter(rel))
     }
-    const fileSizeLimit = 2 * 1024 * 1024
     const replacedFiles = []
     const failed = []
     let replacedCount = 0
     let truncated = false
+    const expand = (matched, groups) => {
+      let output = replacement
+      if (useRegex) {
+        output = output
+          .replace(/\$\$/g, '\u0000')
+          .replace(/\$&/g, matched)
+          .replace(/\$(\d{1,2})/g, (piece, index) => {
+            const group = groups[Number(index) - 1]
+            return group === undefined ? piece : group
+          })
+          .replace(/\u0000/g, '$')
+      }
+      if (preserveCase) output = applyPreserveCase(matched, output)
+      return output
+    }
     for (const rel of candidates) {
       if (replacedCount >= maxReplacements) {
         truncated = true
@@ -598,7 +759,7 @@ export function register(router, env) {
       }
       let updated
       try {
-        updated = text.replace(regex, useRegex ? replacement : () => replacement)
+        updated = text.replace(regex, (matched, ...args) => expand(matched, args.slice(0, Math.max(args.length - 2, 0))))
       } catch (error) {
         failed.push(rel)
         continue
@@ -612,7 +773,7 @@ export function register(router, env) {
         failed.push(rel)
       }
     }
-    return { replacedFiles, replacedCount, failed, scanned: candidates.length, truncated }
+    return { replacedFiles, replacedCount, failed, scanned: candidates.length, truncated, stale: false }
   })
 
   router.method('fs.matchFiles', async (body) => {

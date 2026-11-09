@@ -191,10 +191,19 @@ const DICT_ZH = {
   'search.searching': '搜索中…',
   'search.idle': '输入关键字搜索整个项目',
   'search.noResult': '没有找到匹配结果',
-  'search.summary': '{count} 个结果 · {files} 个文件',
+  'search.summary': '{files} 个文件中有 {count} 个结果',
   'search.truncated': '结果过多已截断，请缩小范围',
   'search.error': '搜索失败',
   'search.replaceToggle': '显示/隐藏替换',
+  'search.include': '包含的文件',
+  'search.exclude': '排除的文件',
+  'search.includePlaceholder': '例如 *.js, src/**',
+  'search.excludePlaceholder': '例如 **/*.min.js, test/**',
+  'search.preserveCase': '保留大小写（AB）',
+  'search.replaceOne': '替换此匹配',
+  'search.dismiss': '忽略此匹配',
+  'search.openInEditor': '在编辑器中打开',
+  'search.stale': '匹配位置已变化，已重新搜索',
   'search.replacePlaceholder': '替换为…',
   'search.replaceAll': '全部替换',
   'search.replaceThisFile': '替换此文件',
@@ -433,10 +442,19 @@ const DICT_EN = {
   'search.searching': 'Searching…',
   'search.idle': 'Type a keyword to search the whole project',
   'search.noResult': 'No matches found',
-  'search.summary': '{count} results · {files} files',
+  'search.summary': '{count} results in {files} files',
   'search.truncated': 'Too many results, truncated — narrow the query',
   'search.error': 'Search failed',
   'search.replaceToggle': 'Show / hide replace',
+  'search.include': 'files to include',
+  'search.exclude': 'files to exclude',
+  'search.includePlaceholder': 'e.g. *.js, src/**',
+  'search.excludePlaceholder': 'e.g. **/*.min.js, test/**',
+  'search.preserveCase': 'Preserve case (AB)',
+  'search.replaceOne': 'Replace this match',
+  'search.dismiss': 'Dismiss this match',
+  'search.openInEditor': 'Open in editor',
+  'search.stale': 'Match moved; search refreshed',
   'search.replacePlaceholder': 'Replace with…',
   'search.replaceAll': 'Replace all',
   'search.replaceThisFile': 'Replace in this file',
@@ -1729,6 +1747,23 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-search-error{margin:6px 8px 0;padding:5px 9px;border-radius:7px;font-size:11.5px;color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}
 .gufa-search-file-replace{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:2px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer}
 .gufa-search-file-replace:hover{background:var(--gufa-active);color:var(--gufa-text)}
+.gufa-search-file-replace{opacity:0;transition:opacity .12s ease}
+.gufa-search-file-head:hover .gufa-search-file-replace,.gufa-search-file-head:focus-within .gufa-search-file-replace{opacity:1}
+.gufa-search-match{min-height:23px;align-items:center}
+.gufa-search-match-actions{display:none;flex:0 0 auto;align-items:center;gap:4px;margin-left:auto}
+.gufa-search-match:hover .gufa-search-match-actions,.gufa-search-match:focus-within .gufa-search-match-actions{display:flex}
+.gufa-search-row-action{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;color:var(--gufa-text-dim);cursor:pointer}
+.gufa-search-row-action:hover{background:var(--gufa-active);color:var(--gufa-text)}
+.gufa-search-filter{display:flex;flex-direction:column;gap:3px;margin-top:5px}
+.gufa-search-filter-label{font-size:10.5px;color:var(--gufa-text-dim)}
+.gufa-search-filter-input{width:100%;height:24px;padding:0 8px;border-radius:6px;border:1px solid var(--gufa-border);background:var(--gufa-layer2);color:var(--gufa-text);font-size:11.5px;outline:none}
+.gufa-search-filter-input:focus{border-color:var(--gufa-accent)}
+.gufa-search-filter-input::placeholder{color:var(--gufa-text-dim)}
+.gufa-search-summarybar{display:flex;align-items:center;gap:8px}
+.gufa-search-summarybar .gufa-search-summary{flex:1 1 auto;margin-left:0}
+.gufa-search-summarybar .gufa-search-link{flex:0 0 auto}
+.gufa-search-link{border:0;background:transparent;color:var(--gufa-accent);font-size:11px;cursor:pointer;padding:0}
+.gufa-search-link:hover{text-decoration:underline}
 
 .gufa-tree-chevron{width:14px;flex:0 0 auto;opacity:.7;display:flex;align-items:center;justify-content:center}
 .gufa-tree-icon{width:15px;flex:0 0 auto;opacity:.85;display:flex;align-items:center;justify-content:center}
