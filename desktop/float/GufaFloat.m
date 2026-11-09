@@ -1088,6 +1088,29 @@ static AXUIElementRef GufaCopyAXWindow(pid_t pid, NSString *title) {
     return found;
 }
 
+/* WKWebView 的「复制/粘贴/剪切」在 macOS 上依赖 App 菜单的 key equivalent
+   （Cmd+C/V/X 由主菜单转发成 copy:/paste:/cut: action）。
+   悬浮层是独立进程且没有主菜单，不加这个的话编辑器/输入框里复制粘贴全部失效。
+   注意只加剪切/复制/粘贴：Cmd+Z / Cmd+A / Cmd+F 等交给网页自己处理（Monaco 有自己的实现），
+   加进菜单反而会拦截网页快捷键。 */
+static void GufaInstallEditMenu(void) {
+    NSMenu *mainMenu = [[NSMenu alloc] init];
+    NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:appMenuItem];
+    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"古法编程悬浮层"];
+    appMenuItem.submenu = appMenu;
+    [appMenu addItemWithTitle:@"关于古法编程悬浮层" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+
+    NSMenuItem *editMenuItem = [[NSMenuItem alloc] init];
+    [mainMenu addItem:editMenuItem];
+    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"编辑"];
+    editMenuItem.submenu = editMenu;
+    [editMenu addItemWithTitle:@"剪切" action:@selector(cut:) keyEquivalent:@"x"];
+    [editMenu addItemWithTitle:@"复制" action:@selector(copy:) keyEquivalent:@"c"];
+    [editMenu addItemWithTitle:@"粘贴" action:@selector(paste:) keyEquivalent:@"v"];
+    NSApp.mainMenu = mainMenu;
+}
+
 int main(int argc, const char *argv[]) {
     if (argc > 1 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
         printf("gufa-float-macos %s\n", GUFA_FLOAT_VERSION);
@@ -1108,6 +1131,7 @@ int main(int argc, const char *argv[]) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        GufaInstallEditMenu();
         GufaInstallTermHandler();
         GufaAppDelegate *delegate = [[GufaAppDelegate alloc] init];
         NSApp.delegate = delegate;

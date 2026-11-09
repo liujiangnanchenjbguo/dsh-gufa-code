@@ -546,7 +546,19 @@ const GUFA_PLUGIN = {
               /* ignore */
             }
           }
-          void G.api('dev.log', { message: `float-hittest ${probeAt(135, 713)} | ${probeAt(300, 713)} | ${probeAt(900, 500)} | ${probeAt(1500, 60)} | modal[${modalInfo}] | rows[${rows.slice(0, 12).join(' ; ')}]` }).catch(() => {})
+          // 可输入控件位置（用于自动化验证复制/粘贴）
+          let inputs = []
+          try {
+            for (const node of document.querySelectorAll('textarea, input, [contenteditable="true"]')) {
+              const rect = node.getBoundingClientRect()
+              if (rect.width < 30 || rect.height < 12) continue
+              inputs.push(`${node.tagName}@${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)}`)
+              if (inputs.length >= 8) break
+            }
+          } catch {
+            inputs = ['err']
+          }
+          void G.api('dev.log', { message: `float-hittest ${probeAt(135, 713)} | ${probeAt(300, 713)} | ${probeAt(900, 500)} | ${probeAt(1500, 60)} | modal[${modalInfo}] | rows[${rows.slice(0, 12).join(' ; ')}] | inputs[${inputs.join(' ; ')}]` }).catch(() => {})
         }, 5000)
       }
     } catch {

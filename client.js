@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.59'
+G.BUILD = '1.3.60'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -13350,7 +13350,19 @@ const GUFA_PLUGIN = {
               /* ignore */
             }
           }
-          void G.api('dev.log', { message: `float-hittest ${probeAt(135, 713)} | ${probeAt(300, 713)} | ${probeAt(900, 500)} | ${probeAt(1500, 60)} | modal[${modalInfo}] | rows[${rows.slice(0, 12).join(' ; ')}]` }).catch(() => {})
+          // 可输入控件位置（用于自动化验证复制/粘贴）
+          let inputs = []
+          try {
+            for (const node of document.querySelectorAll('textarea, input, [contenteditable="true"]')) {
+              const rect = node.getBoundingClientRect()
+              if (rect.width < 30 || rect.height < 12) continue
+              inputs.push(`${node.tagName}@${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.width)}x${Math.round(rect.height)}`)
+              if (inputs.length >= 8) break
+            }
+          } catch {
+            inputs = ['err']
+          }
+          void G.api('dev.log', { message: `float-hittest ${probeAt(135, 713)} | ${probeAt(300, 713)} | ${probeAt(900, 500)} | ${probeAt(1500, 60)} | modal[${modalInfo}] | rows[${rows.slice(0, 12).join(' ; ')}] | inputs[${inputs.join(' ; ')}]` }).catch(() => {})
         }, 5000)
       }
     } catch {

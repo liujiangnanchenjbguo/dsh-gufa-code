@@ -129,6 +129,17 @@
 - 刷新按钮改为 `refreshAll()`：重读「根目录 + 所有已加载目录」；
 - 窗口 `focus` / `visibilitychange`（可见）时防抖 180ms 自动 `refreshAll()`，从 Finder 切回来无需手动刷新。
 
+## 摸鱼窗口里复制/粘贴失效（1.3.60 修复）
+
+macOS 上 WKWebView 的「复制/粘贴/剪切」是**通过 App 主菜单的 key equivalent** 转成 `copy:/paste:/cut:` 再走 responder chain 的。
+悬浮层是独立进程、没有主菜单，所以 Cmd+C/V 在编辑器、输入框里全部失效。
+
+修复：helper 安装 `NSApp.mainMenu`，只添加「编辑 → 剪切/复制/粘贴」三项（Cmd+X/C/V）。
+**不要**把 Cmd+Z / Cmd+A / Cmd+F 加进菜单：Monaco 自己处理这些快捷键，菜单会拦截并走 WebView 原生选择/撤销，行为反而错乱。
+
+验证：悬浮层聊天输入框 Cmd+V → 粘贴成功，Cmd+A+C 后 `pbpaste` 内容正确；
+编辑器（.gitignore）里 Cmd+V 插入成功并自动保存，Cmd+A+C 后 `pbpaste` 为整个文件文本。
+
 ## 5.1 摸鱼会话框比编辑器黑：官方会话根节点自己又画了一层底
 
 - 现象：摸鱼里编辑器/终端都统一了，右侧会话框看起来明显更黑更实。
