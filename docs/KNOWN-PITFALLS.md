@@ -46,6 +46,13 @@
 - `host/fs.js` 的 `LANG_BY_EXT` 决定 `.ejs/.njk/...` 返回哪个 language id；`.blade.php` 双扩展名要在 `languageOf` 里先特判，否则会命中 `php`。
 - 自定义 tokenizer 是「HTML + 模板分隔符里的代码」简化版，不提供语义服务；Monarch 里 `@brackets`、`blockComment` 状态要各自定义，且 `htmlTag` 状态里 `/>` 要在 `>` 之前。
 
+## 0.10 Monaco 语言映射审计（1.3.94）
+
+- Monaco basic-languages 里注册的 81 种语言，扩展名表在 `vendor/monaco/vs/editor/editor.main.js` 里；`host/fs.js` 的 `LANG_BY_EXT` 必须全部覆盖，否则打开文件会落到 plaintext。
+- 审计脚本思路：从 `editor.main.js` 抓 `id:"x" ... extensions:[...]`（注意 `aliases` 可能夹在 `id` 与 `extensions` 之间，正则要允许中间内容），再对比 `LANG_BY_EXT` 的值集合。
+- 有多个语言共享扩展名（`.p` Pascal、`.m` Objective-C、`.v` Verilog、`.cls` Apex、`.pp` Ruby/Pascal、`.s` MIPS、`.config` XML 等）时，按 Monaco 默认取一个；用户项目里如果扩展名含义不同，改 `LANG_BY_EXT` 一行即可。
+- 点开头文件（`.babelrc/.eslintrc/.jshintrc/.jscsrc/.bowerrc` → json、`.gitconfig` → ini、`.rprofile` → r）要在 `languageOf` 的 `lastIndexOf('.')` 之前特判，否则会被当成 plaintext。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

@@ -112,6 +112,20 @@ try {
   const afterDelete = await call(router, 'fs.list', { root, path: 'src' })
   check('delete applied', !afterDelete.entries.some((entry) => entry.name === 'helper.ts'))
 
+  console.log('fs.languageOf (Monaco 语言映射)')
+  const languageCases = [
+    ['a.ejs', 'ejs'], ['a.eta', 'ejs'], ['a.erb', 'erb'], ['a.html.erb', 'erb'],
+    ['a.njk', 'jinja'], ['a.jinja2', 'jinja'], ['a.hbs', 'handlebars'], ['a.mustache', 'handlebars'],
+    ['a.pug', 'pug'], ['a.twig', 'twig'], ['a.liquid', 'liquid'], ['a.blade.php', 'blade'],
+    ['a.haml', 'haml'], ['a.slim', 'slim'], ['a.mdx', 'mdx'],
+    ['a.abap', 'abap'], ['a.cls', 'apex'], ['a.bat', 'bat'], ['a.clj', 'clojure'],
+    ['a.coffee', 'coffeescript'], ['a.graphql', 'graphql'], ['a.tf', 'hcl'], ['a.jl', 'julia'],
+    ['a.m', 'objective-c'], ['a.pas', 'pascal'], ['a.pl', 'perl'], ['a.proto', 'proto'],
+    ['a.r', 'r'], ['a.rst', 'restructuredtext'], ['a.sol', 'sol'], ['a.sv', 'systemverilog'],
+    ['a.tcl', 'tcl'], ['a.tsp', 'typespec'], ['a.vb', 'vb'], ['a.wgsl', 'wgsl'],
+    ['.babelrc', 'json'], ['.gitconfig', 'ini'],
+  ]
+  for (const [file, expected] of languageCases) check(`languageOf ${file} -> ${expected}`, fs.languageOf(file) === expected, fs.languageOf(file))
   console.log('fs.search')
   await call(router, 'fs.create', { root, path: 'search.txt', kind: 'file' })
   await call(router, 'fs.write', { root, path: 'search.txt', content: 'Alpha beta\nBETA gamma\nbeta BETA\n' })

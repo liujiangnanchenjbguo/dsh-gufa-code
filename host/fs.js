@@ -21,12 +21,14 @@ const LIST_LIMIT = 4000
 
 /** 扩展名 → Monaco language id（与 VS Code 常用映射一致）。 */
 export const LANG_BY_EXT = {
-  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', es6: 'javascript',
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
-  json: 'json', jsonc: 'json', json5: 'json',
-  md: 'markdown', markdown: 'markdown', mdx: 'markdown',
+  json: 'json', jsonc: 'json', json5: 'json', bowerrc: 'json', jshintrc: 'json', jscsrc: 'json', eslintrc: 'json', babelrc: 'json', har: 'json',
+  md: 'markdown', markdown: 'markdown', mdown: 'markdown', mkdn: 'markdown', mkd: 'markdown', mdwn: 'markdown', mdtxt: 'markdown', mdtext: 'markdown',
   css: 'css', scss: 'scss', less: 'less',
   html: 'html', htm: 'html', vue: 'html', svelte: 'html', astro: 'html',
+  shtml: 'html', xhtml: 'html', mdoc: 'html', jsp: 'html', asp: 'html', aspx: 'html', jshtm: 'html',
+  mdx: 'mdx',
   ejs: 'ejs', eta: 'ejs',
   hbs: 'handlebars', handlebars: 'handlebars', mustache: 'handlebars',
   pug: 'pug', jade: 'pug',
@@ -35,12 +37,32 @@ export const LANG_BY_EXT = {
   erb: 'erb', rhtml: 'erb',
   haml: 'haml', slim: 'slim',
   xml: 'xml', svg: 'xml', plist: 'xml', csproj: 'xml',
-  yaml: 'yaml', yml: 'yaml', toml: 'ini', ini: 'ini', cfg: 'ini', conf: 'ini', properties: 'ini', env: 'ini',
-  py: 'python', pyw: 'python',
-  sh: 'shell', bash: 'shell', zsh: 'shell', fish: 'shell', ps1: 'powershell',
-  lua: 'lua', java: 'java', c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hxx: 'cpp',
-  cs: 'csharp', go: 'go', rs: 'rust', rb: 'ruby', php: 'php', sql: 'sql',
-  swift: 'swift', kt: 'kotlin', kts: 'kotlin', dart: 'dart', scala: 'scala',
+  xsd: 'xml', dtd: 'xml', ascx: 'xml', config: 'xml', props: 'xml', targets: 'xml',
+  wxi: 'xml', wxl: 'xml', wxs: 'xml', xaml: 'xml', svgz: 'xml', opf: 'xml', xslt: 'xml', xsl: 'xml',
+  yaml: 'yaml', yml: 'yaml', toml: 'ini', ini: 'ini', cfg: 'ini', conf: 'ini', properties: 'ini', env: 'ini', gitconfig: 'ini',
+  py: 'python', pyw: 'python', rpy: 'python', cpy: 'python', gyp: 'python', gypi: 'python',
+  sh: 'shell', bash: 'shell', zsh: 'shell', fish: 'shell', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell',
+  bat: 'bat', cmd: 'bat', azcli: 'azcli', bicep: 'bicep', abap: 'abap', apex: 'apex', cls: 'apex',
+  clj: 'clojure', cljs: 'clojure', cljc: 'clojure', edn: 'clojure',
+  coffee: 'coffeescript', csp: 'csp', cypher: 'cypher', cyp: 'cypher', ecl: 'ecl',
+  ex: 'elixir', exs: 'elixir', flow: 'flow9', fs: 'fsharp', fsi: 'fsharp', ml: 'fsharp', mli: 'fsharp', fsx: 'fsharp', fsscript: 'fsharp',
+  graphql: 'graphql', gql: 'graphql', tf: 'hcl', tfvars: 'hcl', hcl: 'hcl', jl: 'julia',
+  lex: 'lexon', m3: 'm3', i3: 'm3', mg: 'm3', ig: 'm3', s: 'mips',
+  dax: 'msdax', msdax: 'msdax', m: 'objective-c', pas: 'pascal', p: 'pascal',
+  ligo: 'pascaligo', pl: 'perl', pm: 'perl', pla: 'pla', dats: 'postiats', sats: 'postiats', hats: 'postiats',
+  pq: 'powerquery', pqm: 'powerquery', proto: 'proto', qs: 'qsharp',
+  r: 'r', rhistory: 'r', rmd: 'r', rt: 'r', redis: 'redis', rst: 'restructuredtext',
+  sb: 'sb', scm: 'scheme', ss: 'scheme', sch: 'scheme', rkt: 'scheme',
+  sol: 'sol', rq: 'sparql', st: 'st', iecst: 'st', iecplc: 'st', lc3lib: 'st',
+  sv: 'systemverilog', svh: 'systemverilog', v: 'verilog', vh: 'verilog',
+  tcl: 'tcl', tsp: 'typespec', vb: 'vb', wgsl: 'wgsl',
+  verilog: 'verilog', systemverilog: 'systemverilog',
+  lua: 'lua', java: 'java', jav: 'java', c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hxx: 'cpp', hh: 'cpp',
+  cs: 'csharp', csx: 'csharp', cake: 'csharp', go: 'go', rs: 'rust', rlib: 'rust',
+  rb: 'ruby', rbx: 'ruby', rjs: 'ruby', gemspec: 'ruby',
+  php: 'php', php4: 'php', php5: 'php', phtml: 'php', ctp: 'php', sql: 'sql',
+  swift: 'swift', kt: 'kotlin', kts: 'kotlin', dart: 'dart', scala: 'scala', sc: 'scala', sbt: 'scala',
+  ftlh: 'freemarker2', ftlx: 'freemarker2',
   dockerfile: 'dockerfile', makefile: 'makefile', cmake: 'cmake',
   txt: 'plaintext', log: 'plaintext', gitignore: 'plaintext', lock: 'plaintext',
 }
@@ -51,6 +73,10 @@ export function languageOf(path) {
   if (/^makefile$/i.test(base)) return 'makefile'
   if (/^\.?gitignore$/i.test(base) || /^\.?env/i.test(base)) return 'plaintext'
   if (/\.blade\.php$/i.test(base)) return 'blade'
+  /* 以点开头的 JSON/INI/R 配置文件名（Monaco/json 默认支持这些） */
+  if (/^\.(?:babelrc|eslintrc|jshintrc|jscsrc|bowerrc)$/i.test(base)) return 'json'
+  if (/^\.gitconfig$/i.test(base)) return 'ini'
+  if (/^\.rprofile$/i.test(base)) return 'r'
   const dot = base.lastIndexOf('.')
   if (dot <= 0) return 'plaintext'
   return LANG_BY_EXT[base.slice(dot + 1).toLowerCase()] ?? 'plaintext'
