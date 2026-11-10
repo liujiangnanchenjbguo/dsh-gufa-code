@@ -2315,14 +2315,9 @@ G.GufaApp = function GufaApp(props) {
           { className: 'gufa-empty' },
           h(G.Seal, { size: 64 }),
           h('div', { className: 'gufa-empty-title' }, t('app.noProject')),
-          h('div', { className: 'gufa-empty-hint' }, t('app.noProjectHint')),
+          /* 不再放「选择工作区 / 新建工作区」按钮：顶部已有同一套入口，避免两套逻辑 */
+          h('div', { className: 'gufa-empty-hint' }, t('app.noProjectHintTop')),
           bootError !== '' ? h('div', { className: 'gufa-error-banner', style: { margin: 0 } }, bootError) : null,
-          h(
-            'div',
-            { className: 'gufa-row', style: { justifyContent: 'center', marginTop: 8 } },
-            h(G.Button, { primary: true, icon: 'folder-open', onClick: () => void chooseAndOpenProject() }, t('app.openProject')),
-            h(G.Button, { icon: 'plus', onClick: () => setModal({ type: 'newProject', parent: '', name: '' }) }, t('app.newProject')),
-          ),
         )
       : null
 

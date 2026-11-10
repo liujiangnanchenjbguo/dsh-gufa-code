@@ -25,7 +25,8 @@
     "loading": "Loading…",
     "error": "Something went wrong",
     "retry": "Retry",
-    "hostStale": "Plugin upgraded: the Host is still an older build. The editor and AI chat already work; quit and reopen DeepSeek Harness to enable the real terminal."
+    "hostStale": "Plugin upgraded: the Host is still an older build. The editor and AI chat already work; quit and reopen DeepSeek Harness to enable the real terminal.",
+    "noProjectHintTop": "Use the workspace picker at the top left, or + New workspace at the top right."
   },
   "activity": {
     "explorer": "Explorer",

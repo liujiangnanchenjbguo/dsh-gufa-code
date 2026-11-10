@@ -26,7 +26,8 @@
     "error": "出错了",
     "retry": "重试",
     "hostStale": "插件已升级：当前 Host 仍是旧版本。AI 对话与编辑器已可用；请退出并重新打开 DeepSeek Harness 以启用真实终端。",
-    "noRepo": "当前工作区不是 Git 仓库"
+    "noRepo": "当前工作区不是 Git 仓库",
+    "noProjectHintTop": "从左上角「选择工作区」切换已有工作区，或点右上角「+ 新建工作区」。"
   },
   "activity": {
     "explorer": "资源管理器",

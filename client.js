@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.103'
+G.BUILD = '1.3.104'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -169,6 +169,7 @@ const DICT_ZH = {
   'app.openFolder': '打开文件夹',
   'app.noProject': '尚未打开工作区',
   'app.noProjectHint': '选择一个工作区，或新建一个工作区，开始古法编程。',
+  'app.noProjectHintTop': '从左上角「选择工作区」切换已有工作区，或点右上角「+ 新建工作区」。',
   'app.projectName': '工作区名',
   'app.parentFolder': '父目录',
   'app.cancel': '取消',
@@ -418,6 +419,7 @@ const DICT_EN = {
   'app.openFolder': 'Open folder',
   'app.noProject': 'No workspace opened',
   'app.noProjectHint': 'Choose a workspace or create a new one to start classic coding.',
+  'app.noProjectHintTop': 'Use the workspace picker at the top left, or + New workspace at the top right.',
   'app.projectName': 'Workspace name',
   'app.parentFolder': 'Parent folder',
   'app.cancel': 'Cancel',
@@ -14156,14 +14158,9 @@ G.GufaApp = function GufaApp(props) {
           { className: 'gufa-empty' },
           h(G.Seal, { size: 64 }),
           h('div', { className: 'gufa-empty-title' }, t('app.noProject')),
-          h('div', { className: 'gufa-empty-hint' }, t('app.noProjectHint')),
+          /* 不再放「选择工作区 / 新建工作区」按钮：顶部已有同一套入口，避免两套逻辑 */
+          h('div', { className: 'gufa-empty-hint' }, t('app.noProjectHintTop')),
           bootError !== '' ? h('div', { className: 'gufa-error-banner', style: { margin: 0 } }, bootError) : null,
-          h(
-            'div',
-            { className: 'gufa-row', style: { justifyContent: 'center', marginTop: 8 } },
-            h(G.Button, { primary: true, icon: 'folder-open', onClick: () => void chooseAndOpenProject() }, t('app.openProject')),
-            h(G.Button, { icon: 'plus', onClick: () => setModal({ type: 'newProject', parent: '', name: '' }) }, t('app.newProject')),
-          ),
         )
       : null
 
