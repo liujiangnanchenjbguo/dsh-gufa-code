@@ -2107,6 +2107,19 @@ G.GufaApp = function GufaApp(props) {
       const next = tabs[(index - 1 + tabs.length) % tabs.length]
       if (next !== undefined) setActivePath(next.path)
     },
+    newWindow: () => {
+      /* Host 用古法编程原生 helper 开一个普通窗口，加载同一个 Web GUI；
+         helper 缺失/平台不支持时回退到浏览器新窗口。 */
+      void G.api('app.newWindow', {}).catch((error) => {
+        let opened = null
+        try { opened = window.open(location.href, '_blank') } catch { opened = null }
+        if (opened !== null && opened !== undefined) {
+          try { opened.focus() } catch { /* ignore */ }
+          return
+        }
+        try { G.refToast(`打开新窗口失败：${G.errorText(error)}`, 'err') } catch { /* ignore */ }
+      })
+    },
     shortcutsDialog: () => setShortcutsOpen((open) => open === false),
     shortcuts: () => {
       // 编辑器内 ⌘/ 是「切换行注释」（VS Code 一致），其他位置才打开快捷键列表

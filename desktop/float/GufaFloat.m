@@ -135,6 +135,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 @property (nonatomic, strong) NSDictionary *options;
 @property (nonatomic, assign) EventHotKeyRef hotKeyRef;
 @property (nonatomic, assign) BOOL following;
+@property (nonatomic, assign) BOOL fullMode;
 @property (nonatomic, assign) pid_t followPid;
 @property (nonatomic, copy) NSString *followTitle;
 @property (nonatomic, assign) AXUIElementRef followWindowRef;
@@ -178,6 +179,11 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.frameKey = @"gufa-float-frame-v1";
     self.clickThrough = NO;
     [self parseOptions];
+    self.fullMode = [self.options[@"full"] boolValue];
+    if (self.fullMode) {
+        self.frameKey = @"gufa-instance-frame-v1";
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+    }
     if ([self.options[@"controlPath"] isKindOfClass:[NSString class]]) self.controlPath = self.options[@"controlPath"];
     [self watchControlFile];
     /* 先激活目标 App：等它切到自己的 Space/全屏 Space 后再创建悬浮窗，
@@ -190,13 +196,15 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         __strong typeof(weakSelf) self = weakSelf;
         if (self == nil) return;
         [self buildWindow];
-        [self buildStatusItem];
-        [self registerToggleHotKey];
-        /* 摸鱼：等目标 App 到前台后隐藏 DSH 主窗口（⌘H 效果） */
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            GufaSetMainAppHidden(YES);
-        });
-        [self beginningFollowFromOptions];
+        if (!self.fullMode) {
+            [self buildStatusItem];
+            [self registerToggleHotKey];
+            /* 摸鱼：等目标 App 到前台后隐藏 DSH 主窗口（⌘H 效果） */
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                GufaSetMainAppHidden(YES);
+            });
+            [self beginningFollowFromOptions];
+        }
         [self loadWebContent];
     });
 }
@@ -350,21 +358,23 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         }
     }
 
+    NSWindowStyleMask styleMask = self.fullMode
+        ? (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+        : (NSWindowStyleMaskBorderless | NSWindowStyleMaskResizable);
     self.window = [[GufaFloatWindow alloc] initWithContentRect:frame
-                                             styleMask:(NSWindowStyleMaskBorderless | NSWindowStyleMaskResizable)
+                                             styleMask:styleMask
                                                backing:NSBackingStoreBuffered
                                                  defer:NO];
-    self.window.opaque = NO;
-    self.window.backgroundColor = NSColor.clearColor;
+    self.window.opaque = self.fullMode ? YES : NO;
+    self.window.backgroundColor = self.fullMode ? [NSColor colorWithCalibratedRed:0.07 green:0.07 blue:0.08 alpha:1.0] : NSColor.clearColor;
     self.window.hasShadow = YES;
-    /* 高于普通浮动窗口（歌词、置顶小工具等），确保真正盖住被跟随的 App */
-    self.window.level = NSStatusWindowLevel;
+    self.window.level = self.fullMode ? NSNormalWindowLevel : NSStatusWindowLevel;
     /* 固定吸附：默认不加入所有 Space（否则用户滑动切屏时摸鱼窗会跟着跑到当前屏）；
        只有「自由悬浮」模式才允许出现在所有 Space。 */
-    self.window.collectionBehavior = (NSWindowCollectionBehaviorFullScreenAuxiliary
-                                      | NSWindowCollectionBehaviorIgnoresCycle);
+    self.window.collectionBehavior = self.fullMode ? NSWindowCollectionBehaviorDefault
+                                      : (NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorIgnoresCycle);
     self.window.minSize = NSMakeSize(520, 360);
-    self.window.title = @"古法编程悬浮层";
+    self.window.title = self.fullMode ? @"DeepSeek Harness" : @"古法编程悬浮层";
 
     NSView *container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width, frame.size.height)];
     container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -374,7 +384,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
     /* 文档开始前注入：悬浮模式标记 + 主窗口状态（项目/UI 布局/打开的标签页/会话），
        让悬浮窗里的古法编程「接着主窗口继续干活」，而不是一个空白的新实例。 */
-    NSMutableString *bootstrap = [NSMutableString stringWithString:@"try{localStorage.setItem('gufa-code:float','1');"];
+    NSMutableString *bootstrap = self.fullMode ? [NSMutableString string] : [NSMutableString stringWithString:@"try{localStorage.setItem('gufa-code:float','1');"];
     NSDictionary *state = [self.options[@"state"] isKindOfClass:[NSDictionary class]] ? self.options[@"state"] : nil;
     if (state != nil) {
         NSData *stateJson = [NSJSONSerialization dataWithJSONObject:state options:0 error:NULL];
@@ -403,11 +413,13 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
             }
         }
     }
-    [bootstrap appendString:@"}catch(e){}"];
-    WKUserScript *floatMarker = [[WKUserScript alloc] initWithSource:bootstrap
-                                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart
-                                                    forMainFrameOnly:YES];
-    [config.userContentController addUserScript:floatMarker];
+    if (!self.fullMode) {
+        [bootstrap appendString:@"}catch(e){}"];
+        WKUserScript *floatMarker = [[WKUserScript alloc] initWithSource:bootstrap
+                                                           injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                                        forMainFrameOnly:YES];
+        [config.userContentController addUserScript:floatMarker];
+    }
     self.webView = [[WKWebView alloc] initWithFrame:container.bounds configuration:config];
     self.webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.navigation = [[GufaNavigationDelegate alloc] init];
@@ -416,12 +428,14 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     [self.webView setValue:@NO forKey:@"drawsBackground"];
     [container addSubview:self.webView];
 
-    CGFloat stripHeight = 22.0;
-    GufaDragStrip *strip = [[GufaDragStrip alloc] initWithFrame:NSMakeRect(0, frame.size.height - stripHeight, frame.size.width, stripHeight)];
-    strip.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-    strip.menu = self.mainMenu;
-    [container addSubview:strip];
-    self.dragStrip = strip;
+    if (!self.fullMode) {
+        CGFloat stripHeight = 22.0;
+        GufaDragStrip *strip = [[GufaDragStrip alloc] initWithFrame:NSMakeRect(0, frame.size.height - stripHeight, frame.size.width, stripHeight)];
+        strip.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+        strip.menu = self.mainMenu;
+        [container addSubview:strip];
+        self.dragStrip = strip;
+    }
 
     self.window.contentView = container;
     if (self.window.frame.size.width < 400 || self.window.frame.size.height < 300) {
@@ -472,6 +486,10 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     self.navigation.pendingLoad = ^{
         __strong typeof(weakSelf) self = weakSelf;
         if (self == nil) return;
+        if (self.fullMode) {
+            [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:appUrl ?: @""]]];
+            return;
+        }
         /* 鉴权 cookie 已在 token URL 重定向时写入；这里用 JS 写 localStorage（避开 URL 长度/转义问题），
            再跳到带 gufa-float 标记的干净地址，客户端据此自动进入摸鱼模式并恢复状态。 */
         NSMutableString *js = [NSMutableString stringWithString:@"try{"];
@@ -529,9 +547,9 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     NSString *build = [self.options[@"build"] isKindOfClass:[NSString class]] ? self.options[@"build"] : @"";
     NSString *lastBuild = [[NSUserDefaults standardUserDefaults] stringForKey:@"gufa-float-build"];
     BOOL versionChanged = build.length == 0 || lastBuild == nil || ![lastBuild isEqualToString:build];
-    NSSet<NSString *> *types = versionChanged
-      ? [WKWebsiteDataStore allWebsiteDataTypes]
-      : [NSSet setWithObjects:WKWebsiteDataTypeMemoryCache, nil];
+    NSSet<NSString *> *types = self.fullMode
+      ? [NSSet setWithObjects:WKWebsiteDataTypeMemoryCache, nil]
+      : (versionChanged ? [WKWebsiteDataStore allWebsiteDataTypes] : [NSSet setWithObjects:WKWebsiteDataTypeMemoryCache, nil]);
     [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:types modifiedSince:[NSDate dateWithTimeIntervalSince1970:0] completionHandler:^{
         if (build.length > 0) [[NSUserDefaults standardUserDefaults] setObject:build forKey:@"gufa-float-build"];
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -559,6 +577,10 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
             if (httpCookie != nil) {
                 WKHTTPCookieStore *store = [WKWebsiteDataStore defaultDataStore].httpCookieStore;
                 [store setCookie:httpCookie completionHandler:^{
+                    if (self.fullMode) {
+                        [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:self.options[@"appUrl"] ?: @""]]];
+                        return;
+                    }
                     NSURLComponents *components = [NSURLComponents componentsWithString:self.options[@"appUrl"] ?: @""];
                     components.queryItems = @[[NSURLQueryItem queryItemWithName:@"gufa-float" value:@"1"]];
                     [self.webView loadRequest:[NSURLRequest requestWithURL:components.URL]];
@@ -1129,8 +1151,14 @@ int main(int argc, const char *argv[]) {
         }
     }
     @autoreleasepool {
+        BOOL fullWindow = NO;
+        if (argc > 1 && argc < 3) {
+            NSData *payloadData = [[NSString stringWithUTF8String:argv[1]] dataUsingEncoding:NSUTF8StringEncoding];
+            id parsed = payloadData != nil ? [NSJSONSerialization JSONObjectWithData:payloadData options:0 error:NULL] : nil;
+            if ([parsed isKindOfClass:[NSDictionary class]]) fullWindow = [parsed[@"full"] boolValue];
+        }
         [NSApplication sharedApplication];
-        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        [NSApp setActivationPolicy:fullWindow ? NSApplicationActivationPolicyRegular : NSApplicationActivationPolicyAccessory];
         GufaInstallEditMenu();
         GufaInstallTermHandler();
         GufaAppDelegate *delegate = [[GufaAppDelegate alloc] init];

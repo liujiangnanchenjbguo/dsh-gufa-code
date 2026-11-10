@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.95'
+G.BUILD = '1.3.97'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -119,6 +119,7 @@ const DICT_ZH = {
   'shortcuts.toggleTerminal': '显示 / 隐藏终端',
   'shortcuts.toggleSidebar': '显示 / 隐藏左侧栏',
   'shortcuts.closeTab': '关闭当前标签页',
+  'shortcuts.newWindow': '新建一个实例窗口',
   'shortcuts.explorer': '聚焦资源管理器',
   'shortcuts.search': '聚焦全局搜索',
   'shortcuts.git': '聚焦源代码管理',
@@ -376,6 +377,7 @@ const DICT_EN = {
   'shortcuts.toggleTerminal': 'Toggle terminal panel',
   'shortcuts.toggleSidebar': 'Toggle sidebar',
   'shortcuts.closeTab': 'Close current tab',
+  'shortcuts.newWindow': 'New window',
   'shortcuts.explorer': 'Focus explorer',
   'shortcuts.search': 'Focus search',
   'shortcuts.git': 'Focus source control',
@@ -11360,6 +11362,7 @@ G.shortcutAction = function shortcutAction(event) {
     if (key === 'h' || key === 'u') return 'panelSsh'
     if (key === 'b') return 'toggleSidebar'
     if (key === 'w') return 'closeTab'
+    if (key === 'n') return 'newWindow'
     if (isBackquote) return 'newTerminal'
     if (key === '/' || key === '?') return 'shortcuts'
     if (key === 'enter' || code === 'Enter' || code === 'NumpadEnter') return 'commit'
@@ -11790,6 +11793,7 @@ G.SHORTCUTS = [
   { action: 'toggleTerminal', labelKey: 'shortcuts.toggleTerminal', keys: ['J'], shift: false, macText: '⌘J / ⌃`', otherText: 'Ctrl+J / Ctrl+`' },
   { action: 'toggleSidebar', labelKey: 'shortcuts.toggleSidebar', keys: ['B'], shift: false },
   { action: 'closeTab', labelKey: 'shortcuts.closeTab', keys: ['W'], shift: false },
+  { action: 'newWindow', labelKey: 'shortcuts.newWindow', keys: ['N'], shift: true },
   { action: 'panelExplorer', labelKey: 'shortcuts.explorer', keys: ['E'], shift: true },
   { action: 'panelSearch', labelKey: 'shortcuts.search', keys: ['F'], shift: true },
   { action: 'panelGit', labelKey: 'shortcuts.git', keys: ['G'], shift: true },
@@ -13943,6 +13947,19 @@ G.GufaApp = function GufaApp(props) {
       const index = tabs.findIndex((tab) => tab.path === activePath)
       const next = tabs[(index - 1 + tabs.length) % tabs.length]
       if (next !== undefined) setActivePath(next.path)
+    },
+    newWindow: () => {
+      /* Host 用古法编程原生 helper 开一个普通窗口，加载同一个 Web GUI；
+         helper 缺失/平台不支持时回退到浏览器新窗口。 */
+      void G.api('app.newWindow', {}).catch((error) => {
+        let opened = null
+        try { opened = window.open(location.href, '_blank') } catch { opened = null }
+        if (opened !== null && opened !== undefined) {
+          try { opened.focus() } catch { /* ignore */ }
+          return
+        }
+        try { G.refToast(`打开新窗口失败：${G.errorText(error)}`, 'err') } catch { /* ignore */ }
+      })
     },
     shortcutsDialog: () => setShortcutsOpen((open) => open === false),
     shortcuts: () => {

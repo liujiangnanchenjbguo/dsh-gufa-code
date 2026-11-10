@@ -53,6 +53,13 @@
 - 有多个语言共享扩展名（`.p` Pascal、`.m` Objective-C、`.v` Verilog、`.cls` Apex、`.pp` Ruby/Pascal、`.s` MIPS、`.config` XML 等）时，按 Monaco 默认取一个；用户项目里如果扩展名含义不同，改 `LANG_BY_EXT` 一行即可。
 - 点开头文件（`.babelrc/.eslintrc/.jshintrc/.jscsrc/.bowerrc` → json、`.gitconfig` → ini、`.rprofile` → r）要在 `languageOf` 的 `lastIndexOf('.')` 之前特判，否则会被当成 plaintext。
 
+## 0.11 ⌘⇧N 新实例窗口（1.3.97）
+
+- Electron 桌面壳是单实例应用（`requestSingleInstanceLock`），且只有 Electron main 能 `new BrowserWindow`；插件 Host 跑在独立的 Node 模式进程里，**没有 electron 模块**（`import('electron')` 会解析到 npm 包而不是内建模块），不能在 Host 里开原生 BrowserWindow。
+- 实现：复用插件自带的原生 helper（`desktop/float/GufaFloat.m`），payload 传 `{full:true, authUrl, appUrl}` —— helper 建普通标题栏窗口、Regular 激活策略、跳过摸鱼 localStorage/隐藏主窗/吸附，加载同一个 DSH Web GUI；鉴权复用它已有的 `connection.authenticatedUrl()` token 流程。
+- 客户端 ⌘⇧N 必须先调 Host `app.newWindow`，失败才回退 `window.open`（Electron 的 setWindowOpenHandler 会 deny 并用外部浏览器打开 http(s)，不是应用内窗口）。
+- 新窗口与 Electron 主窗口共享的是 **同一个 Host/服务端**，但 UI 进程独立（WKWebView，不走 Electron preload）；所以别让新窗口依赖 `window.dshDesktop` 之类的 Electron preload API。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

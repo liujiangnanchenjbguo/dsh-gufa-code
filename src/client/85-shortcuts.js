@@ -51,6 +51,7 @@ G.shortcutAction = function shortcutAction(event) {
     if (key === 'h' || key === 'u') return 'panelSsh'
     if (key === 'b') return 'toggleSidebar'
     if (key === 'w') return 'closeTab'
+    if (key === 'n') return 'newWindow'
     if (isBackquote) return 'newTerminal'
     if (key === '/' || key === '?') return 'shortcuts'
     if (key === 'enter' || code === 'Enter' || code === 'NumpadEnter') return 'commit'
@@ -481,6 +482,7 @@ G.SHORTCUTS = [
   { action: 'toggleTerminal', labelKey: 'shortcuts.toggleTerminal', keys: ['J'], shift: false, macText: '⌘J / ⌃`', otherText: 'Ctrl+J / Ctrl+`' },
   { action: 'toggleSidebar', labelKey: 'shortcuts.toggleSidebar', keys: ['B'], shift: false },
   { action: 'closeTab', labelKey: 'shortcuts.closeTab', keys: ['W'], shift: false },
+  { action: 'newWindow', labelKey: 'shortcuts.newWindow', keys: ['N'], shift: true },
   { action: 'panelExplorer', labelKey: 'shortcuts.explorer', keys: ['E'], shift: true },
   { action: 'panelSearch', labelKey: 'shortcuts.search', keys: ['F'], shift: true },
   { action: 'panelGit', labelKey: 'shortcuts.git', keys: ['G'], shift: true },

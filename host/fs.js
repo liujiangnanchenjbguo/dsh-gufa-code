@@ -289,6 +289,19 @@ export function register(router, env) {
   /* Tab 行内补全：借用 Harness 自己的模型服务 */
   registerCompletion(router, env)
 
+  /* ⌘⇧N：打开新的 Harness 实例窗口（Electron 单实例下新建 BrowserWindow）。
+     app-window.js 用带 mtime 的动态 import，改它不必重启 Host。 */
+  router.method('app.newWindow', async (body) => {
+    let stamp = '0'
+    try {
+      stamp = String(statSync(new URL('./app-window.js', import.meta.url)).mtimeMs)
+    } catch {
+      stamp = '0'
+    }
+    const module = await import(new URL(`./app-window.js?gufa-app-window=${stamp}`, import.meta.url).href)
+    return module.newWindow(body, env)
+  })
+
   /* 代码导航（Cmd+点击跳定义）：实现放在 code.js，但 Host 热重载只按 host/*.js 的 mtime
      触发，因此这里用带 mtime 的 query 动态 import，code.js 改动后下一次请求就能热生效。 */
   router.method('code.definition', async (body) => {
