@@ -533,6 +533,7 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
     const viewStatesRef = useRef(new Map()) /* path -> editor view state（滚动/光标） */
     const lastPropContentRef = useRef(new Map()) /* path -> 最近一次同步过的 props content */
     const modelsRootRef = useRef(root) /* model 所属项目根：root 变了必须重建 */
+    const tsPreloadRef = useRef(null) /* 后台预加载 import 依赖（JS/TS） */
     const modelPathRef = useRef(null) /* 当前挂在 editor 上的 tab path */
     const suppressChangeRef = useRef(false) /* 程序化 setValue 时抑制 onChange 回环 */
     const propsRef = useRef(props)
@@ -820,6 +821,7 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                       }
                     }
                   }
+                  tsPreloadRef.current = preloadTsDependencies
                   const queryDefinitions = (position, word, model, path, root) => {
                     const language = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
                     if (language === 'python') {
@@ -1451,6 +1453,18 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
           if (targetTab.language === 'python' && !GUFA_LSP_WARMED.has(root)) {
             GUFA_LSP_WARMED.add(root)
             void G.api('lsp.warm', { root }).catch(() => { GUFA_LSP_WARMED.delete(root) })
+          }
+          /* JS/TS：切到文件后后台预加载 import 依赖，点 Cmd+点击时 Monaco 已有跨文件 model，少等网络 */
+          if (targetTab.language === 'typescript' || targetTab.language === 'javascript') {
+            const modelForPreload = targetModel
+            const pathForPreload = targetTab.path
+            window.setTimeout(() => {
+              try {
+                if (tsPreloadRef.current !== null) void tsPreloadRef.current(modelForPreload, pathForPreload, root)
+              } catch {
+                /* ignore */
+              }
+            }, 200)
           }
           /* 打开/切换文件不抢焦点：只有用户点击编辑区时才进入键盘编辑 */
         }

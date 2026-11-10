@@ -487,6 +487,16 @@ const GUFA_PLUGIN = {
       console.error('[gufa-code] 安装聊天框文件粘贴失败', error)
     }
 
+    // 文件拖拽 → @引用 / 代码选区复制 → 代码引用 / 引用 chip 点击跳回（原 dsh-drag-ref 能力）
+    try {
+      if (typeof G.installGufaRefBridge === 'function') {
+        const disposeRefBridge = G.installGufaRefBridge(ctx)
+        if (typeof disposeRefBridge === 'function') ctx.effect(() => disposeRefBridge, 'gufa-code: explorer + code reference bridge')
+      }
+    } catch (error) {
+      console.error('[gufa-code] 安装引用桥失败', error)
+    }
+
     // 样式（随插件 context 卸载自动移除）
     ctx.effect(() => G.injectStyles(), 'gufa-code: styles')
 

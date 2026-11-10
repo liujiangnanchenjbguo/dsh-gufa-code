@@ -30,6 +30,14 @@
 - 必须做防串扰：`provideInlineCompletions` 里 260ms 防抖 + 全局 500ms 限流 + `token.isCancellationRequested` 取消 + 按 `path/version/position` 缓存；否则每敲一个字符都打模型、又慢又费 token。
 - Host prompt 只带 `prefix`（末尾 3200 字）和 `suffix`（800 字），`maxTokens 160`、`temperature 0.2`；返回前剥掉 markdown 围栏。上下文太大不仅慢，而且容易让模型续写整段而不是补一行。
 
+## 0.8 代码引用/拖拽引用（原 dsh-drag-ref 已并入）
+
+- 原先独立插件 dsh-drag-ref 的复制代码引用、拖文件到输入框、chip 点击跳回能力已并入 `src/client/58b-drag-ref.js`，profile 里不再装独立插件；两边同时装会重复 `copy` 监听。
+- 复制语义：**跨行选区一律算引用**（首行/末行只选半行也可以，行范围按实际首尾行）；**单行必须整行选中**才生成引用，否则不拦截、按普通文本复制。
+- 成功复制/插入/拖动/跳转一律不弹 toast（用户明确讨厌成功提示），只有失败才提示；toast 复用 `G.refToast`。
+- 古法 IDE 内点击引用 chip：优先 `G.bus.emit('editor:open-at')` 打开自己的 Monaco 标签，再 `selectRange` 选中行范围；不要依赖 DSH 侧边栏资源路由。
+- 行范围引用格式 `@path Lx-Ly`；chip 标签里存路径+行号用于点击定位，`localStorage` key 使用 `gufa-code.refs.v1`。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。
