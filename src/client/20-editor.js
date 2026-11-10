@@ -746,6 +746,98 @@
                   /* ignore */
                 }
               })
+
+              /* Cmd/Ctrl+点击跳转定义：先走 Monaco 语言服务；没有提供者（未打开的文件、
+                 非 TS/JS 语言等）时回退到 Host 的项目级定义搜索，单结果直接跳，多结果弹选择。 */
+              try {
+                const domNode = typeof instance.getDomNode === 'function' ? instance.getDomNode() : null
+                if (domNode !== null && domNode !== undefined) {
+                  const onDefinitionClick = async (event) => {
+                    try {
+                      const currentDom = typeof instance.getDomNode === 'function' ? instance.getDomNode() : null
+                      if (currentDom === null || currentDom === undefined || !(event.target instanceof Node) || !currentDom.contains(event.target)) return
+                    } catch {
+                      return
+                    }
+                    if (event.button !== 0 || event.defaultPrevented === true) return
+                    const primary = typeof G.isMacPlatform === 'function' ? G.isMacPlatform() : true
+                    const pressed = primary ? event.metaKey === true : event.ctrlKey === true
+                    if (!pressed || event.altKey === true || event.shiftKey === true) return
+                    if (event.target instanceof Element && event.target.closest('a') !== null) return
+                    let target = null
+                    try {
+                      target = typeof instance.getTargetAtClientPoint === 'function' ? instance.getTargetAtClientPoint(event.clientX, event.clientY) : null
+                    } catch {
+                      target = null
+                    }
+                    const position = target !== null && target !== undefined ? target.position : null
+                    const model = instance.getModel()
+                    if (position === null || position === undefined || model === null || model === undefined) return
+                    let wordInfo = null
+                    try {
+                      wordInfo = typeof model.getWordAtPosition === 'function' ? model.getWordAtPosition(position) : null
+                    } catch {
+                      wordInfo = null
+                    }
+                    const word = wordInfo !== null && wordInfo !== undefined && typeof wordInfo.word === 'string' ? wordInfo.word : ''
+                    if (word.length < 2) return
+                    const path = modelPathRef.current
+                    const root = modelsRootRef.current
+                    if (path === null || root === null || root === '') return
+                    try {
+                      event.preventDefault()
+                      event.stopPropagation()
+                    } catch {
+                      /* ignore */
+                    }
+                    const beforePath = modelPathRef.current
+                    const beforePosition = instance.getPosition()
+                    try {
+                      const action = typeof instance.getAction === 'function' ? instance.getAction('editor.action.revealDefinition') : null
+                      if (action !== null && action !== undefined) {
+                        const supported = typeof action.isSupported === 'function' ? action.isSupported() : true
+                        if (supported !== false) await action.run()
+                      }
+                    } catch {
+                      /* ignore */
+                    }
+                    await new Promise((resolve) => { window.setTimeout(resolve, 160) })
+                    let monacoHandled = false
+                    try {
+                      const afterPosition = instance.getPosition()
+                      monacoHandled = modelPathRef.current !== beforePath
+                        || (beforePosition !== null && beforePosition !== undefined && afterPosition !== null && afterPosition !== undefined
+                          && (afterPosition.lineNumber !== beforePosition.lineNumber || afterPosition.column !== beforePosition.column))
+                        || document.querySelector('.monaco-editor .peekview-widget, .monaco-editor .reference-zone-widget') !== null
+                    } catch {
+                      monacoHandled = false
+                    }
+                    if (monacoHandled) return
+                    try {
+                      const result = await G.api('code.definition', {
+                        root,
+                        path,
+                        line: position.lineNumber,
+                        column: position.column,
+                        word,
+                        content: model.getValue(),
+                      })
+                      const matches = result !== null && result !== undefined && Array.isArray(result.matches) ? result.matches : []
+                      if (matches.length === 0) return
+                      if (matches.length === 1) {
+                        G.bus.emit('editor:open-at', { path: matches[0].path, line: matches[0].line, column: matches[0].column })
+                        return
+                      }
+                      G.bus.emit('definition:pick', { word: result.word ?? word, matches, x: event.clientX, y: event.clientY })
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                  document.addEventListener('mousedown', onDefinitionClick, true)
+                }
+              } catch {
+                /* ignore */
+              }
             } catch {
               /* ignore */
             }

@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import * as assets from '../host/assets.js'
 import * as floatPlatform from '../host/float-platform.js'
 import * as chat from '../host/chat.js'
+import * as code from '../host/code.js'
 import * as fs from '../host/fs.js'
 import * as git from '../host/git.js'
 import * as project from '../host/project.js'
@@ -67,7 +68,7 @@ const sandbox = mkdtempSync(join(tmpdir(), 'gufa-selftest-'))
 const projectDir = join(sandbox, 'demo-project')
 const router = makeRouter()
 const env = { ctx: { get: () => undefined }, projects: new ProjectRegistry() }
-for (const module of [assets, project, fs, git, ssh, terminal, chat]) module.register(router, env)
+for (const module of [assets, project, fs, git, ssh, terminal, chat, code]) module.register(router, env)
 
 try {
   console.log('project.create / project.open')
@@ -216,6 +217,25 @@ try {
   writeFileSync(join(projectDir, 'src/main.ts'), 'const answer = 43\n')
   const diff = await call(router, 'git.diff', { root, path: 'src/main.ts' })
   check('diff contains change', diff.patch.includes('43'))
+
+  console.log('code.definition')
+  await call(router, 'fs.create', { root, path: 'nav', kind: 'dir' })
+  await call(router, 'fs.create', { root, path: 'nav/defs.js', kind: 'file' })
+  await call(router, 'fs.write', { root, path: 'nav/defs.js', content: 'export function helperFn(){ return 1 }\n\nexport class WidgetBox {\n  render(){ return 2 }\n}\n' })
+  await call(router, 'fs.create', { root, path: 'nav/use.js', kind: 'file' })
+  const useContent = 'const value = helperFn()\nconst widget = new WidgetBox()\nwidget.render()\n'
+  await call(router, 'fs.write', { root, path: 'nav/use.js', content: useContent })
+  const defsResult = await call(router, 'code.definition', { root, path: 'nav/use.js', line: 1, column: 15, word: 'helperFn', content: useContent })
+  check('definition finds cross-file function', defsResult.matches.some((item) => item.path === 'nav/defs.js' && item.line === 1), JSON.stringify(defsResult.matches.slice(0, 2)))
+  const classResult = await call(router, 'code.definition', { root, path: 'nav/use.js', line: 2, column: 20, word: 'WidgetBox', content: useContent })
+  check('definition finds class', classResult.matches.some((item) => item.path === 'nav/defs.js' && item.kind === 'class'), JSON.stringify(classResult.matches.slice(0, 2)))
+  const methodResult = await call(router, 'code.definition', { root, path: 'nav/use.js', line: 3, column: 9, word: 'render', content: useContent })
+  check('definition finds method', methodResult.matches.some((item) => item.path === 'nav/defs.js' && item.kind === 'method'), JSON.stringify(methodResult.matches.slice(0, 2)))
+  const derivedResult = await call(router, 'code.definition', { root, path: 'nav/use.js', line: 1, column: 16, content: useContent })
+  check('definition derives word from line/column', derivedResult.word === 'helperFn' && derivedResult.matches.length > 0, JSON.stringify(derivedResult.word))
+  const emptyResult = await call(router, 'code.definition', { root, path: 'nav/use.js', line: 1, column: 7, content: useContent, word: 'x' })
+  check('definition ignores too-short word', emptyResult.word === 'x' && emptyResult.matches.length === 0)
+  await call(router, 'fs.delete', { root, path: 'nav' }).catch(() => {})
 
   console.log('workspaces')
   const fakeSessions = new Map([

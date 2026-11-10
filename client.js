@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.69'
+G.BUILD = '1.3.78'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -126,6 +126,7 @@ const DICT_ZH = {
   'shortcuts.newTerminal': '新建终端',
   'shortcuts.help': '打开 / 关闭本快捷键列表',
   'shortcuts.editorTitle': '编辑器（Monaco / VS Code 同款键位）',
+  'editor.gotoDefinition': '跳转到定义',
   'editorKeys.comment': '切换行注释',
   'editorKeys.blockComment': '切换块注释',
   'editorKeys.nextOccurrence': '选中下一个相同内容（多光标）',
@@ -382,6 +383,7 @@ const DICT_EN = {
   'shortcuts.newTerminal': 'New terminal',
   'shortcuts.help': 'Show / hide this shortcut list',
   'shortcuts.editorTitle': 'Editor (Monaco / VS Code keybindings)',
+  'editor.gotoDefinition': 'Go to definition',
   'editorKeys.comment': 'Toggle line comment',
   'editorKeys.blockComment': 'Toggle block comment',
   'editorKeys.nextOccurrence': 'Add next occurrence to multi-cursor',
@@ -3092,6 +3094,98 @@ G.FooterAction = function FooterAction(props) {
                   /* ignore */
                 }
               })
+
+              /* Cmd/Ctrl+点击跳转定义：先走 Monaco 语言服务；没有提供者（未打开的文件、
+                 非 TS/JS 语言等）时回退到 Host 的项目级定义搜索，单结果直接跳，多结果弹选择。 */
+              try {
+                const domNode = typeof instance.getDomNode === 'function' ? instance.getDomNode() : null
+                if (domNode !== null && domNode !== undefined) {
+                  const onDefinitionClick = async (event) => {
+                    try {
+                      const currentDom = typeof instance.getDomNode === 'function' ? instance.getDomNode() : null
+                      if (currentDom === null || currentDom === undefined || !(event.target instanceof Node) || !currentDom.contains(event.target)) return
+                    } catch {
+                      return
+                    }
+                    if (event.button !== 0 || event.defaultPrevented === true) return
+                    const primary = typeof G.isMacPlatform === 'function' ? G.isMacPlatform() : true
+                    const pressed = primary ? event.metaKey === true : event.ctrlKey === true
+                    if (!pressed || event.altKey === true || event.shiftKey === true) return
+                    if (event.target instanceof Element && event.target.closest('a') !== null) return
+                    let target = null
+                    try {
+                      target = typeof instance.getTargetAtClientPoint === 'function' ? instance.getTargetAtClientPoint(event.clientX, event.clientY) : null
+                    } catch {
+                      target = null
+                    }
+                    const position = target !== null && target !== undefined ? target.position : null
+                    const model = instance.getModel()
+                    if (position === null || position === undefined || model === null || model === undefined) return
+                    let wordInfo = null
+                    try {
+                      wordInfo = typeof model.getWordAtPosition === 'function' ? model.getWordAtPosition(position) : null
+                    } catch {
+                      wordInfo = null
+                    }
+                    const word = wordInfo !== null && wordInfo !== undefined && typeof wordInfo.word === 'string' ? wordInfo.word : ''
+                    if (word.length < 2) return
+                    const path = modelPathRef.current
+                    const root = modelsRootRef.current
+                    if (path === null || root === null || root === '') return
+                    try {
+                      event.preventDefault()
+                      event.stopPropagation()
+                    } catch {
+                      /* ignore */
+                    }
+                    const beforePath = modelPathRef.current
+                    const beforePosition = instance.getPosition()
+                    try {
+                      const action = typeof instance.getAction === 'function' ? instance.getAction('editor.action.revealDefinition') : null
+                      if (action !== null && action !== undefined) {
+                        const supported = typeof action.isSupported === 'function' ? action.isSupported() : true
+                        if (supported !== false) await action.run()
+                      }
+                    } catch {
+                      /* ignore */
+                    }
+                    await new Promise((resolve) => { window.setTimeout(resolve, 160) })
+                    let monacoHandled = false
+                    try {
+                      const afterPosition = instance.getPosition()
+                      monacoHandled = modelPathRef.current !== beforePath
+                        || (beforePosition !== null && beforePosition !== undefined && afterPosition !== null && afterPosition !== undefined
+                          && (afterPosition.lineNumber !== beforePosition.lineNumber || afterPosition.column !== beforePosition.column))
+                        || document.querySelector('.monaco-editor .peekview-widget, .monaco-editor .reference-zone-widget') !== null
+                    } catch {
+                      monacoHandled = false
+                    }
+                    if (monacoHandled) return
+                    try {
+                      const result = await G.api('code.definition', {
+                        root,
+                        path,
+                        line: position.lineNumber,
+                        column: position.column,
+                        word,
+                        content: model.getValue(),
+                      })
+                      const matches = result !== null && result !== undefined && Array.isArray(result.matches) ? result.matches : []
+                      if (matches.length === 0) return
+                      if (matches.length === 1) {
+                        G.bus.emit('editor:open-at', { path: matches[0].path, line: matches[0].line, column: matches[0].column })
+                        return
+                      }
+                      G.bus.emit('definition:pick', { word: result.word ?? word, matches, x: event.clientX, y: event.clientY })
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                  document.addEventListener('mousedown', onDefinitionClick, true)
+                }
+              } catch {
+                /* ignore */
+              }
             } catch {
               /* ignore */
             }
@@ -10796,6 +10890,7 @@ G.GufaApp = function GufaApp(props) {
   const gitInFlightRef = useRef(false)
   const [modal, setModal] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [definitionPicker, setDefinitionPicker] = useState(null)
   const [trashUndo, setTrashUndo] = useState([])
   const [branchMenu, setBranchMenu] = useState(null)
   const [workspaceDialog, setWorkspaceDialog] = useState(null)
@@ -11038,6 +11133,28 @@ G.GufaApp = function GufaApp(props) {
       }
     }, 120)
   }, [openFile])
+
+  /* Cmd/Ctrl+点击定义：编辑器 → App 跳转 / 多结果选择（兜底搜索在 host/code.js） */
+  useEffect(() => {
+    if (G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function') return undefined
+    const offOpen = G.bus.on('editor:open-at', (detail) => {
+      if (detail === null || detail === undefined || typeof detail.path !== 'string') return
+      void openFileAt(detail.path, detail.line, detail.column)
+    })
+    const offPick = G.bus.on('definition:pick', (detail) => {
+      if (detail === null || detail === undefined || !Array.isArray(detail.matches) || detail.matches.length === 0) return
+      setDefinitionPicker({
+        word: typeof detail.word === 'string' ? detail.word : '',
+        matches: detail.matches,
+        x: Number.isFinite(Number(detail.x)) ? Number(detail.x) : 240,
+        y: Number.isFinite(Number(detail.y)) ? Number(detail.y) : 200,
+      })
+    })
+    return () => {
+      offOpen?.()
+      offPick?.()
+    }
+  }, [openFileAt])
 
   /* 原子恢复标签集合：按快照顺序、去重、最后激活指定文件（避免 openFile 并发产生重复标签） */
   const applyTabs = useCallback(async (paths, active) => {
@@ -13130,6 +13247,45 @@ G.GufaApp = function GufaApp(props) {
     ),
     ),
     typeof G.UsageDock === 'function' ? h(G.UsageDock, { active: true }) : null,
+    G.portal(definitionPicker === null
+      ? null
+      : h(
+          'div',
+          { style: { position: 'fixed', inset: 0, zIndex: 2147483120 }, onMouseDown: () => setDefinitionPicker(null) },
+          h(
+            'div',
+            {
+              className: 'gufa-menu',
+              style: {
+                position: 'fixed',
+                left: `${Math.max(8, Math.min(definitionPicker.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 380))}px`,
+                top: `${Math.max(8, Math.min(definitionPicker.y, (typeof window !== 'undefined' ? window.innerHeight : 800) - 60))}px`,
+                minWidth: '340px',
+                maxWidth: '520px',
+                maxHeight: '420px',
+                overflowY: 'auto',
+              },
+              onMouseDown: (event) => event.stopPropagation(),
+            },
+            h(
+              'div',
+              { style: { padding: '4px 9px 6px', fontSize: '11px', color: 'var(--gufa-text-dim)' } },
+              `${t('editor.gotoDefinition')}：${definitionPicker.word}`,
+            ),
+            ...definitionPicker.matches.slice(0, 15).map((item, index) =>
+              h(G.MenuItem, {
+                key: `${item.path}:${item.line}:${item.column}:${index}`,
+                icon: 'code',
+                label: `${G.basename(item.path)}  ·  ${G.dirname(item.path) === '' ? '.' : G.dirname(item.path)}  :${item.line}`,
+                onClick: () => {
+                  setDefinitionPicker(null)
+                  void openFileAt(item.path, item.line, item.column)
+                },
+              }),
+            ),
+          ),
+        ),
+    ),
     G.portal(workspaceDialog === null
       ? null
       : h(

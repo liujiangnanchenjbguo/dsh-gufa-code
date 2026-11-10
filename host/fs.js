@@ -11,6 +11,7 @@ import { constants } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ApiError, badRequest } from './context.js'
+import { register as registerCodeNavigation } from './code.js'
 
 const TEXT_LIMIT = 4 * 1024 * 1024
 const runCommand = promisify(execFile)
@@ -243,6 +244,10 @@ async function listProjectCandidates(root, project, maxScanned) {
 }
 
 export function register(router, env) {
+  /* 代码导航（Cmd+点击跳定义）注册在 fs 模块里：host 热重载按 host/*.js 的 mtime 触发，
+     如果单开一个模块，需要重启 Host 才能挂上；挂在 fs 上改代码即可热生效。 */
+  registerCodeNavigation(router, env)
+
   router.method('fs.list', async (body) => {
     const root = await projectOf(env, body)
     const absolute = await resolveProjectPath(root, typeof body.path === 'string' ? body.path : '')

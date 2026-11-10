@@ -267,6 +267,7 @@ G.GufaApp = function GufaApp(props) {
   const gitInFlightRef = useRef(false)
   const [modal, setModal] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [definitionPicker, setDefinitionPicker] = useState(null)
   const [trashUndo, setTrashUndo] = useState([])
   const [branchMenu, setBranchMenu] = useState(null)
   const [workspaceDialog, setWorkspaceDialog] = useState(null)
@@ -509,6 +510,28 @@ G.GufaApp = function GufaApp(props) {
       }
     }, 120)
   }, [openFile])
+
+  /* Cmd/Ctrl+点击定义：编辑器 → App 跳转 / 多结果选择（兜底搜索在 host/code.js） */
+  useEffect(() => {
+    if (G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function') return undefined
+    const offOpen = G.bus.on('editor:open-at', (detail) => {
+      if (detail === null || detail === undefined || typeof detail.path !== 'string') return
+      void openFileAt(detail.path, detail.line, detail.column)
+    })
+    const offPick = G.bus.on('definition:pick', (detail) => {
+      if (detail === null || detail === undefined || !Array.isArray(detail.matches) || detail.matches.length === 0) return
+      setDefinitionPicker({
+        word: typeof detail.word === 'string' ? detail.word : '',
+        matches: detail.matches,
+        x: Number.isFinite(Number(detail.x)) ? Number(detail.x) : 240,
+        y: Number.isFinite(Number(detail.y)) ? Number(detail.y) : 200,
+      })
+    })
+    return () => {
+      offOpen?.()
+      offPick?.()
+    }
+  }, [openFileAt])
 
   /* 原子恢复标签集合：按快照顺序、去重、最后激活指定文件（避免 openFile 并发产生重复标签） */
   const applyTabs = useCallback(async (paths, active) => {
@@ -2601,6 +2624,45 @@ G.GufaApp = function GufaApp(props) {
     ),
     ),
     typeof G.UsageDock === 'function' ? h(G.UsageDock, { active: true }) : null,
+    G.portal(definitionPicker === null
+      ? null
+      : h(
+          'div',
+          { style: { position: 'fixed', inset: 0, zIndex: 2147483120 }, onMouseDown: () => setDefinitionPicker(null) },
+          h(
+            'div',
+            {
+              className: 'gufa-menu',
+              style: {
+                position: 'fixed',
+                left: `${Math.max(8, Math.min(definitionPicker.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 380))}px`,
+                top: `${Math.max(8, Math.min(definitionPicker.y, (typeof window !== 'undefined' ? window.innerHeight : 800) - 60))}px`,
+                minWidth: '340px',
+                maxWidth: '520px',
+                maxHeight: '420px',
+                overflowY: 'auto',
+              },
+              onMouseDown: (event) => event.stopPropagation(),
+            },
+            h(
+              'div',
+              { style: { padding: '4px 9px 6px', fontSize: '11px', color: 'var(--gufa-text-dim)' } },
+              `${t('editor.gotoDefinition')}：${definitionPicker.word}`,
+            ),
+            ...definitionPicker.matches.slice(0, 15).map((item, index) =>
+              h(G.MenuItem, {
+                key: `${item.path}:${item.line}:${item.column}:${index}`,
+                icon: 'code',
+                label: `${G.basename(item.path)}  ·  ${G.dirname(item.path) === '' ? '.' : G.dirname(item.path)}  :${item.line}`,
+                onClick: () => {
+                  setDefinitionPicker(null)
+                  void openFileAt(item.path, item.line, item.column)
+                },
+              }),
+            ),
+          ),
+        ),
+    ),
     G.portal(workspaceDialog === null
       ? null
       : h(
