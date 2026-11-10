@@ -724,6 +724,11 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
         .then((monaco) => {
           if (cancelled) return
           try {
+            if (typeof G.registerTemplateLanguages === 'function') G.registerTemplateLanguages(monaco)
+          } catch (error) {
+            /* 模板语言注册失败不影响编辑器 */
+          }
+          try {
             const instance = monaco.editor.create(host, gufaEditorOptions(propsRef.current.theme))
             editor = instance
             editorRef.current = instance

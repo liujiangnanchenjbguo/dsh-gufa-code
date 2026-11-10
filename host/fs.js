@@ -26,7 +26,14 @@ export const LANG_BY_EXT = {
   json: 'json', jsonc: 'json', json5: 'json',
   md: 'markdown', markdown: 'markdown', mdx: 'markdown',
   css: 'css', scss: 'scss', less: 'less',
-  html: 'html', htm: 'html', vue: 'html', svelte: 'html',
+  html: 'html', htm: 'html', vue: 'html', svelte: 'html', astro: 'html',
+  ejs: 'ejs', eta: 'ejs',
+  hbs: 'handlebars', handlebars: 'handlebars', mustache: 'handlebars',
+  pug: 'pug', jade: 'pug',
+  njk: 'jinja', nunjucks: 'jinja', jinja: 'jinja', jinja2: 'jinja', j2: 'jinja',
+  liquid: 'liquid', twig: 'twig', ftl: 'freemarker2', razor: 'razor', cshtml: 'razor',
+  erb: 'erb', rhtml: 'erb',
+  haml: 'haml', slim: 'slim',
   xml: 'xml', svg: 'xml', plist: 'xml', csproj: 'xml',
   yaml: 'yaml', yml: 'yaml', toml: 'ini', ini: 'ini', cfg: 'ini', conf: 'ini', properties: 'ini', env: 'ini',
   py: 'python', pyw: 'python',
@@ -43,6 +50,7 @@ export function languageOf(path) {
   if (/^dockerfile$/i.test(base)) return 'dockerfile'
   if (/^makefile$/i.test(base)) return 'makefile'
   if (/^\.?gitignore$/i.test(base) || /^\.?env/i.test(base)) return 'plaintext'
+  if (/\.blade\.php$/i.test(base)) return 'blade'
   const dot = base.lastIndexOf('.')
   if (dot <= 0) return 'plaintext'
   return LANG_BY_EXT[base.slice(dot + 1).toLowerCase()] ?? 'plaintext'

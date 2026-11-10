@@ -39,6 +39,13 @@
 - 行范围引用格式 `@path Lx-Ly`；chip 标签里存路径+行号用于点击定位，`localStorage` key 使用 `gufa-code.refs.v1`。
 - **model URI 是项目绝对路径，引用 chip 必须转成项目相对路径**（`G.projectRoot` 前缀剥离），否则点击 chip 会走 `fs.read` 绝对路径并报「路径不存在」；这个坑 1.3.92 已修。
 
+## 0.9 HTML 模板语法（1.3.93）
+
+- Monaco 的 `editor.main` 自带 handlebars / twig / liquid / pug / razor / freemarker2 等 basic-languages；**EJS/ERB/Nunjucks/Jinja2/Blade/Haml/Slim 需要自己注册**（`src/client/15-template-languages.js`，`monaco.languages.register` + `setMonarchTokensProvider` + `setLanguageConfiguration`）。
+- 注册时机必须在 `gufaLoadMonaco()` 之后、创建 model 之前；`gufaResolveLanguage` 只接受 `getLanguages()` 里存在的 id，所以注册失败会静默回落 plaintext。
+- `host/fs.js` 的 `LANG_BY_EXT` 决定 `.ejs/.njk/...` 返回哪个 language id；`.blade.php` 双扩展名要在 `languageOf` 里先特判，否则会命中 `php`。
+- 自定义 tokenizer 是「HTML + 模板分隔符里的代码」简化版，不提供语义服务；Monarch 里 `@brackets`、`blockComment` 状态要各自定义，且 `htmlTag` 状态里 `/>` 要在 `>` 之前。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

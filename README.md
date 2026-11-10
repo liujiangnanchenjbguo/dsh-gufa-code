@@ -39,6 +39,7 @@ dsh plugin add dsh-gufa-code
 ### 编辑器
 
 - Monaco 编辑器（离线随包分发，无需联网下载）；
+- **HTML 模板语法高亮**：EJS / Eta、ERB、Nunjucks / Jinja2（`.njk/.nunjucks/.jinja/.jinja2/.j2`）、Blade（`.blade.php`）、Haml、Slim，以及 Monaco 内置的 Handlebars / Mustache / Pug / Twig / Liquid / Razor / FreeMarker；扩展名自动识别；
 - 多标签、按扩展名语法高亮、面包屑、状态栏（分支 / 行列 / 保存状态）；
 - **Copilot 风格 Tab 行内补全**：光标停/打字后，基于 Harness 自己的 DeepSeek 模型（默认 `deepseek-flash`，不需要额外 Copilot 订阅）流式生成灰色 ghost text，Tab 接受、Esc 忽略；支持 JS/TS/Python/Java/Go/Rust/C++/C#/JSON/YAML/Shell 等常见语言；
 - 保存走磁盘版本冲突检测 + 原子写；未保存标记；
