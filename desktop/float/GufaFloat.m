@@ -441,32 +441,11 @@ static NSURL *GufaInstanceURL(NSString *appUrl) {
         }
     }
     if (self.fullMode) {
-        /* 实例窗口：只注入主窗口的编辑器状态（项目/标签页/UI），让新窗口直接进古法编程并恢复现场。 */
-        NSDictionary *fullState = [self.options[@"state"] isKindOfClass:[NSDictionary class]] ? self.options[@"state"] : nil;
+        /* 实例窗口：不继承主窗口项目/标签页，保持干净的新工作区；
+           WKWebView data store 共享，先清掉上次摸鱼/实例残留的状态。 */
         NSMutableString *js = [NSMutableString stringWithString:@"try{"];
-        /* 同一个 WKWebView data store 可能还留着上次摸鱼的标记，实例窗口必须先清掉 */
-        [js appendString:@"localStorage.removeItem('gufa-code:float');"];
-        if (fullState != nil) {
-            NSString *projectRoot = [fullState[@"projectRoot"] isKindOfClass:[NSString class]] ? fullState[@"projectRoot"] : @"";
-            if (projectRoot.length > 0) {
-                /* 客户端用 JSON.parse 读 project，本地存的是 JSON 字符串（带引号），这里用 JSON.stringify 生成 */
-                [js appendFormat:@"localStorage.setItem('gufa-code:project', JSON.stringify(%@));", GufaJSONLiteralString(projectRoot)];
-            }
-            NSString *stateText = GufaJSONLiteralString(fullState);
-            if (stateText.length > 0) {
-                NSString *escapedState = [stateText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
-                escapedState = [escapedState stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
-                escapedState = [escapedState stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
-                escapedState = [escapedState stringByReplacingOccurrencesOfString:@"\r" withString:@""];
-                [js appendFormat:@"localStorage.setItem('gufa-code:float-state','%@');", escapedState];
-            }
-            NSDictionary *fullUi = [fullState[@"ui"] isKindOfClass:[NSDictionary class]] ? fullState[@"ui"] : nil;
-            if (fullUi != nil) {
-                NSString *uiText = GufaJSONLiteralString(fullUi);
-                NSString *escapedUi = [uiText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
-                escapedUi = [escapedUi stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
-                [js appendFormat:@"localStorage.setItem('gufa-code:ui:v1','%@');", escapedUi];
-            }
+        for (NSString *key in @[@"gufa-code:float", @"gufa-code:float-state", @"gufa-code:project", @"gufa-code:ui:v1", @"gufa-code:tabs:v1", @"gufa-code:mode:v1"]) {
+            [js appendFormat:@"localStorage.removeItem('%@');", key];
         }
         [js appendString:@"}catch(e){}"];
         WKUserScript *stateScript = [[WKUserScript alloc] initWithSource:js injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];

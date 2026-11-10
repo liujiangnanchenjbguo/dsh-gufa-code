@@ -435,6 +435,7 @@ const GUFA_PLUGIN = {
     try {
       const instanceMode = /[?&]gufa-instance=1/.test(String(location.search || ''))
       if (instanceMode && document.documentElement.hasAttribute('data-gufa-float') !== true) {
+        G.instanceBoot = true
         document.documentElement.setAttribute('data-gufa-booting', '1')
         let attempts = 0
         let timer = 0

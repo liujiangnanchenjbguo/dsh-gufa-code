@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.100'
+G.BUILD = '1.3.101'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -12195,6 +12195,8 @@ G.GufaApp = function GufaApp(props) {
         }
       }
       if (G.isFloatMode()) return
+      /* 实例窗口不继承当前项目，等用户自己新建/打开工作区 */
+      if (G.instanceBoot === true) return
       if (typeof sessionCwd === 'string' && sessionCwd !== '') {
         try {
           const value = await G.api('project.open', { path: sessionCwd })
@@ -13959,13 +13961,7 @@ G.GufaApp = function GufaApp(props) {
       } catch {
         fullscreen = false
       }
-      let state
-      try {
-        state = buildFloatSnapshot()
-      } catch {
-        state = undefined
-      }
-      void G.api('app.newWindow', { state, fullscreen }).catch((error) => {
+      void G.api('app.newWindow', { fullscreen }).catch((error) => {
         let opened = null
         try { opened = window.open(location.href, '_blank') } catch { opened = null }
         if (opened !== null && opened !== undefined) {
@@ -14007,7 +14003,7 @@ G.GufaApp = function GufaApp(props) {
       }
       setShortcutsOpen((open) => open === false)
     },
-  }), [activePath, tabs, ui.terminalOpen, ui.sidebarOpen, saveFile, saveCompareTab, patchUi, closeTabWithConfirm, buildFloatSnapshot])
+  }), [activePath, tabs, ui.terminalOpen, ui.sidebarOpen, saveFile, saveCompareTab, patchUi, closeTabWithConfirm])
   G.useIdeShortcuts(ideShortcutHandlers)
 
   /* 原生快捷键服务派发到当前 App 的动作表（IDE 模式内有效）。 */
@@ -15597,6 +15593,7 @@ const GUFA_PLUGIN = {
     try {
       const instanceMode = /[?&]gufa-instance=1/.test(String(location.search || ''))
       if (instanceMode && document.documentElement.hasAttribute('data-gufa-float') !== true) {
+        G.instanceBoot = true
         document.documentElement.setAttribute('data-gufa-booting', '1')
         let attempts = 0
         let timer = 0

@@ -354,6 +354,8 @@ G.GufaApp = function GufaApp(props) {
         }
       }
       if (G.isFloatMode()) return
+      /* 实例窗口不继承当前项目，等用户自己新建/打开工作区 */
+      if (G.instanceBoot === true) return
       if (typeof sessionCwd === 'string' && sessionCwd !== '') {
         try {
           const value = await G.api('project.open', { path: sessionCwd })
@@ -2118,13 +2120,7 @@ G.GufaApp = function GufaApp(props) {
       } catch {
         fullscreen = false
       }
-      let state
-      try {
-        state = buildFloatSnapshot()
-      } catch {
-        state = undefined
-      }
-      void G.api('app.newWindow', { state, fullscreen }).catch((error) => {
+      void G.api('app.newWindow', { fullscreen }).catch((error) => {
         let opened = null
         try { opened = window.open(location.href, '_blank') } catch { opened = null }
         if (opened !== null && opened !== undefined) {
@@ -2166,7 +2162,7 @@ G.GufaApp = function GufaApp(props) {
       }
       setShortcutsOpen((open) => open === false)
     },
-  }), [activePath, tabs, ui.terminalOpen, ui.sidebarOpen, saveFile, saveCompareTab, patchUi, closeTabWithConfirm, buildFloatSnapshot])
+  }), [activePath, tabs, ui.terminalOpen, ui.sidebarOpen, saveFile, saveCompareTab, patchUi, closeTabWithConfirm])
   G.useIdeShortcuts(ideShortcutHandlers)
 
   /* 原生快捷键服务派发到当前 App 的动作表（IDE 模式内有效）。 */
