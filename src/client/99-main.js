@@ -429,6 +429,43 @@ const GUFA_PLUGIN = {
       console.error('[gufa-code] 悬浮模式初始化失败', error)
     }
 
+    /* ── 实例窗口（⌘⇧N 打开的 helper full 窗口）：直接进入古法编程 ──
+       helper 已注入项目和编辑器状态；这里在客户端 boot 后反复调 G.enterGufa，
+       直到 IDE 覆盖层真正挂载，避免和 slots 注册时序赛跑。 */
+    try {
+      const instanceMode = /[?&]gufa-instance=1/.test(String(location.search || ''))
+      if (instanceMode && document.documentElement.hasAttribute('data-gufa-float') !== true) {
+        document.documentElement.setAttribute('data-gufa-booting', '1')
+        let attempts = 0
+        let timer = 0
+        const tryEnter = () => {
+          try {
+            if (document.querySelector('.gufa-overlay-root') !== null) {
+              document.documentElement.removeAttribute('data-gufa-booting')
+              if (timer !== 0) window.clearInterval(timer)
+              return
+            }
+            if (typeof G.enterGufa === 'function') G.enterGufa()
+          } catch {
+            /* ignore */
+          }
+          attempts += 1
+          if (attempts > 80 && timer !== 0) {
+            window.clearInterval(timer)
+            document.documentElement.removeAttribute('data-gufa-booting')
+          }
+        }
+        tryEnter()
+        timer = window.setInterval(tryEnter, 200)
+        ctx.effect(() => () => {
+          if (timer !== 0) window.clearInterval(timer)
+          document.documentElement.removeAttribute('data-gufa-booting')
+        }, 'gufa-code: instance boot')
+      }
+    } catch (error) {
+      console.error('[gufa-code] 实例窗口自动进入 IDE 失败', error)
+    }
+
     /* HMR 重载时如果仍处于 IDE 模式，重新打上标记（卸载清理会移除它） */
     try {
       if (typeof G.mode?.get === 'function' && G.mode.get() === true) document.documentElement.setAttribute('data-gufa-ide', '')

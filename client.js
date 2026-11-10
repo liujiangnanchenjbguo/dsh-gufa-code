@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.97'
+G.BUILD = '1.3.100'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -13949,9 +13949,23 @@ G.GufaApp = function GufaApp(props) {
       if (next !== undefined) setActivePath(next.path)
     },
     newWindow: () => {
-      /* Host 用古法编程原生 helper 开一个普通窗口，加载同一个 Web GUI；
-         helper 缺失/平台不支持时回退到浏览器新窗口。 */
-      void G.api('app.newWindow', {}).catch((error) => {
+      /* Host 用古法编程原生 helper 开一个普通窗口，加载同一个 Web GUI，
+         并把当前项目/标签页状态与全屏状态带过去；失败才回退浏览器窗口。 */
+      let fullscreen = false
+      try {
+        const coversScreen = window.innerWidth >= (screen.width - 2) && window.innerHeight >= (screen.height - 2)
+        const coversWorkArea = window.innerWidth >= (screen.availWidth - 2) && window.innerHeight >= (screen.availHeight - 2)
+        fullscreen = coversScreen || coversWorkArea
+      } catch {
+        fullscreen = false
+      }
+      let state
+      try {
+        state = buildFloatSnapshot()
+      } catch {
+        state = undefined
+      }
+      void G.api('app.newWindow', { state, fullscreen }).catch((error) => {
         let opened = null
         try { opened = window.open(location.href, '_blank') } catch { opened = null }
         if (opened !== null && opened !== undefined) {
@@ -13993,7 +14007,7 @@ G.GufaApp = function GufaApp(props) {
       }
       setShortcutsOpen((open) => open === false)
     },
-  }), [activePath, tabs, ui.terminalOpen, ui.sidebarOpen, saveFile, saveCompareTab, patchUi, closeTabWithConfirm])
+  }), [activePath, tabs, ui.terminalOpen, ui.sidebarOpen, saveFile, saveCompareTab, patchUi, closeTabWithConfirm, buildFloatSnapshot])
   G.useIdeShortcuts(ideShortcutHandlers)
 
   /* 原生快捷键服务派发到当前 App 的动作表（IDE 模式内有效）。 */
@@ -15575,6 +15589,43 @@ const GUFA_PLUGIN = {
       }
     } catch (error) {
       console.error('[gufa-code] 悬浮模式初始化失败', error)
+    }
+
+    /* ── 实例窗口（⌘⇧N 打开的 helper full 窗口）：直接进入古法编程 ──
+       helper 已注入项目和编辑器状态；这里在客户端 boot 后反复调 G.enterGufa，
+       直到 IDE 覆盖层真正挂载，避免和 slots 注册时序赛跑。 */
+    try {
+      const instanceMode = /[?&]gufa-instance=1/.test(String(location.search || ''))
+      if (instanceMode && document.documentElement.hasAttribute('data-gufa-float') !== true) {
+        document.documentElement.setAttribute('data-gufa-booting', '1')
+        let attempts = 0
+        let timer = 0
+        const tryEnter = () => {
+          try {
+            if (document.querySelector('.gufa-overlay-root') !== null) {
+              document.documentElement.removeAttribute('data-gufa-booting')
+              if (timer !== 0) window.clearInterval(timer)
+              return
+            }
+            if (typeof G.enterGufa === 'function') G.enterGufa()
+          } catch {
+            /* ignore */
+          }
+          attempts += 1
+          if (attempts > 80 && timer !== 0) {
+            window.clearInterval(timer)
+            document.documentElement.removeAttribute('data-gufa-booting')
+          }
+        }
+        tryEnter()
+        timer = window.setInterval(tryEnter, 200)
+        ctx.effect(() => () => {
+          if (timer !== 0) window.clearInterval(timer)
+          document.documentElement.removeAttribute('data-gufa-booting')
+        }, 'gufa-code: instance boot')
+      }
+    } catch (error) {
+      console.error('[gufa-code] 实例窗口自动进入 IDE 失败', error)
     }
 
     /* HMR 重载时如果仍处于 IDE 模式，重新打上标记（卸载清理会移除它） */

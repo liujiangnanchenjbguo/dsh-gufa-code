@@ -47,8 +47,12 @@ export async function newWindow(body, env) {
   }
   const base = `${webServer.protocol}//127.0.0.1:${String(webServer.port)}`
   const authUrl = connection.authenticatedUrl(`${base}/`)
+  const state = body !== null && typeof body === 'object' && body.state !== null && typeof body.state === 'object' ? body.state : undefined
+  const fullscreen = body !== null && typeof body === 'object' && body.fullscreen === true
   const payload = JSON.stringify({
     full: true,
+    fullscreen,
+    state,
     authUrl,
     appUrl: `${base}/`,
     title: 'DeepSeek Harness',

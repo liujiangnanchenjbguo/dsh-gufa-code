@@ -38,6 +38,23 @@ static void GufaLog(NSString *format, ...) {
         [handle closeFile];
     }
 }
+
+/* 把任意 JSON 值转成可安全嵌入 JS 的字面量（用于 document-start 注入 localStorage）。 */
+static NSString *GufaJSONLiteralString(id object) {
+    if (object == nil || object == [NSNull null]) return @"null";
+    /* 顶层字符串/数字是 JSON fragment，必须显式允许，否则会退化成数组字面量。 */
+    NSData *data = [NSJSONSerialization dataWithJSONObject:object options:NSJSONWritingFragmentsAllowed error:NULL];
+    if (data == nil) {
+        NSData *quoted = [NSJSONSerialization dataWithJSONObject:@[object] options:0 error:NULL];
+        data = quoted;
+        if (data != nil) {
+            NSString *arrayLiteral = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            if (arrayLiteral.length >= 2) return [arrayLiteral substringWithRange:NSMakeRange(1, arrayLiteral.length - 2)];
+        }
+        return @"null";
+    }
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
 static void GufaEmitJSON(NSDictionary *out);
 
 #ifndef GUFA_FLOAT_VERSION
@@ -119,6 +136,16 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
 @property (nonatomic, weak) GufaAppDelegate *owner;
 @property (nonatomic, copy) void (^pendingLoad)(void);
 @end
+
+/* 实例窗口要带 ?gufa-instance=1，客户端 boot 据此自动进入古法编程。 */
+static NSURL *GufaInstanceURL(NSString *appUrl) {
+    NSURLComponents *components = [NSURLComponents componentsWithString:appUrl ?: @""];
+    if (components == nil) return [NSURL URLWithString:appUrl ?: @""];
+    NSMutableArray<NSURLQueryItem *> *items = components.queryItems != nil ? [components.queryItems mutableCopy] : [NSMutableArray array];
+    [items addObject:[NSURLQueryItem queryItemWithName:@"gufa-instance" value:@"1"]];
+    components.queryItems = items;
+    return components.URL;
+}
 
 @interface GufaAppDelegate : NSObject <NSApplicationDelegate>
 @property (nonatomic, strong) NSWindow *window;
@@ -413,7 +440,38 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
             }
         }
     }
-    if (!self.fullMode) {
+    if (self.fullMode) {
+        /* 实例窗口：只注入主窗口的编辑器状态（项目/标签页/UI），让新窗口直接进古法编程并恢复现场。 */
+        NSDictionary *fullState = [self.options[@"state"] isKindOfClass:[NSDictionary class]] ? self.options[@"state"] : nil;
+        NSMutableString *js = [NSMutableString stringWithString:@"try{"];
+        /* 同一个 WKWebView data store 可能还留着上次摸鱼的标记，实例窗口必须先清掉 */
+        [js appendString:@"localStorage.removeItem('gufa-code:float');"];
+        if (fullState != nil) {
+            NSString *projectRoot = [fullState[@"projectRoot"] isKindOfClass:[NSString class]] ? fullState[@"projectRoot"] : @"";
+            if (projectRoot.length > 0) {
+                /* 客户端用 JSON.parse 读 project，本地存的是 JSON 字符串（带引号），这里用 JSON.stringify 生成 */
+                [js appendFormat:@"localStorage.setItem('gufa-code:project', JSON.stringify(%@));", GufaJSONLiteralString(projectRoot)];
+            }
+            NSString *stateText = GufaJSONLiteralString(fullState);
+            if (stateText.length > 0) {
+                NSString *escapedState = [stateText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+                escapedState = [escapedState stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+                escapedState = [escapedState stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+                escapedState = [escapedState stringByReplacingOccurrencesOfString:@"\r" withString:@""];
+                [js appendFormat:@"localStorage.setItem('gufa-code:float-state','%@');", escapedState];
+            }
+            NSDictionary *fullUi = [fullState[@"ui"] isKindOfClass:[NSDictionary class]] ? fullState[@"ui"] : nil;
+            if (fullUi != nil) {
+                NSString *uiText = GufaJSONLiteralString(fullUi);
+                NSString *escapedUi = [uiText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+                escapedUi = [escapedUi stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+                [js appendFormat:@"localStorage.setItem('gufa-code:ui:v1','%@');", escapedUi];
+            }
+        }
+        [js appendString:@"}catch(e){}"];
+        WKUserScript *stateScript = [[WKUserScript alloc] initWithSource:js injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];
+        [config.userContentController addUserScript:stateScript];
+    } else {
         [bootstrap appendString:@"}catch(e){}"];
         WKUserScript *floatMarker = [[WKUserScript alloc] initWithSource:bootstrap
                                                            injectionTime:WKUserScriptInjectionTimeAtDocumentStart
@@ -448,6 +506,13 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
     }
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+    if (self.fullMode && [self.options[@"fullscreen"] boolValue]) {
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (strongSelf != nil && strongSelf.window != nil && (strongSelf.window.styleMask & NSWindowStyleMaskFullScreen) == 0) [strongSelf.window toggleFullScreen:nil];
+        });
+    }
     GufaLog(@"window-frame %@ visible=%d level=%ld activeSpace=%d screen=%@ alpha=%.2f", NSStringFromRect(self.window.frame), self.window.isVisible ? 1 : 0, (long)self.window.level, self.window.isOnActiveSpace ? 1 : 0, self.window.screen == nil ? @"nil" : NSStringFromRect(self.window.screen.frame), self.window.alphaValue);
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveFrame) name:NSWindowDidEndLiveResizeNotification object:self.window];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveFrame) name:NSWindowDidMoveNotification object:self.window];
@@ -487,7 +552,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
         __strong typeof(weakSelf) self = weakSelf;
         if (self == nil) return;
         if (self.fullMode) {
-            [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:appUrl ?: @""]]];
+            [self.webView loadRequest:[NSURLRequest requestWithURL:GufaInstanceURL(appUrl)]];
             return;
         }
         /* 鉴权 cookie 已在 token URL 重定向时写入；这里用 JS 写 localStorage（避开 URL 长度/转义问题），
@@ -578,7 +643,7 @@ static OSStatus GufaHotKeyHandler(EventHandlerCallRef nextHandler, EventRef even
                 WKHTTPCookieStore *store = [WKWebsiteDataStore defaultDataStore].httpCookieStore;
                 [store setCookie:httpCookie completionHandler:^{
                     if (self.fullMode) {
-                        [self.webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:self.options[@"appUrl"] ?: @""]]];
+                        [self.webView loadRequest:[NSURLRequest requestWithURL:GufaInstanceURL(self.options[@"appUrl"])]];
                         return;
                     }
                     NSURLComponents *components = [NSURLComponents componentsWithString:self.options[@"appUrl"] ?: @""];

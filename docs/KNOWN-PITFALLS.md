@@ -59,6 +59,9 @@
 - 实现：复用插件自带的原生 helper（`desktop/float/GufaFloat.m`），payload 传 `{full:true, authUrl, appUrl}` —— helper 建普通标题栏窗口、Regular 激活策略、跳过摸鱼 localStorage/隐藏主窗/吸附，加载同一个 DSH Web GUI；鉴权复用它已有的 `connection.authenticatedUrl()` token 流程。
 - 客户端 ⌘⇧N 必须先调 Host `app.newWindow`，失败才回退 `window.open`（Electron 的 setWindowOpenHandler 会 deny 并用外部浏览器打开 http(s)，不是应用内窗口）。
 - 新窗口与 Electron 主窗口共享的是 **同一个 Host/服务端**，但 UI 进程独立（WKWebView，不走 Electron preload）；所以别让新窗口依赖 `window.dshDesktop` 之类的 Electron preload API。
+- **自动进入古法编程**：helper full 模式在 document-start 注入 `gufa-code:project` / `gufa-code:float-state` / `gufa-code:ui:v1`；URL 带 `?gufa-instance=1`，客户端 boot 时反复调 `G.enterGufa()` 直到 `.gufa-overlay-root` 挂载。注意 `gufa-code:project` 客户端用 `JSON.parse` 读，注入时必须写 **JSON 字符串**（`JSON.stringify(...)` 生成带引号的值），直接写裸路径会读成 null。
+- helper 的 WKWebView data store 与摸鱼悬浮层共享；full 模式必须 `localStorage.removeItem('gufa-code:float')`，否则新窗口会误进摸鱼 UI。
+- **全屏继承**：客户端用 `innerWidth/innerHeight` 对比 `screen.width/height` 和 `screen.availWidth/availHeight` 判断当前是否全屏，payload 传 `fullscreen:true`，helper 在窗口显示后 `toggleFullScreen`；不要依赖 Electron preload 或 AX 查询（Host 在 Node 模式进程里拿不到 Electron）。
 
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 

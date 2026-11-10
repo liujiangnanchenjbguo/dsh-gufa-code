@@ -2108,9 +2108,23 @@ G.GufaApp = function GufaApp(props) {
       if (next !== undefined) setActivePath(next.path)
     },
     newWindow: () => {
-      /* Host 用古法编程原生 helper 开一个普通窗口，加载同一个 Web GUI；
-         helper 缺失/平台不支持时回退到浏览器新窗口。 */
-      void G.api('app.newWindow', {}).catch((error) => {
+      /* Host 用古法编程原生 helper 开一个普通窗口，加载同一个 Web GUI，
+         并把当前项目/标签页状态与全屏状态带过去；失败才回退浏览器窗口。 */
+      let fullscreen = false
+      try {
+        const coversScreen = window.innerWidth >= (screen.width - 2) && window.innerHeight >= (screen.height - 2)
+        const coversWorkArea = window.innerWidth >= (screen.availWidth - 2) && window.innerHeight >= (screen.availHeight - 2)
+        fullscreen = coversScreen || coversWorkArea
+      } catch {
+        fullscreen = false
+      }
+      let state
+      try {
+        state = buildFloatSnapshot()
+      } catch {
+        state = undefined
+      }
+      void G.api('app.newWindow', { state, fullscreen }).catch((error) => {
         let opened = null
         try { opened = window.open(location.href, '_blank') } catch { opened = null }
         if (opened !== null && opened !== undefined) {
@@ -2152,7 +2166,7 @@ G.GufaApp = function GufaApp(props) {
       }
       setShortcutsOpen((open) => open === false)
     },
-  }), [activePath, tabs, ui.terminalOpen, ui.sidebarOpen, saveFile, saveCompareTab, patchUi, closeTabWithConfirm])
+  }), [activePath, tabs, ui.terminalOpen, ui.sidebarOpen, saveFile, saveCompareTab, patchUi, closeTabWithConfirm, buildFloatSnapshot])
   G.useIdeShortcuts(ideShortcutHandlers)
 
   /* 原生快捷键服务派发到当前 App 的动作表（IDE 模式内有效）。 */
