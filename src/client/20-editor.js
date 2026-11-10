@@ -682,12 +682,21 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
       if (host === null) return undefined
       let cancelled = false
       let editor = null
+      let definitionCleanup = null
       const subscriptions = []
 
       setStatus('loading')
       setMonacoError('')
 
       const disposeEditor = () => {
+        if (definitionCleanup !== null) {
+          try {
+            definitionCleanup()
+          } catch {
+            /* ignore */
+          }
+          definitionCleanup = null
+        }
         for (const subscription of subscriptions.splice(0)) {
           try {
             subscription.dispose()
@@ -750,11 +759,207 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                 }
               })
 
-              /* Cmd/Ctrl+点击跳转定义：先走 Monaco 语言服务；没有提供者（未打开的文件、
-                 非 TS/JS 语言等）时回退到 Host 的项目级定义搜索，单结果直接跳，多结果弹选择。 */
+              /* Cmd/Ctrl+点击跳转定义 + Cmd 悬停「可点击」提示：先走 Monaco 语言服务；
+                 没有提供者（未打开的文件、非 TS/JS 语言等）时回退到 Host 的项目级定义搜索。 */
               try {
-                const domNode = typeof instance.getDomNode === 'function' ? instance.getDomNode() : null
-                if (domNode !== null && domNode !== undefined) {
+                const editorDom = typeof instance.getDomNode === 'function' ? instance.getDomNode() : null
+                if (editorDom !== null && editorDom !== undefined) {
+                  const isPrimaryEvent = (event) => {
+                    const mac = typeof G.isMacPlatform === 'function' ? G.isMacPlatform() : true
+                    return mac ? event.metaKey === true : event.ctrlKey === true
+                  }
+                  const decideDefinition = (result) => {
+                    const matches = result !== null && result !== undefined && Array.isArray(result.matches) ? result.matches : []
+                    if (matches.length === 0) return { kind: 'none' }
+                    const currentPath = result.current !== null && result.current !== undefined && typeof result.current.path === 'string' ? result.current.path : null
+                    const top = matches[0]
+                    const topScore = Number(top.score) || 0
+                    if (currentPath !== null && top.path === currentPath) return { kind: 'open', match: top }
+                    const isStrong = (item) => GUFA_DEFINITION_STRONG_KINDS.has(item.kind)
+                    if (!isStrong(top) && topScore < 50) return { kind: 'none' }
+                    if (topScore < 30) return { kind: 'none' }
+                    const cluster = matches.filter((item) => (Number(item.score) || 0) >= topScore - 8).slice(0, 8)
+                    if (cluster.length === 1) return { kind: 'open', match: cluster[0] }
+                    const declCluster = cluster.filter((item) => isStrong(item))
+                    if (declCluster.length === 0) {
+                      const secondScore = matches.length > 1 ? Number(matches[1].score) || 0 : 0
+                      return topScore >= 50 && topScore - secondScore >= 10 ? { kind: 'open', match: top } : { kind: 'none' }
+                    }
+                    const distinctFiles = new Set(declCluster.map((item) => item.path))
+                    if (distinctFiles.size === 1) return { kind: 'open', match: declCluster[0] }
+                    return { kind: 'pick', matches: declCluster }
+                  }
+                  const queryDefinitions = (position, word, model, path, root) => G.api('code.definition', {
+                    root,
+                    path,
+                    line: position.lineNumber,
+                    column: position.column,
+                    word,
+                    content: model.getValue(),
+                  })
+
+                  /* ── Cmd 悬停：可跳转时下划线 + 手型光标 ─────────────── */
+                  const hover = { meta: false, timer: 0, seq: 0, cache: new Map(), decorationIds: [], lastClient: null, lastPosition: null, lastWordInfo: null, lastKey: '' }
+                  const clearHoverDecoration = () => {
+                    if (hover.decorationIds.length > 0) {
+                      try {
+                        hover.decorationIds = instance.deltaDecorations(hover.decorationIds, [])
+                      } catch {
+                        hover.decorationIds = []
+                      }
+                    }
+                    try {
+                      editorDom.classList.remove('gufa-def-hover')
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                  const showHoverDecoration = (position, wordInfo) => {
+                    if (wordInfo === null || wordInfo === undefined) return clearHoverDecoration()
+                    let range = null
+                    try {
+                      range = new monaco.Range(position.lineNumber, wordInfo.startColumn, position.lineNumber, wordInfo.endColumn)
+                    } catch {
+                      return clearHoverDecoration()
+                    }
+                    try {
+                      hover.decorationIds = instance.deltaDecorations(hover.decorationIds, [
+                        { range, options: { inlineClassName: 'gufa-def-link', stickiness: 1 } },
+                      ])
+                    } catch {
+                      /* ignore */
+                    }
+                    try {
+                      editorDom.classList.add('gufa-def-hover')
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                  const evaluateHoverPosition = (position, wordInfo) => {
+                    if (!hover.meta) {
+                      clearHoverDecoration()
+                      return
+                    }
+                    const model = instance.getModel()
+                    const word = wordInfo !== null && wordInfo !== undefined && typeof wordInfo.word === 'string' ? wordInfo.word : ''
+                    const path = modelPathRef.current
+                    const root = modelsRootRef.current
+                    if (position === null || position === undefined || model === null || model === undefined
+                      || word.length < 2 || path === null || path === undefined || root === null || root === undefined || root === '') {
+                      clearHoverDecoration()
+                      return
+                    }
+                    hover.lastPosition = position
+                    hover.lastWordInfo = wordInfo
+                    const key = `${path}|${word}`
+                    hover.lastKey = key
+                    const cached = hover.cache.get(key)
+                    if (cached === 'none') {
+                      clearHoverDecoration()
+                      return
+                    }
+                    if (cached === 'yes') {
+                      showHoverDecoration(position, wordInfo)
+                      return
+                    }
+                    if (hover.timer !== 0) {
+                      window.clearTimeout(hover.timer)
+                      hover.timer = 0
+                    }
+                    const seq = ++hover.seq
+                    hover.timer = window.setTimeout(() => {
+                      hover.timer = 0
+                      if (!hover.meta || seq !== hover.seq) return
+                      void queryDefinitions(position, word, model, path, root).then((result) => {
+                        if (!hover.meta || seq !== hover.seq || hover.lastKey !== key) return
+                        const decision = decideDefinition(result)
+                        if (decision.kind === 'none') {
+                          if (hover.cache.size > 100) hover.cache.clear()
+                          hover.cache.set(key, 'none')
+                          clearHoverDecoration()
+                          return
+                        }
+                        if (hover.cache.size > 100) hover.cache.clear()
+                        hover.cache.set(key, 'yes')
+                        showHoverDecoration(position, wordInfo)
+                      }).catch(() => {
+                        /* ignore */
+                      })
+                    }, 130)
+                  }
+                  /* 用 Monaco 自己的 onMouseMove（带修饰键状态 + 精确 position），
+                     不依赖 DOM mousedown/getTargetAtClientPoint 的坐标系与包含关系。 */
+                  const onMonacoMouseMove = (editorEvent) => {
+                    if (editorEvent === null || editorEvent === undefined) return
+                    const browser = editorEvent.event !== null && editorEvent.event !== undefined ? editorEvent.event.browserEvent : null
+                    const mac = typeof G.isMacPlatform === 'function' ? G.isMacPlatform() : true
+                    const pressed = browser !== null && browser !== undefined
+                      ? (mac ? browser.metaKey === true : browser.ctrlKey === true)
+                      : false
+                    if (!pressed) {
+                      if (hover.meta) {
+                        hover.meta = false
+                        hover.seq += 1
+                        if (hover.timer !== 0) {
+                          window.clearTimeout(hover.timer)
+                          hover.timer = 0
+                        }
+                        clearHoverDecoration()
+                      }
+                      return
+                    }
+                    hover.meta = true
+                    const target = editorEvent.target !== null && editorEvent.target !== undefined ? editorEvent.target : null
+                    const position = target !== null ? target.position : null
+                    if (position === null || position === undefined) {
+                      clearHoverDecoration()
+                      return
+                    }
+                    let wordInfo = null
+                    try {
+                      const model = instance.getModel()
+                      wordInfo = model !== null && model !== undefined ? model.getWordAtPosition(position) : null
+                    } catch {
+                      wordInfo = null
+                    }
+                    evaluateHoverPosition(position, wordInfo)
+                  }
+                  const onMetaDown = (event) => {
+                    if (event.key !== 'Meta' && event.key !== 'Control') return
+                    if (hover.meta) return
+                    hover.meta = true
+                    if (hover.lastPosition !== null && hover.lastWordInfo !== null) evaluateHoverPosition(hover.lastPosition, hover.lastWordInfo)
+                  }
+                  const onMetaUp = (event) => {
+                    if (event.key !== 'Meta' && event.key !== 'Control') return
+                    hover.meta = false
+                    hover.seq += 1
+                    if (hover.timer !== 0) {
+                      window.clearTimeout(hover.timer)
+                      hover.timer = 0
+                    }
+                    clearHoverDecoration()
+                  }
+                  const onDefWindowBlur = () => {
+                    hover.meta = false
+                    clearHoverDecoration()
+                  }
+                  const hoverSubscriptions = []
+                  try {
+                    if (typeof instance.onMouseMove === 'function') hoverSubscriptions.push(instance.onMouseMove(onMonacoMouseMove))
+                    if (typeof instance.onMouseLeave === 'function') hoverSubscriptions.push(instance.onMouseLeave(() => {
+                      hover.meta = false
+                      hover.lastPosition = null
+                      hover.lastWordInfo = null
+                      hover.seq += 1
+                      clearHoverDecoration()
+                    }))
+                    if (typeof instance.onDidChangeModelContent === 'function') hoverSubscriptions.push(instance.onDidChangeModelContent(() => clearHoverDecoration()))
+                    if (typeof instance.onDidScrollChange === 'function') hoverSubscriptions.push(instance.onDidScrollChange(() => clearHoverDecoration()))
+                  } catch {
+                    /* ignore */
+                  }
+                  for (const subscription of hoverSubscriptions) if (subscription !== null && subscription !== undefined) subscriptions.push(subscription)
                   const onDefinitionClick = async (event) => {
                     try {
                       const currentDom = typeof instance.getDomNode === 'function' ? instance.getDomNode() : null
@@ -763,9 +968,7 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                       return
                     }
                     if (event.button !== 0 || event.defaultPrevented === true) return
-                    const primary = typeof G.isMacPlatform === 'function' ? G.isMacPlatform() : true
-                    const pressed = primary ? event.metaKey === true : event.ctrlKey === true
-                    if (!pressed || event.altKey === true || event.shiftKey === true) return
+                    if (!isPrimaryEvent(event) || event.altKey === true || event.shiftKey === true) return
                     if (event.target instanceof Element && event.target.closest('a') !== null) return
                     let target = null
                     try {
@@ -786,7 +989,7 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                     if (word.length < 2) return
                     const path = modelPathRef.current
                     const root = modelsRootRef.current
-                    if (path === null || root === null || root === '') return
+                    if (path === null || path === undefined || root === null || root === undefined || root === '') return
                     try {
                       event.preventDefault()
                       event.stopPropagation()
@@ -815,55 +1018,44 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                     } catch {
                       monacoHandled = false
                     }
+                    clearHoverDecoration()
                     if (monacoHandled) return
                     try {
-                      const result = await G.api('code.definition', {
-                        root,
-                        path,
-                        line: position.lineNumber,
-                        column: position.column,
-                        word,
-                        content: model.getValue(),
-                      })
-                      const matches = result !== null && result !== undefined && Array.isArray(result.matches) ? result.matches : []
-                      if (matches.length === 0) return
-                      const openMatch = (item) => G.bus.emit('editor:open-at', { path: item.path, line: item.line, column: item.column })
-                      const currentPath = result.current !== null && result.current !== undefined && typeof result.current.path === 'string' ? result.current.path : null
-                      const top = matches[0]
-                      const topScore = Number(top.score) || 0
-                      /* 当前文件里的声明：直接跳，不打扰 */
-                      if (currentPath !== null && top.path === currentPath) {
-                        openMatch(top)
+                      const result = await queryDefinitions(position, word, model, path, root)
+                      const decision = decideDefinition(result)
+                      if (decision.kind === 'open') {
+                        G.bus.emit('editor:open-at', { path: decision.match.path, line: decision.match.line, column: decision.match.column })
                         return
                       }
-                      const isStrong = (item) => GUFA_DEFINITION_STRONG_KINDS.has(item.kind)
-                      /* 弱匹配（const/赋值等）只有在很近/很确定时才跳，避免点属性名时跳到别的仓库同名变量 */
-                      if (!isStrong(top) && topScore < 50) return
-                      if (topScore < 30) return
-                      const cluster = matches.filter((item) => (Number(item.score) || 0) >= topScore - 8).slice(0, 8)
-                      if (cluster.length === 1) {
-                        openMatch(cluster[0])
-                        return
+                      if (decision.kind === 'pick') {
+                        G.bus.emit('definition:pick', {
+                          word: result !== null && result !== undefined && typeof result.word === 'string' ? result.word : word,
+                          matches: decision.matches,
+                          x: event.clientX,
+                          y: event.clientY,
+                        })
                       }
-                      const declCluster = cluster.filter((item) => isStrong(item))
-                      if (declCluster.length === 0) {
-                        const secondScore = matches.length > 1 ? Number(matches[1].score) || 0 : 0
-                        if (topScore >= 50 && topScore - secondScore >= 10) {
-                          openMatch(top)
-                        }
-                        return
-                      }
-                      const distinctFiles = new Set(declCluster.map((item) => item.path))
-                      if (distinctFiles.size === 1) {
-                        openMatch(declCluster[0])
-                        return
-                      }
-                      G.bus.emit('definition:pick', { word: result.word ?? word, matches: declCluster, x: event.clientX, y: event.clientY })
                     } catch {
                       /* ignore */
                     }
                   }
                   document.addEventListener('mousedown', onDefinitionClick, true)
+                  document.addEventListener('keydown', onMetaDown, true)
+                  document.addEventListener('keyup', onMetaUp, true)
+                  window.addEventListener('blur', onDefWindowBlur)
+                  definitionCleanup = () => {
+                    document.removeEventListener('mousedown', onDefinitionClick, true)
+                    document.removeEventListener('keydown', onMetaDown, true)
+                    document.removeEventListener('keyup', onMetaUp, true)
+                    window.removeEventListener('blur', onDefWindowBlur)
+                    if (hover.timer !== 0) {
+                      window.clearTimeout(hover.timer)
+                      hover.timer = 0
+                    }
+                    hover.seq += 1
+                    hover.meta = false
+                    clearHoverDecoration()
+                  }
                 }
               } catch {
                 /* ignore */

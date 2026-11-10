@@ -1677,6 +1677,8 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
   border-bottom:1px solid var(--gufa-border);overflow:hidden;white-space:nowrap}
 .gufa-breadcrumb b{font-weight:500;color:var(--gufa-text)}
 .gufa-editor-host{flex:1 1 auto;position:relative;min-height:0;min-width:0;overflow:hidden}
+.gufa-def-link{text-decoration:underline;text-decoration-color:var(--gufa-accent);text-decoration-thickness:1px;text-underline-offset:2px;cursor:pointer}
+.monaco-editor.gufa-def-hover .view-lines{cursor:pointer}
 .gufa-editor-fallback{position:absolute;inset:0;overflow:auto;margin:0;padding:14px 18px;font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;tab-size:2}
 .gufa-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;height:100%;padding:28px;
   color:var(--gufa-text-dim);text-align:center}
