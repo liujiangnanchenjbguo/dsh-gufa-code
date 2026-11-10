@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.67'
+G.BUILD = '1.3.68'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -8180,6 +8180,20 @@ G.GitPanel = function GitPanel(props) {
                       h(G.Button, { disabled: pending || message.trim() === '', primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
                     )
                   : null,
+                staged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,
+                ...staged.map((change) =>
+                  h(G.GitChangeRow, {
+                    key: `s:${change.path}`,
+                    change,
+                    pending,
+                    staged: true,
+                    onOpen: () => props.onOpenDiff?.(change),
+                    onContextMenu: (event, rowChange) => setRowMenu({ ...clampMenuPosition(event.clientX, event.clientY, 200, 200), change: rowChange }),
+                    onAction: () => void act(async () => G.api('git.unstage', { root, paths: [change.path] })),
+                    actionLabel: t('git.unstage'),
+                    actionIcon: 'minus',
+                  }),
+                ),
                 unstaged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.unstaged')} (${unstaged.length})`) : null,
                 ...unstaged.map((change) =>
                   h(G.GitChangeRow, {
@@ -8193,20 +8207,6 @@ G.GitPanel = function GitPanel(props) {
                     onAction: () => void act(async () => G.api('git.stage', { root, paths: [change.path] })),
                     actionLabel: t('git.stage'),
                     actionIcon: 'plus',
-                  }),
-                ),
-                staged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,
-                ...staged.map((change) =>
-                  h(G.GitChangeRow, {
-                    key: `s:${change.path}`,
-                    change,
-                    pending,
-                    staged: true,
-                    onOpen: () => props.onOpenDiff?.(change),
-                    onContextMenu: (event, rowChange) => setRowMenu({ ...clampMenuPosition(event.clientX, event.clientY, 200, 200), change: rowChange }),
-                    onAction: () => void act(async () => G.api('git.unstage', { root, paths: [change.path] })),
-                    actionLabel: t('git.unstage'),
-                    actionIcon: 'minus',
                   }),
                 ),
               ),
@@ -10816,6 +10816,25 @@ G.GufaApp = function GufaApp(props) {
     return map
   }, [gitStatus])
 
+  /* 暂存/取消暂存/提交后，已失效的 diff 标签自动关闭：
+     工作树 diff 只在文件仍有未暂存改动时有效，暂存区 diff 只在文件仍在暂存区时有效。 */
+  useEffect(() => {
+    if (project === null || project.isGit !== true || gitStatus === null) return
+    const changes = Array.isArray(gitStatus.changes) ? gitStatus.changes : []
+    const stagedPaths = new Set(changes.filter((item) => item?.staged === true).map((item) => item.path))
+    const unstagedPaths = new Set(changes.filter((item) => item?.staged !== true).map((item) => item.path))
+    const current = tabsRef.current ?? []
+    const kept = current.filter((tab) => {
+      if (tab === null || tab === undefined || tab.kind !== 'diff') return true
+      if (tab.diff === null || tab.diff === undefined || tab.diff.compare === true) return true
+      if (tab.diff.staged === true) return stagedPaths.has(tab.path)
+      return unstagedPaths.has(tab.path)
+    })
+    if (kept.length === current.length) return
+    setTabs(kept)
+    setActivePath((active) => (active !== null && kept.some((tab) => tab.path === active) ? active : (kept.length > 0 ? kept[kept.length - 1].path : null)))
+  }, [gitStatus, project])
+
   /* ── 文件打开 / 保存 / 关闭 ─────────────────────────────────────────── */
   const openFile = useCallback(async (path) => {
     if (project === null) return
@@ -11243,7 +11262,13 @@ G.GufaApp = function GufaApp(props) {
       return
     }
     try {
-      const file = await G.api('fs.read', { root: project.root, path: change.path })
+      /* 文件可能已删除（工作树删掉/暂存区删除）：读不到就按空处理，仍然展示差异 */
+      let file = null
+      try {
+        file = await G.api('fs.read', { root: project.root, path: change.path })
+      } catch {
+        file = null
+      }
       let left = ''
       try {
         const shown = await G.api('git.show', {
@@ -11255,16 +11280,26 @@ G.GufaApp = function GufaApp(props) {
       } catch {
         left = ''
       }
+      let rightContent = typeof file?.content === 'string' ? file.content : ''
+      if (change.staged === true) {
+        /* 暂存区 diff = HEAD ↔ 索引；右侧必须用索引内容，而不是工作树（工作树可能还有未暂存改动） */
+        try {
+          const indexDoc = await G.api('git.show', { root: project.root, path: change.path, rev: 'index' })
+          rightContent = typeof indexDoc.text === 'string' ? indexDoc.text : ''
+        } catch {
+          rightContent = ''
+        }
+      }
       const tab = {
         path: change.path,
         title: `${G.basename(change.path)}（${change.staged === true ? '暂存区' : '工作树'}）`,
         kind: 'diff',
-        content: file.content ?? '',
-        savedContent: file.content ?? '',
-        revision: file.revision,
+        content: rightContent,
+        savedContent: rightContent,
+        revision: file?.revision,
         dirty: false,
-        language: file.language ?? 'plaintext',
-        size: file.size,
+        language: file?.language ?? 'plaintext',
+        size: file?.size,
         diff: { left, staged: change.staged === true, editable: change.staged !== true },
         diffKey: Date.now(),
       }
@@ -11338,6 +11373,9 @@ G.GufaApp = function GufaApp(props) {
     if (project === null) return
     try {
       await G.api('git.stage', { root: project.root, paths: [path] })
+      /* 暂存后这个文件已经没有「工作树 vs 索引」差异：关掉当前 diff 标签，刷新后也不会再出现在未暂存区 */
+      setTabs((current) => current.filter((tab) => !(tab.path === path && tab.kind === 'diff' && tab.diff !== null && tab.diff !== undefined && tab.diff.staged !== true)))
+      setActivePath((active) => (active === path ? null : active))
       setGitRefreshToken((token) => token + 1)
       void refreshGit()
     } catch (error) {

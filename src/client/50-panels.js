@@ -1347,6 +1347,20 @@ G.GitPanel = function GitPanel(props) {
                       h(G.Button, { disabled: pending || message.trim() === '', primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
                     )
                   : null,
+                staged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,
+                ...staged.map((change) =>
+                  h(G.GitChangeRow, {
+                    key: `s:${change.path}`,
+                    change,
+                    pending,
+                    staged: true,
+                    onOpen: () => props.onOpenDiff?.(change),
+                    onContextMenu: (event, rowChange) => setRowMenu({ ...clampMenuPosition(event.clientX, event.clientY, 200, 200), change: rowChange }),
+                    onAction: () => void act(async () => G.api('git.unstage', { root, paths: [change.path] })),
+                    actionLabel: t('git.unstage'),
+                    actionIcon: 'minus',
+                  }),
+                ),
                 unstaged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.unstaged')} (${unstaged.length})`) : null,
                 ...unstaged.map((change) =>
                   h(G.GitChangeRow, {
@@ -1360,20 +1374,6 @@ G.GitPanel = function GitPanel(props) {
                     onAction: () => void act(async () => G.api('git.stage', { root, paths: [change.path] })),
                     actionLabel: t('git.stage'),
                     actionIcon: 'plus',
-                  }),
-                ),
-                staged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,
-                ...staged.map((change) =>
-                  h(G.GitChangeRow, {
-                    key: `s:${change.path}`,
-                    change,
-                    pending,
-                    staged: true,
-                    onOpen: () => props.onOpenDiff?.(change),
-                    onContextMenu: (event, rowChange) => setRowMenu({ ...clampMenuPosition(event.clientX, event.clientY, 200, 200), change: rowChange }),
-                    onAction: () => void act(async () => G.api('git.unstage', { root, paths: [change.path] })),
-                    actionLabel: t('git.unstage'),
-                    actionIcon: 'minus',
                   }),
                 ),
               ),

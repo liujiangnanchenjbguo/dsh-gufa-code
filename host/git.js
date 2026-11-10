@@ -217,7 +217,7 @@ export function register(router, env) {
     const project = await projectOf(env, body)
     const path = typeof body.path === 'string' ? body.path : ''
     if (path === '' || path.startsWith('/') || path.includes('..')) throw badRequest('path is invalid')
-    const rev = body.rev === 'head' ? 'HEAD' : ':'
+    const rev = body.rev === 'head' ? 'HEAD:' : ':'
     let text = ''
     let missing = false
     try {
