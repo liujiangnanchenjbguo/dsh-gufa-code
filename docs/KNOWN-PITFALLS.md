@@ -8,6 +8,13 @@
 - **不要用 localStorage / 全局状态判断摸鱼模式**（曾经因此让主窗口的「入口工作区」逻辑失效）；
 - 摸鱼相关逻辑一律包在 `G.isFloatMode()` 里；古法编程的功能锁见 `docs/MODES.md`。
 
+## 0.5 Cmd/Ctrl+点击跳转定义（1.3.78 起）
+
+- 编辑器 DOM 上挂 **document 级 mousedown 捕获**（不要挂 Monaco DOM 节点：标签切换/重建后容易挂到废弃节点）。
+- 流程：`getTargetAtClientPoint` → `model.getWordAtPosition` → 先 `editor.action.revealDefinition`（Monaco 自带语言服务），160ms 内检测跳转/peek；没有则调 `code.definition` Host API 兜底。
+- Host `code.definition` 注册在 `host/fs.js` 里，用带 mtime query 的动态 import 加载 `host/code.js`——Host 热重载只按 `MODULE_FILES`（host/*.js）的 mtime 触发，静态 import code.js 会一直吃老缓存。
+- 兜底匹配会解析 import/require 来源（+220 分）、跳过压缩/生成的大文件（单行超长、>512KB）、按目录距离降权；**不要一有多结果就弹列表**：同文件/import/唯一候选直接跳，`function/class/method/type` 之外的弱匹配先要求分数 ≥50 且领先第二名 ≥10，否则静默；只有多个真正同名声明（不同文件、强类型）才弹 picker（最多 8 条）。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。
