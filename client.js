@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.91'
+G.BUILD = '1.3.92'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -9793,7 +9793,16 @@ function activeSessionId() {
     const text = model.getValueInRange(selection);
     if (!text) return null;
     const rawPath = model.uri && model.uri.path ? String(model.uri.path) : "";
-    const path = decodeURIComponent(rawPath.replace(/^\//, ""));
+    const absolute = decodeURIComponent(rawPath.replace(/^\//, ""));
+    if (absolute === "") return null;
+    /* gufa 的 model URI 是项目绝对路径；引用 chip 需要项目相对路径 */
+    let path = absolute;
+    try {
+      const root = typeof G.projectRoot === "string" ? String(G.projectRoot).replace(/\/+$/, "") : "";
+      const rootNoSlash = root.replace(/^\//, "");
+      if (root !== "" && absolute.startsWith(root + "/")) path = absolute.slice(root.length + 1);
+      else if (rootNoSlash !== "" && absolute.startsWith(rootNoSlash + "/")) path = absolute.slice(rootNoSlash.length + 1);
+    } catch (_) {}
     if (path === "") return null;
     const startLine = Math.min(selection.startLineNumber, selection.endLineNumber);
     const endLine = Math.max(selection.startLineNumber, selection.endLineNumber);

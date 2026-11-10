@@ -215,7 +215,16 @@ function activeSessionId() {
     const text = model.getValueInRange(selection);
     if (!text) return null;
     const rawPath = model.uri && model.uri.path ? String(model.uri.path) : "";
-    const path = decodeURIComponent(rawPath.replace(/^\//, ""));
+    const absolute = decodeURIComponent(rawPath.replace(/^\//, ""));
+    if (absolute === "") return null;
+    /* gufa 的 model URI 是项目绝对路径；引用 chip 需要项目相对路径 */
+    let path = absolute;
+    try {
+      const root = typeof G.projectRoot === "string" ? String(G.projectRoot).replace(/\/+$/, "") : "";
+      const rootNoSlash = root.replace(/^\//, "");
+      if (root !== "" && absolute.startsWith(root + "/")) path = absolute.slice(root.length + 1);
+      else if (rootNoSlash !== "" && absolute.startsWith(rootNoSlash + "/")) path = absolute.slice(rootNoSlash.length + 1);
+    } catch (_) {}
     if (path === "") return null;
     const startLine = Math.min(selection.startLineNumber, selection.endLineNumber);
     const endLine = Math.max(selection.startLineNumber, selection.endLineNumber);

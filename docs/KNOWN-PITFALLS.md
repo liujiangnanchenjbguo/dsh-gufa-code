@@ -37,6 +37,7 @@
 - 成功复制/插入/拖动/跳转一律不弹 toast（用户明确讨厌成功提示），只有失败才提示；toast 复用 `G.refToast`。
 - 古法 IDE 内点击引用 chip：优先 `G.bus.emit('editor:open-at')` 打开自己的 Monaco 标签，再 `selectRange` 选中行范围；不要依赖 DSH 侧边栏资源路由。
 - 行范围引用格式 `@path Lx-Ly`；chip 标签里存路径+行号用于点击定位，`localStorage` key 使用 `gufa-code.refs.v1`。
+- **model URI 是项目绝对路径，引用 chip 必须转成项目相对路径**（`G.projectRoot` 前缀剥离），否则点击 chip 会走 `fs.read` 绝对路径并报「路径不存在」；这个坑 1.3.92 已修。
 
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
