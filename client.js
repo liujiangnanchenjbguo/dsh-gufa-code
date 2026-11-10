@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.101'
+G.BUILD = '1.3.102'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -152,7 +152,7 @@ const DICT_ZH = {
   'dock.retry': '重试连接',
   'app.title': '古法编程',
   'app.subtitle': 'GUFA CODE',
-  'app.newProject': '新建项目',
+  'app.newProject': '新建工作区',
   'app.newWorkspace': '新建工作区',
   'app.switchWorkspace': '切换工作区',
   'app.noWorkspace': '选择工作区',
@@ -162,14 +162,14 @@ const DICT_ZH = {
   'workspace.empty': '还没有工作区，点下方「新建工作区」开始',
   'workspace.unavailable': '当前环境未提供工作区服务；可以用「打开目录」方式进入',
   'workspace.create': '新建工作区',
-  'app.openProject': '打开项目',
+  'app.openProject': '打开工作区',
   'app.refresh': '刷新',
   'app.exit': '返回经典模式',
   'app.exitHint': '退出古法编程，回到 DSH 经典界面',
   'app.openFolder': '打开文件夹',
-  'app.noProject': '尚未打开项目',
-  'app.noProjectHint': '打开一个文件夹，或新建一个项目，开始古法编程。',
-  'app.projectName': '项目名',
+  'app.noProject': '尚未打开工作区',
+  'app.noProjectHint': '打开一个工作区，或新建一个工作区，开始古法编程。',
+  'app.projectName': '工作区名',
   'app.parentFolder': '父目录',
   'app.cancel': '取消',
   'app.confirm': '确定',
@@ -185,7 +185,7 @@ const DICT_ZH = {
   'app.backdropStrengthHint': '拖动到任意浓度；双击恢复跟随皮肤档位',
   'app.chooseFolder': '选择文件夹',
   'app.manualPath': '或直接输入路径',
-  'app.pathPlaceholder': '例如 /Users/me/project',
+  'app.pathPlaceholder': '例如 /Users/me/workspace',
   'activity.explorer': '资源管理器',
   'activity.search': '搜索',
   'activity.git': '源代码管理',
@@ -194,12 +194,12 @@ const DICT_ZH = {
   'activity.chat': '古法 AI 助手',
   'activity.collapseChat': '收起 AI 面板',
   'activity.expandChat': '展开 AI 面板',
-  'search.placeholder': '搜索项目中的文本，回车立即搜索',
+  'search.placeholder': '搜索工作区中的文本，回车立即搜索',
   'search.caseSensitive': '区分大小写',
   'search.regex': '使用正则表达式',
   'search.clear': '清空搜索',
   'search.searching': '搜索中…',
-  'search.idle': '输入关键字搜索整个项目',
+  'search.idle': '输入关键字搜索整个工作区',
   'search.noResult': '没有找到匹配结果',
   'search.summary': '{files} 个文件中有 {count} 个结果',
   'search.truncated': '结果过多已截断，请缩小范围',
@@ -238,10 +238,10 @@ const DICT_ZH = {
   'explorer.deleteConfirm': '确定删除 {name}？',
   'explorer.refresh': '刷新目录',
   'explorer.loading': '读取目录…',
-  'explorer.openProjectFirst': '请先打开项目',
+  'explorer.openProjectFirst': '请先打开工作区',
   'git.branch': '分支',
   'git.changes': '更改',
-  'git.noRepo': '当前项目不是 Git 仓库',
+  'git.noRepo': '当前工作区不是 Git 仓库',
   'git.noChanges': '工作区干净',
   'git.stage': '暂存',
   'git.unstage': '取消暂存',
@@ -271,7 +271,7 @@ const DICT_ZH = {
   'graph.toggleAll': '切换显示范围',
   'graph.allBranches': '全部分支',
   'graph.currentBranch': '仅当前分支',
-  'graph.noProject': '请先打开项目',
+  'graph.noProject': '请先打开工作区',
   'graph.noCommits': '还没有提交',
   'graph.copyHash': '复制完整 hash',
   'graph.copied': '已复制',
@@ -410,15 +410,15 @@ const DICT_EN = {
   'dock.retry': 'Retry connection',
   'app.title': 'Gufa Code',
   'app.subtitle': 'CLASSIC CODING',
-  'app.newProject': 'New project',
-  'app.openProject': 'Open project',
+  'app.newProject': 'New workspace',
+  'app.openProject': 'Open workspace',
   'app.refresh': 'Refresh',
   'app.exit': 'Classic mode',
   'app.exitHint': 'Leave Gufa Code and return to the classic DSH UI',
   'app.openFolder': 'Open folder',
-  'app.noProject': 'No project opened',
-  'app.noProjectHint': 'Open a folder or create a project to start classic coding.',
-  'app.projectName': 'Project name',
+  'app.noProject': 'No workspace opened',
+  'app.noProjectHint': 'Open a workspace or create a new one to start classic coding.',
+  'app.projectName': 'Workspace name',
   'app.parentFolder': 'Parent folder',
   'app.cancel': 'Cancel',
   'app.confirm': 'OK',
@@ -434,7 +434,7 @@ const DICT_EN = {
   'app.backdropStrengthHint': 'Drag to any intensity; double-click to follow the skin again',
   'app.chooseFolder': 'Choose folder',
   'app.manualPath': 'Or type a path',
-  'app.pathPlaceholder': 'e.g. /Users/me/project',
+  'app.pathPlaceholder': 'e.g. /Users/me/workspace',
   'activity.explorer': 'Explorer',
   'activity.search': 'Search',
   'activity.git': 'Source control',
@@ -443,12 +443,12 @@ const DICT_EN = {
   'activity.chat': 'Gufa AI',
   'activity.collapseChat': 'Collapse AI panel',
   'activity.expandChat': 'Expand AI panel',
-  'search.placeholder': 'Search text across the project (Enter to run)',
+  'search.placeholder': 'Search text across the workspace (Enter to run)',
   'search.caseSensitive': 'Match case',
   'search.regex': 'Use regular expression',
   'search.clear': 'Clear search',
   'search.searching': 'Searching…',
-  'search.idle': 'Type a keyword to search the whole project',
+  'search.idle': 'Type a keyword to search the whole workspace',
   'search.noResult': 'No matches found',
   'search.summary': '{count} results in {files} files',
   'search.truncated': 'Too many results, truncated — narrow the query',
@@ -487,10 +487,10 @@ const DICT_EN = {
   'explorer.deleteConfirm': 'Delete {name}?',
   'explorer.refresh': 'Refresh folder',
   'explorer.loading': 'Reading folder…',
-  'explorer.openProjectFirst': 'Open a project first',
+  'explorer.openProjectFirst': 'Open a workspace first',
   'git.branch': 'Branch',
   'git.changes': 'Changes',
-  'git.noRepo': 'This project is not a Git repository',
+  'git.noRepo': 'This workspace is not a Git repository',
   'git.noChanges': 'Working tree clean',
   'git.stage': 'Stage',
   'git.unstage': 'Unstage',
@@ -520,7 +520,7 @@ const DICT_EN = {
   'graph.toggleAll': 'Toggle scope',
   'graph.allBranches': 'All branches',
   'graph.currentBranch': 'Current branch only',
-  'graph.noProject': 'Open a project first',
+  'graph.noProject': 'Open a workspace first',
   'graph.noCommits': 'No commits yet',
   'graph.copyHash': 'Copy full hash',
   'graph.copied': 'Copied',
@@ -9790,7 +9790,7 @@ G.installChatFilePaste = function installChatFilePaste(ctx) {
     if (list.length === 0) return
     const root = typeof G.projectRoot === 'string' ? G.projectRoot : ''
     if (root === '') {
-      G.refToast('还没有打开项目，无法把文件转成 @ 引用', 'err')
+      G.refToast('还没有打开工作区，无法把文件转成 @ 引用', 'err')
       return
     }
     const payloads = []
@@ -9810,7 +9810,7 @@ G.installChatFilePaste = function installChatFilePaste(ctx) {
       const result = await G.api('fs.matchFiles', { root, files: payloads })
       matches = Array.isArray(result?.matches) ? result.matches : []
     } catch (error) {
-      G.refToast(`匹配项目文件失败：${G.errorText(error)}`, 'err')
+      G.refToast(`匹配工作区文件失败：${G.errorText(error)}`, 'err')
       return
     }
     if (disposed) return
@@ -9826,7 +9826,7 @@ G.installChatFilePaste = function installChatFilePaste(ctx) {
       else G.refToast('插入引用失败：输入框不可用', 'err')
     }
     if (missing.length > 0) {
-      G.refToast(`${missing.join('、')} 不在当前项目里，未插入引用（可先粘贴到资源管理器导入项目）`, 'err')
+      G.refToast(`${missing.join('、')} 不在当前工作区里，未插入引用`, 'err')
     }
   }
 

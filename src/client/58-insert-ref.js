@@ -94,7 +94,7 @@ G.installChatFilePaste = function installChatFilePaste(ctx) {
     if (list.length === 0) return
     const root = typeof G.projectRoot === 'string' ? G.projectRoot : ''
     if (root === '') {
-      G.refToast('还没有打开项目，无法把文件转成 @ 引用', 'err')
+      G.refToast('还没有打开工作区，无法把文件转成 @ 引用', 'err')
       return
     }
     const payloads = []
@@ -114,7 +114,7 @@ G.installChatFilePaste = function installChatFilePaste(ctx) {
       const result = await G.api('fs.matchFiles', { root, files: payloads })
       matches = Array.isArray(result?.matches) ? result.matches : []
     } catch (error) {
-      G.refToast(`匹配项目文件失败：${G.errorText(error)}`, 'err')
+      G.refToast(`匹配工作区文件失败：${G.errorText(error)}`, 'err')
       return
     }
     if (disposed) return
@@ -130,7 +130,7 @@ G.installChatFilePaste = function installChatFilePaste(ctx) {
       else G.refToast('插入引用失败：输入框不可用', 'err')
     }
     if (missing.length > 0) {
-      G.refToast(`${missing.join('、')} 不在当前项目里，未插入引用（可先粘贴到资源管理器导入项目）`, 'err')
+      G.refToast(`${missing.join('、')} 不在当前工作区里，未插入引用`, 'err')
     }
   }
 
