@@ -481,6 +481,13 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
       scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
       mouseWheelZoom: false,
       contextmenu: true,
+      /* 基础代码联想：显式打开自动补全与单词建议，避免依赖 Monaco 版本默认值 */
+      quickSuggestions: { other: true, comments: false, strings: false },
+      quickSuggestionsDelay: 10,
+      suggestOnTriggerCharacters: true,
+      wordBasedSuggestions: 'currentDocument',
+      acceptSuggestionOnEnter: 'on',
+      tabCompletion: 'on',
       inlineSuggest: { enabled: true, showToolbar: 'never' },
     }
   }

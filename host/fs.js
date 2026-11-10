@@ -13,7 +13,6 @@ import { tmpdir } from 'node:os'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ApiError, badRequest } from './context.js'
 import { registerLsp } from './lsp.js'
-import { registerCompletion } from './completion.js'
 
 const TEXT_LIMIT = 4 * 1024 * 1024
 const runCommand = promisify(execFile)
@@ -286,8 +285,17 @@ export function register(router, env) {
   /* Python 语言服务（LSP/pyright）：/lsp/definition API；Cmd+点击与悬停由客户端调用 */
   registerLsp(router, env)
 
-  /* Tab 行内补全：借用 Harness 自己的模型服务 */
-  registerCompletion(router, env)
+  /* Tab 行内补全：借用 Harness 自己的模型服务（completion.js 用带 mtime 的动态 import，改它免重启） */
+  router.method('completion.suggest', async (body) => {
+    let stamp = '0'
+    try {
+      stamp = String(statSync(new URL('./completion.js', import.meta.url)).mtimeMs)
+    } catch {
+      stamp = '0'
+    }
+    const module = await import(new URL(`./completion.js?gufa-completion=${stamp}`, import.meta.url).href)
+    return module.suggest(body, env)
+  })
 
   /* ⌘⇧N：打开新的 Harness 实例窗口（Electron 单实例下新建 BrowserWindow）。
      app-window.js 用带 mtime 的动态 import，改它不必重启 Host。 */

@@ -20,6 +20,7 @@ const SUPPORTED = new Set([
   'csharp', 'cpp', 'c', 'shell', 'yaml', 'sql', 'php', 'ruby',
 ])
 
+
 function sanitize(text) {
   let value = String(text ?? '')
   /* 去掉模型偶尔带出的 markdown 围栏 */
@@ -42,6 +43,26 @@ function selectionOf(ctx) {
     /* ignore */
   }
   return undefined
+}
+
+const effortCache = new Map()
+
+/** 补全要求低延迟：优先选最小 reasoning effort（不同模型 id 不同，如 off/minimal/low）。 */
+async function pickReasoningEffort(llm, provider, model) {
+  const key = `${provider}|${model}`
+  if (effortCache.has(key)) return effortCache.get(key)
+  let chosen = ''
+  try {
+    const info = await llm.resolveModelInfo(provider, model)
+    const efforts = info !== null && info !== undefined && info.reasoning !== null && info.reasoning !== undefined && Array.isArray(info.reasoning.efforts)
+      ? info.reasoning.efforts.map((entry) => String(entry?.id ?? '')).filter((id) => id !== '')
+      : []
+    chosen = efforts.find((id) => /^(off|none|minimal|low)$/i.test(id)) ?? efforts[0] ?? ''
+  } catch {
+    chosen = ''
+  }
+  effortCache.set(key, chosen)
+  return chosen
 }
 
 export async function suggest(body, env) {
@@ -79,15 +100,19 @@ export async function suggest(body, env) {
     'Insertion:',
   ].join('\n')
 
+  const reasoningEffort = await pickReasoningEffort(llm, provider, model)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 9000)
   let text = ''
   let failure = null
+  let finishKind = ''
+  let usage = null
   const startedAt = Date.now()
   try {
     const stream = llm.stream({
       provider,
       model,
+      ...(reasoningEffort === '' ? {} : { reasoningEffort }),
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: [{ type: 'text', text: userPrompt }] }],
       maxTokens: 160,
@@ -99,8 +124,10 @@ export async function suggest(body, env) {
       if (chunk === null || typeof chunk !== 'object') continue
       if (chunk.type === 'text-delta' && typeof chunk.text === 'string') text += chunk.text
       if (chunk.type === 'reasoning-delta') continue
+      if (chunk.type === 'usage') usage = chunk.usage
       if (chunk.type === 'finish') {
         const reason = chunk.reason
+        finishKind = reason !== null && typeof reason === 'object' && typeof reason.kind === 'string' ? reason.kind : ''
         if (reason !== null && typeof reason === 'object' && (reason.kind === 'error' || reason.kind === 'aborted')) {
           failure = reason.failure ?? { message: reason.kind }
         }
@@ -117,10 +144,11 @@ export async function suggest(body, env) {
     if (controller.signal.aborted) throw new ApiError('llm-timeout', '补全请求超时', 504)
     throw new ApiError('llm-failed', `补全模型调用失败：${message}`, 502)
   }
+  const sanitized = sanitize(text)
   return {
     provider,
     model,
-    text: sanitize(text),
+    text: sanitized,
     latencyMs: Date.now() - startedAt,
   }
 }
