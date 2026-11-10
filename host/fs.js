@@ -3,6 +3,7 @@
  * 所有路径都必须是「已打开项目根」内的相对路径，防止越权访问任意磁盘。
  */
 import { createHash, randomUUID } from 'node:crypto'
+import { statSync } from 'node:fs'
 import { createReadStream } from 'node:fs'
 import { access, cp, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
@@ -11,7 +12,6 @@ import { constants } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ApiError, badRequest } from './context.js'
-import { register as registerCodeNavigation } from './code.js'
 
 const TEXT_LIMIT = 4 * 1024 * 1024
 const runCommand = promisify(execFile)
@@ -244,9 +244,18 @@ async function listProjectCandidates(root, project, maxScanned) {
 }
 
 export function register(router, env) {
-  /* 代码导航（Cmd+点击跳定义）注册在 fs 模块里：host 热重载按 host/*.js 的 mtime 触发，
-     如果单开一个模块，需要重启 Host 才能挂上；挂在 fs 上改代码即可热生效。 */
-  registerCodeNavigation(router, env)
+  /* 代码导航（Cmd+点击跳定义）：实现放在 code.js，但 Host 热重载只按 host/*.js 的 mtime
+     触发，因此这里用带 mtime 的 query 动态 import，code.js 改动后下一次请求就能热生效。 */
+  router.method('code.definition', async (body) => {
+    let stamp = '0'
+    try {
+      stamp = String(statSync(new URL('./code.js', import.meta.url)).mtimeMs)
+    } catch {
+      stamp = '0'
+    }
+    const module = await import(new URL(`./code.js?gufa-code-def=${stamp}`, import.meta.url).href)
+    return module.definition(body, env)
+  })
 
   router.method('fs.list', async (body) => {
     const root = await projectOf(env, body)

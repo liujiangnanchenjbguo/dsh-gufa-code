@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.78'
+G.BUILD = '1.3.82'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -2747,7 +2747,10 @@ G.FooterAction = function FooterAction(props) {
     if (gufaReadyMonaco() === null) gufaMonacoPromise = null
   }
 
-  /* ── model / URI ────────────────────────────────────────────────────── */
+  /** 这些声明类型算「定义级」，多个同名时值得让用户选；普通 const/赋值等弱匹配不轻易弹列表。 */
+const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'def', 'func', 'fn', 'type', 'export'])
+
+/* ── model / URI ────────────────────────────────────────────────────── */
 
   /**
    * tab → Monaco model URI：file:///<root>/<path>（root 为项目绝对路径）。
@@ -3172,11 +3175,38 @@ G.FooterAction = function FooterAction(props) {
                       })
                       const matches = result !== null && result !== undefined && Array.isArray(result.matches) ? result.matches : []
                       if (matches.length === 0) return
-                      if (matches.length === 1) {
-                        G.bus.emit('editor:open-at', { path: matches[0].path, line: matches[0].line, column: matches[0].column })
+                      const openMatch = (item) => G.bus.emit('editor:open-at', { path: item.path, line: item.line, column: item.column })
+                      const currentPath = result.current !== null && result.current !== undefined && typeof result.current.path === 'string' ? result.current.path : null
+                      const top = matches[0]
+                      const topScore = Number(top.score) || 0
+                      /* 当前文件里的声明：直接跳，不打扰 */
+                      if (currentPath !== null && top.path === currentPath) {
+                        openMatch(top)
                         return
                       }
-                      G.bus.emit('definition:pick', { word: result.word ?? word, matches, x: event.clientX, y: event.clientY })
+                      const isStrong = (item) => GUFA_DEFINITION_STRONG_KINDS.has(item.kind)
+                      /* 弱匹配（const/赋值等）只有在很近/很确定时才跳，避免点属性名时跳到别的仓库同名变量 */
+                      if (!isStrong(top) && topScore < 50) return
+                      if (topScore < 30) return
+                      const cluster = matches.filter((item) => (Number(item.score) || 0) >= topScore - 8).slice(0, 8)
+                      if (cluster.length === 1) {
+                        openMatch(cluster[0])
+                        return
+                      }
+                      const declCluster = cluster.filter((item) => isStrong(item))
+                      if (declCluster.length === 0) {
+                        const secondScore = matches.length > 1 ? Number(matches[1].score) || 0 : 0
+                        if (topScore >= 50 && topScore - secondScore >= 10) {
+                          openMatch(top)
+                        }
+                        return
+                      }
+                      const distinctFiles = new Set(declCluster.map((item) => item.path))
+                      if (distinctFiles.size === 1) {
+                        openMatch(declCluster[0])
+                        return
+                      }
+                      G.bus.emit('definition:pick', { word: result.word ?? word, matches: declCluster, x: event.clientX, y: event.clientY })
                     } catch {
                       /* ignore */
                     }

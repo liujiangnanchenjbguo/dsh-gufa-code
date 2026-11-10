@@ -14,7 +14,7 @@ import { promisify } from 'node:util'
 import { ApiError, badRequest } from './context.js'
 
 const runCommand = promisify(execFile)
-const MAX_FILE_SIZE = 1024 * 1024
+const MAX_FILE_SIZE = 512 * 1024
 const MAX_SCANNED = 3000
 const TIME_BUDGET = 7000
 const MAX_MATCHES = 30
@@ -96,13 +96,98 @@ function definitionPatterns(word) {
   ]
 }
 
+function pathSegments(relPath) {
+  if (relPath === '') return []
+  const dir = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : ''
+  return dir === '' ? [] : dir.split('/')
+}
+
 function scoreMatch(match, current) {
   let score = match.weight
   if (match.path === current.path) score += 120
   if (extensionOf(match.path) === extensionOf(current.path)) score += 6
-  if (match.path.startsWith(`${current.dir}/`)) score += 4
+  if (current.dir !== '' && match.path.startsWith(`${current.dir}/`)) score += 8
+  /* 目录距离：同目录 > 子目录 > 兄弟目录 > 远处目录（项目根是 home 时尤其重要） */
+  const currentSegments = pathSegments(current.path)
+  const matchSegments = pathSegments(match.path)
+  let common = 0
+  while (common < currentSegments.length && common < matchSegments.length && currentSegments[common] === matchSegments[common]) common += 1
+  const gap = currentSegments.length + matchSegments.length - common * 2
+  score += Math.max(0, 20 - gap * 4)
   if (match.kind === 'method' || match.kind === 'function' || match.kind === 'def' || match.kind === 'func' || match.kind === 'fn') score += 4
+  if (match.importBoost === true) score += 220
   return score
+}
+
+/** 压缩/生成的单行超长文件：定义搜索里排除，避免点到包产物里的同名变量。 */
+function isMinifiedText(text) {
+  const value = String(text)
+  if (value.length < 2000) return false
+  const lines = value.split('\n')
+  if (lines.length < 12) return true
+  let longLines = 0
+  const sample = Math.min(lines.length, 200)
+  for (let index = 0; index < sample; index += 1) {
+    if (lines[index].length > 1200) longLines += 1
+  }
+  if (longLines >= 1) return true
+  return value.length / lines.length > 240
+}
+
+/** 解析当前文件的 import/require，得到 标识符 → 模块 spec 的映射。 */
+function parseImportMap(text) {
+  const map = new Map()
+  const source = String(text)
+  try {
+    let match
+    const es = /import\s+([^'"]+?)\s+from\s+['"]([^'"]+)['"]/g
+    while ((match = es.exec(source)) !== null) {
+      const clause = match[1]
+      const spec = match[2]
+      const named = /\{([^}]*)\}/.exec(clause)
+      if (named !== null) {
+        for (const part of named[1].split(',')) {
+          const raw = part.trim()
+          if (raw === '') continue
+          const alias = raw.split(/\s+as\s+/).pop().trim()
+          if (/^[A-Za-z_$][\w$]*$/.test(alias)) map.set(alias, spec)
+        }
+      }
+      const def = clause.replace(/\{[^}]*\}/g, '').replace(/,/g, ' ').trim().split(/\s+/)[0]
+      if (def !== undefined && /^[A-Za-z_$][\w$]*$/.test(def)) map.set(def, spec)
+    }
+    const cjs = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)/g
+    while ((match = cjs.exec(source)) !== null) map.set(match[1], match[2])
+    const cjsNamed = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)/g
+    while ((match = cjsNamed.exec(source)) !== null) {
+      for (const part of match[1].split(',')) {
+        const name = part.trim().split(/\s*:\s*/).pop()
+        if (/^[A-Za-z_$][\w$]*$/.test(name)) map.set(name, match[2])
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return map
+}
+
+/** 把相对 import 解析成候选文件路径（不含存在性检查）。 */
+function importTargetPaths(currentPath, spec) {
+  if (!spec.startsWith('.')) return []
+  const baseDir = currentPath.includes('/') ? currentPath.slice(0, currentPath.lastIndexOf('/')) : ''
+  const raw = `${baseDir}${baseDir === '' ? '' : '/'}${spec}`
+  const parts = []
+  for (const part of raw.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') parts.pop()
+    else parts.push(part)
+  }
+  const base = parts.join('/')
+  return [
+    base,
+    `${base}.js`, `${base}.ts`, `${base}.jsx`, `${base}.tsx`, `${base}.mjs`, `${base}.cjs`,
+    `${base}/index.js`, `${base}/index.ts`, `${base}/index.jsx`, `${base}/index.tsx`,
+  ]
 }
 
 async function listCandidates(root, textBudgets) {
@@ -201,8 +286,7 @@ function findDefinitionsInText(text, relPath, word, patterns, results, current) 
   void current
 }
 
-export function register(router, env) {
-  router.method('code.definition', async (body) => {
+export async function definition(body, env) {
     const project = env.projects.ensure(typeof body.root === 'string' ? body.root : '')
     const root = project.root
     const rawPath = typeof body.path === 'string' ? body.path : ''
@@ -233,6 +317,10 @@ export function register(router, env) {
     const patterns = definitionPatterns(word)
     const startedAt = Date.now()
     const current = { path: relPath, dir: relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '' }
+    /* import 解析：命中导入来源的文件给高权重，避免在 home 根目录这种大项目里点到同名变量 */
+    const importMap = parseImportMap(text)
+    const importedSpec = importMap.get(word)
+    const importTargets = new Set(importedSpec === undefined ? [] : importTargetPaths(relPath, importedSpec))
     const results = []
     /* 1) 当前文件（用编辑器传来的内容，能命中未保存的改动） */
     findDefinitionsInText(text, relPath, word, patterns, results, current)
@@ -254,6 +342,7 @@ export function register(router, env) {
       if (buffer.includes(0)) continue
       const candidateText = buffer.toString('utf8')
       if (!candidateText.includes(word)) continue
+      if (isMinifiedText(candidateText)) continue
       findDefinitionsInText(candidateText, candidate, word, patterns, results, current)
     }
     /* 去重 + 打分 + 排序 */
@@ -263,13 +352,14 @@ export function register(router, env) {
       const key = `${item.path}:${item.line}:${item.column}`
       if (seen.has(key)) continue
       seen.add(key)
+      const candidate = { ...item, importBoost: importTargets.has(item.path) }
       matches.push({
         path: item.path,
         line: item.line,
         column: item.column,
         kind: item.kind,
         preview: item.preview,
-        score: scoreMatch(item, current),
+        score: scoreMatch(candidate, current),
       })
     }
     matches.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path) || a.line - b.line)
@@ -279,5 +369,8 @@ export function register(router, env) {
       current: { path: relPath, line, column },
       truncated: matches.length > MAX_MATCHES,
     }
-  })
+}
+
+export function register(router, env) {
+  router.method('code.definition', (body) => definition(body, env))
 }
