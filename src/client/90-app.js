@@ -1290,6 +1290,7 @@ G.GufaApp = function GufaApp(props) {
   const consumeExitStateRef = useRef(false)
   useEffect(() => {
     if (G.isFloatMode()) return undefined
+    if (G.instanceBoot === true) return undefined
     let running = false
     const consume = async () => {
       if (running) return
@@ -1447,6 +1448,11 @@ G.GufaApp = function GufaApp(props) {
   const entryWorkspaceSyncedRef = useRef(false)
   useEffect(() => {
     if (entryWorkspaceSyncedRef.current) return
+    /* 实例窗口：保持空工作区，不跟随主窗口/DSH 当前会话自动打开项目 */
+    if (G.instanceBoot === true) {
+      entryWorkspaceSyncedRef.current = true
+      return
+    }
     /* 悬浮层（摸鱼）：项目/会话由主窗口状态注入，不做「入口工作区」同步 */
     if (G.isFloatMode()) {
       entryWorkspaceSyncedRef.current = true
@@ -1771,6 +1777,11 @@ G.GufaApp = function GufaApp(props) {
   const lastSessionCwdRef = useRef(null)
   useEffect(() => {
     if (sessionPinnedRef.current === true) return
+    /* 实例窗口：不跟随会话 cwd 自动打开项目 */
+    if (G.instanceBoot === true) {
+      lastSessionCwdRef.current = sessionCwd
+      return
+    }
     /* 悬浮层里项目由主窗口状态注入，不跟随（Web 版客户端自己的）会话 cwd 切换 */
     if (G.isFloatMode()) {
       lastSessionCwdRef.current = sessionCwd
