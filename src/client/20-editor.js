@@ -400,7 +400,7 @@
   }
 
   /** 这些声明类型算「定义级」，多个同名时值得让用户选；普通 const/赋值等弱匹配不轻易弹列表。 */
-const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'def', 'func', 'fn', 'type', 'export'])
+const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'def', 'func', 'fn', 'type', 'export', 'lsp'])
 
 /* ── model / URI ────────────────────────────────────────────────────── */
 
@@ -768,6 +768,81 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                     const mac = typeof G.isMacPlatform === 'function' ? G.isMacPlatform() : true
                     return mac ? event.metaKey === true : event.ctrlKey === true
                   }
+                  /* JS/TS：把当前文件的 import 依赖按需加载成 Monaco model，让 TS 语言服务
+                     能解析跨文件定义；否则 Monaco 只认识已经打开过的标签。 */
+                  const tsPreloadState = { seen: new Set() }
+                  const preloadTsDependencies = async (model, path, root) => {
+                    const language = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
+                    if (language !== 'typescript' && language !== 'javascript') return
+                    const version = typeof model.getVersionId === 'function' ? model.getVersionId() : 0
+                    const key = `${path}|${version}`
+                    if (tsPreloadState.seen.has(key) || tsPreloadState.seen.size > 200) return
+                    tsPreloadState.seen.add(key)
+                    let content = ''
+                    try {
+                      content = model.getValue()
+                    } catch {
+                      return
+                    }
+                    const specs = []
+                    for (const pattern of [/import\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g, /require\(\s*['"]([^'"]+)['"]\s*\)/g]) {
+                      let match = null
+                      while ((match = pattern.exec(content)) !== null) {
+                        if (typeof match[1] === 'string' && match[1].startsWith('.')) specs.push(match[1])
+                      }
+                    }
+                    const baseDir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+                    const candidates = (spec) => {
+                      const raw = `${baseDir}${baseDir === '' ? '' : '/'}${spec}`
+                      const parts = []
+                      for (const part of raw.split('/')) {
+                        if (part === '' || part === '.') continue
+                        if (part === '..') parts.pop()
+                        else parts.push(part)
+                      }
+                      const base = parts.join('/')
+                      return [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.jsx`, `${base}.mjs`, `${base}.cjs`, `${base}.d.ts`, `${base}/index.ts`, `${base}/index.js`, `${base}/index.tsx`]
+                    }
+                    for (const spec of [...new Set(specs)].slice(0, 30)) {
+                      for (const rel of candidates(spec)) {
+                        try {
+                          const doc = await G.api('fs.read', { root, path: rel })
+                          const uri = gufaModelUri(monaco, root, rel)
+                          if (monaco.editor.getModel(uri) === null) {
+                            monaco.editor.createModel(String(doc.content ?? ''), gufaResolveLanguage(monaco, doc.language), uri)
+                          }
+                          break
+                        } catch {
+                          /* 尝试下一个候选 */
+                        }
+                      }
+                    }
+                  }
+                  const queryDefinitions = (position, word, model, path, root) => {
+                    const language = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
+                    if (language === 'python') {
+                      return G.api('lsp.definition', {
+                        root,
+                        path,
+                        line: position.lineNumber,
+                        column: position.column,
+                        language: 'python',
+                        content: model.getValue(),
+                      }).then((value) => ({
+                        matches: value !== null && value !== undefined && Array.isArray(value.matches) ? value.matches : [],
+                        current: value !== null && value !== undefined && value.current !== undefined ? value.current : undefined,
+                        word,
+                      }))
+                    }
+                    return G.api('code.definition', {
+                      root,
+                      path,
+                      line: position.lineNumber,
+                      column: position.column,
+                      word,
+                      content: model.getValue(),
+                    })
+                  }
                   const decideDefinition = (result) => {
                     const matches = result !== null && result !== undefined && Array.isArray(result.matches) ? result.matches : []
                     if (matches.length === 0) return { kind: 'none' }
@@ -789,14 +864,6 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                     if (distinctFiles.size === 1) return { kind: 'open', match: declCluster[0] }
                     return { kind: 'pick', matches: declCluster }
                   }
-                  const queryDefinitions = (position, word, model, path, root) => G.api('code.definition', {
-                    root,
-                    path,
-                    line: position.lineNumber,
-                    column: position.column,
-                    word,
-                    content: model.getValue(),
-                  })
 
                   /* ── Cmd 悬停：可跳转时下划线 + 手型光标 ─────────────── */
                   const hover = { meta: false, timer: 0, seq: 0, cache: new Map(), decorationIds: [], lastClient: null, lastPosition: null, lastWordInfo: null, lastKey: '' }
@@ -993,6 +1060,11 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                     try {
                       event.preventDefault()
                       event.stopPropagation()
+                    } catch {
+                      /* ignore */
+                    }
+                    try {
+                      await preloadTsDependencies(model, path, root)
                     } catch {
                       /* ignore */
                     }

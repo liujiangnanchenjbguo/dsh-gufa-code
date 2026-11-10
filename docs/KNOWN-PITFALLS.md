@@ -15,6 +15,14 @@
 - Host `code.definition` 注册在 `host/fs.js` 里，用带 mtime query 的动态 import 加载 `host/code.js`——Host 热重载只按 `MODULE_FILES`（host/*.js）的 mtime 触发，静态 import code.js 会一直吃老缓存。
 - 兜底匹配会解析 import/require 来源（+220 分）、跳过压缩/生成的大文件（单行超长、>512KB）、按目录距离降权；**不要一有多结果就弹列表**：同文件/import/唯一候选直接跳，`function/class/method/type` 之外的弱匹配先要求分数 ≥50 且领先第二名 ≥10，否则静默；只有多个真正同名声明（不同文件、强类型）才弹 picker（最多 8 条）。
 
+## 0.6 语言服务（LSP / Python）与 JS/TS 预加载
+
+- Python 定义跳转走 **Pyright LSP**：npm 依赖 `pyright`，Host 用 `spawn(process.execPath, [node_modules/pyright/langserver.index.js, '--stdio'])` 以 JSON-RPC over stdio 管理 initialize/didOpen/didChange/textDocument/definition；client 通过 `lsp.definition` API 调用，不在 renderer 里实现 LSP。
+- pyright 是 optional 安装时自动补的：宿主先找 `node_modules/pyright`，缺失时 `npm install pyright` 兜底一次；Python 第一次点击会有 2~5s 语言服务初始化延迟。
+- JS/TS 用 Monaco 内置 TS worker；它只认识**已加载进 Monaco 的 model**，所以 Cmd+点击前要把当前文件的相对 import 依赖按需 `fs.read` + `createModel` 预加载，跨文件定义/变量才能解析。系统库（lib.d.ts）由 TS worker 自带的 lib 处理。
+- LSP 细节：server→client 请求（workspace/configuration、registerCapability、workDoneProgress）必须回 null，否则 Pyright 初始化会挂住；`textDocument/definition` 返回 LocationLink 也要归一化（targetUri/targetRange）。
+- fs.js 热重载只重载 fs.js 本身，`lsp.js` 是静态 import 缓存的；session 在模块级 Map 里，改 lsp.js 需要重启 Host 才生效（不影响功能）。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。
