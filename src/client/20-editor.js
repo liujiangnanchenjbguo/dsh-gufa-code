@@ -400,6 +400,7 @@
   }
 
   /** 这些声明类型算「定义级」，多个同名时值得让用户选；普通 const/赋值等弱匹配不轻易弹列表。 */
+const GUFA_LSP_WARMED = new Set()
 const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'def', 'func', 'fn', 'type', 'export', 'lsp'])
 
 /* ── model / URI ────────────────────────────────────────────────────── */
@@ -480,6 +481,7 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
       scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
       mouseWheelZoom: false,
       contextmenu: true,
+      inlineSuggest: { enabled: true, showToolbar: 'never' },
     }
   }
 
@@ -1135,6 +1137,83 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
             } catch {
               /* ignore */
             }
+            /* ── Copilot 风格 Tab 行内补全（复用 Harness 模型服务） ───────── */
+            try {
+              if (typeof monaco.languages.registerInlineCompletionsProvider === 'function') {
+                const inlineLanguages = ['python', 'javascript', 'typescript', 'javascriptreact', 'typescriptreact', 'java', 'go', 'rust', 'csharp', 'cpp', 'c', 'shell', 'json', 'yaml', 'sql', 'html', 'css']
+                const inlineCache = new Map()
+                let inlineLastRequestAt = 0
+                const inlineProvider = {
+                  provideInlineCompletions(model, position, context, token) {
+                    const path = modelPathRef.current
+                    const root = modelsRootRef.current
+                    if (path === null || path === undefined || root === null || root === undefined || root === '') {
+                      return Promise.resolve({ items: [] })
+                    }
+                    if (token !== null && token !== undefined && token.isCancellationRequested === true) return Promise.resolve({ items: [] })
+                    return new Promise((resolve) => {
+                      let settled = false
+                      const finish = (value) => {
+                        if (settled) return
+                        settled = true
+                        resolve(value)
+                      }
+                      const timer = window.setTimeout(() => {
+                        void (async () => {
+                          try {
+                            if (token !== null && token !== undefined && token.isCancellationRequested === true) return finish({ items: [] })
+                            const now = Date.now()
+                            if (now - inlineLastRequestAt < 500) return finish({ items: [] })
+                            inlineLastRequestAt = now
+                            const language = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
+                            if (!inlineLanguages.includes(language)) return finish({ items: [] })
+                            const lineCount = model.getLineCount()
+                            const startLine = Math.max(1, position.lineNumber - 140)
+                            const endLine = Math.min(lineCount, position.lineNumber + 30)
+                            const endColumn = model.getLineMaxColumn(endLine)
+                            let prefix = ''
+                            let suffix = ''
+                            try {
+                              prefix = model.getValueInRange(new monaco.Range(startLine, 1, position.lineNumber, position.column)).slice(-3200)
+                              suffix = model.getValueInRange(new monaco.Range(position.lineNumber, position.column, endLine, endColumn)).slice(0, 800)
+                            } catch {
+                              return finish({ items: [] })
+                            }
+                            const version = typeof model.getVersionId === 'function' ? model.getVersionId() : 0
+                            const cacheKey = `${path}|${version}|${position.lineNumber}:${position.column}|${language}`
+                            const cached = inlineCache.get(cacheKey)
+                            if (cached !== undefined) return finish(cached)
+                            const value = await G.api('completion.suggest', { root, path, language, prefix, suffix })
+                            if (token !== null && token !== undefined && token.isCancellationRequested === true) return finish({ items: [] })
+                            const text = value !== null && value !== undefined && typeof value.text === 'string' ? value.text : ''
+                            const result = text === ''
+                              ? { items: [] }
+                              : { items: [{ insertText: text, range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column) }] }
+                            if (inlineCache.size > 30) inlineCache.clear()
+                            inlineCache.set(cacheKey, result)
+                            finish(result)
+                          } catch {
+                            finish({ items: [] })
+                          }
+                        })()
+                      }, 260)
+                      if (token !== null && token !== undefined && typeof token.onCancellationRequested === 'function') {
+                        token.onCancellationRequested(() => {
+                          window.clearTimeout(timer)
+                          finish({ items: [] })
+                        })
+                      }
+                    })
+                  },
+                  freeInlineCompletions() {},
+                }
+                const inlineDisposable = monaco.languages.registerInlineCompletionsProvider(inlineLanguages, inlineProvider)
+                if (inlineDisposable !== null && inlineDisposable !== undefined && typeof inlineDisposable.dispose === 'function') subscriptions.push(inlineDisposable)
+              }
+            } catch {
+              /* ignore */
+            }
+
             G.__gufaEditorDebug = {
                 focus: () => {
                   try {
@@ -1367,6 +1446,11 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
             } catch {
               /* ignore */
             }
+          }
+          /* 打开 Python 文件时预热 pyright，避免第一次 Cmd+点击等语言服务启动 */
+          if (targetTab.language === 'python' && !GUFA_LSP_WARMED.has(root)) {
+            GUFA_LSP_WARMED.add(root)
+            void G.api('lsp.warm', { root }).catch(() => { GUFA_LSP_WARMED.delete(root) })
           }
           /* 打开/切换文件不抢焦点：只有用户点击编辑区时才进入键盘编辑 */
         }

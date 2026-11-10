@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ApiError, badRequest } from './context.js'
 import { registerLsp } from './lsp.js'
+import { registerCompletion } from './completion.js'
 
 const TEXT_LIMIT = 4 * 1024 * 1024
 const runCommand = promisify(execFile)
@@ -247,6 +248,9 @@ async function listProjectCandidates(root, project, maxScanned) {
 export function register(router, env) {
   /* Python 语言服务（LSP/pyright）：/lsp/definition API；Cmd+点击与悬停由客户端调用 */
   registerLsp(router, env)
+
+  /* Tab 行内补全：借用 Harness 自己的模型服务 */
+  registerCompletion(router, env)
 
   /* 代码导航（Cmd+点击跳定义）：实现放在 code.js，但 Host 热重载只按 host/*.js 的 mtime
      触发，因此这里用带 mtime 的 query 动态 import，code.js 改动后下一次请求就能热生效。 */

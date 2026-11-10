@@ -320,6 +320,13 @@ async function definition(body, env) {
   return { matches, current: { path: relative(root, absolute).split(sep).join('/'), line, column }, language: 'python', server: 'pyright' }
 }
 
+async function warm(body, env) {
+  if (typeof body.root !== 'string' || body.root === '') throw badRequest('root is required')
+  const project = env.projects.ensure(body.root)
+  await getSession(project.root)
+  return { ready: true, server: 'pyright', languages: ['python'] }
+}
+
 async function status(body, env) {
   const entry = pyrightEntry()
   const available = await fileExists(entry)
@@ -343,6 +350,7 @@ async function status(body, env) {
 
 export function registerLsp(router, env) {
   router.method('lsp.status', (body) => status(body, env))
+  router.method('lsp.warm', (body) => warm(body, env))
   router.method('lsp.definition', (body) => definition(body, env))
 }
 

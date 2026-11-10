@@ -23,6 +23,13 @@
 - LSP 细节：server→client 请求（workspace/configuration、registerCapability、workDoneProgress）必须回 null，否则 Pyright 初始化会挂住；`textDocument/definition` 返回 LocationLink 也要归一化（targetUri/targetRange）。
 - fs.js 热重载只重载 fs.js 本身，`lsp.js` 是静态 import 缓存的；session 在模块级 Map 里，改 lsp.js 需要重启 Host 才生效（不影响功能）。
 
+## 0.7 Copilot 风格 Tab 行内补全（1.3.89）
+
+- 不依赖 Copilot/Codeium 等外部订阅：直接复用 Harness 的 `ctx.llm` 服务（`llm.stream`），provider/model 取 `ctx.get('agentDefaultModel').currentSelection()`，默认 `deepseek-official/deepseek-flash`，约 1s 返回。
+- 客户端 Monaco：`editor options inlineSuggest.enabled=true` + `monaco.languages.registerInlineCompletionsProvider`，返回单条 `insertText`，Monaco 自带 Tab 接受；不要自己绑 Tab，否则会和缩进冲突。
+- 必须做防串扰：`provideInlineCompletions` 里 260ms 防抖 + 全局 500ms 限流 + `token.isCancellationRequested` 取消 + 按 `path/version/position` 缓存；否则每敲一个字符都打模型、又慢又费 token。
+- Host prompt 只带 `prefix`（末尾 3200 字）和 `suffix`（800 字），`maxTokens 160`、`temperature 0.2`；返回前剥掉 markdown 围栏。上下文太大不仅慢，而且容易让模型续写整段而不是补一行。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。
