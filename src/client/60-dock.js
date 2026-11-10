@@ -107,6 +107,162 @@ function gufaPlaceDockedConversation(root, host, options) {
   return true
 }
 
+/**
+ * 停靠后的官方会话「贴底跟随」守护。
+ *
+ * 官方会话自己有一套 follow 策略（ChatView root 上的 `data-chat-following-tail` 属性），
+ * 但在 fixed 停靠 + 频繁重排/ResizeObserver 的容器里，偶发出现「发起聊天后滚动条不在最下面」。
+ * 这里只在官方自己认为处于「跟随尾部」时补一次贴底（以及刚发送消息后的 2.5s 内），
+ * 用户主动滚动/官方取消跟随时绝不抢滚动条。
+ */
+function gufaCreateChatFollowKeeper() {
+  let scroller = null
+  let observer = null
+  let resizeObserver = null
+  let interval = null
+  let frame = 0
+  let retryTimer = 0
+  let forceUntil = 0
+  let diagnosticsLeft = 24
+  const diag = (message) => {
+    if (diagnosticsLeft <= 0) return
+    diagnosticsLeft -= 1
+    try {
+      void G.api('dev.log', { message: `chat-follow ${message}` }).catch(() => {})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const hasFollowAttr = () => {
+    try {
+      return scroller !== null && scroller.isConnected && scroller.querySelector('[data-chat-following-tail]') !== null
+    } catch {
+      return false
+    }
+  }
+  const shouldFollow = () => hasFollowAttr() || Date.now() < forceUntil
+  const toBottom = () => {
+    if (scroller === null || !scroller.isConnected) return
+    try {
+      const max = scroller.scrollHeight - scroller.clientHeight
+      if (max <= 0) return
+      if (scroller.scrollTop < max - 2) scroller.scrollTop = max
+    } catch {
+      /* ignore */
+    }
+  }
+  const hasRoom = () => {
+    if (scroller === null || !scroller.isConnected) return false
+    return scroller.scrollHeight - scroller.clientHeight > 1
+  }
+  const pump = () => {
+    frame = 0
+    if (document.visibilityState !== 'visible') return
+    if (!shouldFollow()) return
+    const before = Math.round(scroller.scrollTop)
+    const max = Math.round(scroller.scrollHeight - scroller.clientHeight)
+    if (scroller.scrollTop < max - 2) diag(`pump top=${before} max=${max} follow=${hasFollowAttr()} force=${Date.now() < forceUntil}`)
+    toBottom()
+    /* 流式内容/折叠动画/图片加载会分几帧改变高度：短时间重试几次 */
+    if (retryTimer !== 0) window.clearTimeout(retryTimer)
+    retryTimer = window.setTimeout(() => {
+      retryTimer = 0
+      if (shouldFollow() && hasRoom()) toBottom()
+    }, 120)
+  }
+  const schedule = () => {
+    if (frame !== 0) return
+    frame = window.requestAnimationFrame(pump)
+  }
+  const onWheel = () => { forceUntil = 0 }
+  const onKeyDown = (event) => {
+    if (event.key !== 'Enter' || event.shiftKey === true || event.isComposing === true) return
+    try {
+      if (event.target instanceof Element && event.target.closest('[data-composer-input], [data-composer-seat]') !== null) {
+        forceUntil = Date.now() + 2500
+        schedule()
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const onPointerDown = (event) => {
+    try {
+      if (event.target instanceof Element && event.target.closest('[data-composer-seat]') !== null) {
+        forceUntil = Date.now() + 2500
+        schedule()
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const attach = (next) => {
+    if (next === null || next === undefined || next === scroller) return
+    detach()
+    scroller = next
+    try {
+      observer = new MutationObserver(() => schedule())
+      observer.observe(next, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['data-chat-following-tail'],
+      })
+    } catch {
+      observer = null
+    }
+    try {
+      if (typeof ResizeObserver === 'function') {
+        resizeObserver = new ResizeObserver(() => schedule())
+        resizeObserver.observe(next)
+        const content = next.firstElementChild
+        if (content !== null && content !== undefined) resizeObserver.observe(content)
+      }
+    } catch {
+      resizeObserver = null
+    }
+    /* 兜底：即使没有 DOM 变更事件，跟随期间也低频检查一次（异步高度变化） */
+    interval = window.setInterval(() => {
+      if (shouldFollow()) schedule()
+    }, 700)
+    next.addEventListener('wheel', onWheel, { passive: true })
+    next.addEventListener('touchstart', onWheel, { passive: true })
+    next.addEventListener('keydown', onKeyDown, true)
+    next.addEventListener('pointerdown', onPointerDown, true)
+    diag(`attach top=${Math.round(next.scrollTop)} max=${Math.round(next.scrollHeight - next.clientHeight)} follow=${hasFollowAttr()}`)
+    schedule()
+  }
+  const detach = () => {
+    if (frame !== 0) {
+      window.cancelAnimationFrame(frame)
+      frame = 0
+    }
+    if (retryTimer !== 0) {
+      window.clearTimeout(retryTimer)
+      retryTimer = 0
+    }
+    if (interval !== null) {
+      window.clearInterval(interval)
+      interval = null
+    }
+    observer?.disconnect()
+    observer = null
+    resizeObserver?.disconnect()
+    resizeObserver = null
+    if (scroller !== null) {
+      scroller.removeEventListener('wheel', onWheel)
+      scroller.removeEventListener('touchstart', onWheel)
+      scroller.removeEventListener('keydown', onKeyDown, true)
+      scroller.removeEventListener('pointerdown', onPointerDown, true)
+    }
+    scroller = null
+    forceUntil = 0
+  }
+  return { attach, detach }
+}
+
 /** 毫秒时间戳 → 简短相对时间（会话下拉用）。 */
 function gufaRelativeTime(timestamp) {
   const delta = Date.now() - timestamp
@@ -269,6 +425,8 @@ G.ChatDock = function ChatDock(props) {
   const theme = props.theme === 'light' ? 'light' : 'dark'
   const hostRef = useRef(null)
   const dockRef = useRef({ root: null, saved: null })
+  const followRef = useRef(null)
+  if (followRef.current === null) followRef.current = gufaCreateChatFollowKeeper()
   const tickRef = useRef(null)
   const startedRef = useRef(0)
   const [phase, setPhase] = useState('searching')
@@ -287,6 +445,7 @@ G.ChatDock = function ChatDock(props) {
     if (host === null) return
     const root = gufaFindConversationRoot()
     if (root === null) {
+      followRef.current?.detach()
       if (dockRef.current.root !== null) undock()
       setPhase((previous) => {
         if (previous === 'docked') return 'searching'
@@ -300,6 +459,12 @@ G.ChatDock = function ChatDock(props) {
       dockRef.current = { root, saved: gufaSnapshotDockTarget(root) }
     }
     if (gufaPlaceDockedConversation(root, host, { translucent: props.backdrop === true })) {
+      try {
+        const scroller = root.querySelector(GUFA_CONVERSATION_SCROLL_SELECTOR)
+        if (scroller !== null && scroller !== undefined) followRef.current?.attach(scroller)
+      } catch {
+        /* ignore */
+      }
       setPhase((previous) => (previous === 'docked' ? previous : 'docked'))
     }
   }, [active, undock, props.backdrop])
@@ -338,6 +503,7 @@ G.ChatDock = function ChatDock(props) {
       observer?.disconnect()
       resizeObserver?.disconnect()
       window.removeEventListener('resize', onWindowResize)
+      followRef.current?.detach()
       undock()
     }
   }, [active, undock])
