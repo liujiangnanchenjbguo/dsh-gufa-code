@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "古法编程 · AI 辅助",
-    "description": "一键进入 VS Code 风格 IDE：Monaco 编辑器、文件树、新建/打开工作区、Git、SSH、真实终端，右侧 AI 聊天辅助手写代码。"
+    "description": "一键进入 VS Code 风格 IDE：Monaco 编辑器、文件树、新建/选择工作区、Git、SSH、真实终端，右侧 AI 聊天辅助手写代码。"
   },
   "panel": {
     "label": "古法编程"
@@ -10,13 +10,13 @@
     "title": "古法编程",
     "subtitle": "GUFA CODE",
     "newProject": "新建工作区",
-    "openProject": "打开工作区",
+    "openProject": "选择工作区",
     "refresh": "刷新",
     "exit": "退出古法编程",
     "exitHint": "返回 DSH 对话",
     "openFolder": "打开文件夹",
     "noProject": "尚未打开工作区",
-    "noProjectHint": "打开一个工作区，或新建一个工作区，开始古法编程。",
+    "noProjectHint": "选择一个工作区，或新建一个工作区，开始古法编程。",
     "projectName": "工作区名",
     "parentFolder": "父目录",
     "cancel": "取消",

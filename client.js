@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.102'
+G.BUILD = '1.3.103'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -162,13 +162,13 @@ const DICT_ZH = {
   'workspace.empty': '还没有工作区，点下方「新建工作区」开始',
   'workspace.unavailable': '当前环境未提供工作区服务；可以用「打开目录」方式进入',
   'workspace.create': '新建工作区',
-  'app.openProject': '打开工作区',
+  'app.openProject': '选择工作区',
   'app.refresh': '刷新',
   'app.exit': '返回经典模式',
   'app.exitHint': '退出古法编程，回到 DSH 经典界面',
   'app.openFolder': '打开文件夹',
   'app.noProject': '尚未打开工作区',
-  'app.noProjectHint': '打开一个工作区，或新建一个工作区，开始古法编程。',
+  'app.noProjectHint': '选择一个工作区，或新建一个工作区，开始古法编程。',
   'app.projectName': '工作区名',
   'app.parentFolder': '父目录',
   'app.cancel': '取消',
@@ -238,7 +238,7 @@ const DICT_ZH = {
   'explorer.deleteConfirm': '确定删除 {name}？',
   'explorer.refresh': '刷新目录',
   'explorer.loading': '读取目录…',
-  'explorer.openProjectFirst': '请先打开工作区',
+  'explorer.openProjectFirst': '请先选择工作区',
   'git.branch': '分支',
   'git.changes': '更改',
   'git.noRepo': '当前工作区不是 Git 仓库',
@@ -271,7 +271,7 @@ const DICT_ZH = {
   'graph.toggleAll': '切换显示范围',
   'graph.allBranches': '全部分支',
   'graph.currentBranch': '仅当前分支',
-  'graph.noProject': '请先打开工作区',
+  'graph.noProject': '请先选择工作区',
   'graph.noCommits': '还没有提交',
   'graph.copyHash': '复制完整 hash',
   'graph.copied': '已复制',
@@ -411,13 +411,13 @@ const DICT_EN = {
   'app.title': 'Gufa Code',
   'app.subtitle': 'CLASSIC CODING',
   'app.newProject': 'New workspace',
-  'app.openProject': 'Open workspace',
+  'app.openProject': 'Choose workspace',
   'app.refresh': 'Refresh',
   'app.exit': 'Classic mode',
   'app.exitHint': 'Leave Gufa Code and return to the classic DSH UI',
   'app.openFolder': 'Open folder',
   'app.noProject': 'No workspace opened',
-  'app.noProjectHint': 'Open a workspace or create a new one to start classic coding.',
+  'app.noProjectHint': 'Choose a workspace or create a new one to start classic coding.',
   'app.projectName': 'Workspace name',
   'app.parentFolder': 'Parent folder',
   'app.cancel': 'Cancel',
@@ -487,7 +487,7 @@ const DICT_EN = {
   'explorer.deleteConfirm': 'Delete {name}?',
   'explorer.refresh': 'Refresh folder',
   'explorer.loading': 'Reading folder…',
-  'explorer.openProjectFirst': 'Open a workspace first',
+  'explorer.openProjectFirst': 'Choose a workspace first',
   'git.branch': 'Branch',
   'git.changes': 'Changes',
   'git.noRepo': 'This workspace is not a Git repository',
@@ -520,7 +520,7 @@ const DICT_EN = {
   'graph.toggleAll': 'Toggle scope',
   'graph.allBranches': 'All branches',
   'graph.currentBranch': 'Current branch only',
-  'graph.noProject': 'Open a workspace first',
+  'graph.noProject': 'Choose a workspace first',
   'graph.noCommits': 'No commits yet',
   'graph.copyHash': 'Copy full hash',
   'graph.copied': 'Copied',

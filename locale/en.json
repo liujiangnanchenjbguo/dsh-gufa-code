@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Gufa Code · AI Copilot",
-    "description": "One-click VS Code-style IDE inside DSH: Monaco editor, file tree, create/open workspaces, Git, SSH, real terminal, and an AI chat panel that assists hand-written code."
+    "description": "One-click VS Code-style IDE inside DSH: Monaco editor, file tree, create/choose workspaces, Git, SSH, real terminal, and an AI chat panel that assists hand-written code."
   },
   "panel": {
     "label": "Gufa Code"
@@ -10,13 +10,13 @@
     "title": "Gufa Code",
     "subtitle": "CLASSIC CODING",
     "newProject": "New workspace",
-    "openProject": "Open workspace",
+    "openProject": "Choose workspace",
     "refresh": "Refresh",
     "exit": "Leave Gufa Code",
     "exitHint": "Back to DSH conversation",
     "openFolder": "Open folder",
     "noProject": "No workspace opened",
-    "noProjectHint": "Open a workspace or create a new one to start classic coding.",
+    "noProjectHint": "Choose a workspace or create a new one to start classic coding.",
     "projectName": "Workspace name",
     "parentFolder": "Parent folder",
     "cancel": "Cancel",
