@@ -48,6 +48,8 @@ export const LANG_BY_EXT = {
   ex: 'elixir', exs: 'elixir', flow: 'flow9', fs: 'fsharp', fsi: 'fsharp', ml: 'fsharp', mli: 'fsharp', fsx: 'fsharp', fsscript: 'fsharp',
   graphql: 'graphql', gql: 'graphql', tf: 'hcl', tfvars: 'hcl', hcl: 'hcl', jl: 'julia',
   lex: 'lexon', m3: 'm3', i3: 'm3', mg: 'm3', ig: 'm3', s: 'mips',
+  mligo: 'cameligo', aes: 'aes', pp: 'pascal',
+  tcpou: 'st', tcdut: 'st', tcgvl: 'st', tcio: 'st',
   dax: 'msdax', msdax: 'msdax', m: 'objective-c', pas: 'pascal', p: 'pascal',
   ligo: 'pascaligo', pl: 'perl', pm: 'perl', pla: 'pla', dats: 'postiats', sats: 'postiats', hats: 'postiats',
   pq: 'powerquery', pqm: 'powerquery', proto: 'proto', qs: 'qsharp',
@@ -73,6 +75,7 @@ export function languageOf(path) {
   if (/^makefile$/i.test(base)) return 'makefile'
   if (/^\.?gitignore$/i.test(base) || /^\.?env/i.test(base)) return 'plaintext'
   if (/\.blade\.php$/i.test(base)) return 'blade'
+  if (/\.html\.liquid$/i.test(base)) return 'liquid'
   /* 以点开头的 JSON/INI/R 配置文件名（Monaco/json 默认支持这些） */
   if (/^\.(?:babelrc|eslintrc|jshintrc|jscsrc|bowerrc)$/i.test(base)) return 'json'
   if (/^\.gitconfig$/i.test(base)) return 'ini'
