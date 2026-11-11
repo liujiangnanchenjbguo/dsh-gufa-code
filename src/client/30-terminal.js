@@ -558,6 +558,8 @@ function GufaTerminalView(props) {
 
     const fitNow = () => {
       if (fit === null || term === null || disposed) return
+      /* 拖分割条时尺寸每帧都在变，xterm.fit() 很重；等 layout:resize-end 一次算到位 */
+      if (G.__gufaSplitterDragging === true) return
       const host = hostRef.current
       if (host === null || host.clientWidth <= 0 || host.clientHeight <= 0) return
       try {
@@ -959,12 +961,19 @@ function GufaTerminalView(props) {
       openFrame = window.requestAnimationFrame(tryOpen)
     }
     props.register(terminalId, channel)
+    const offLayoutEnd = G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function'
+      ? () => {}
+      : G.bus.on('layout:resize-end', () => {
+        fitNow()
+        sendCurrentSize()
+      })
 
     startStream()
     if (mode === 'xterm') tryOpen()
 
     return () => {
       disposed = true
+      try { offLayoutEnd() } catch { /* ignore */ }
       if (retryTimer !== null) clearTimeout(retryTimer)
       if (replayTimer !== null) clearTimeout(replayTimer)
       if (openFrame !== 0) window.cancelAnimationFrame(openFrame)

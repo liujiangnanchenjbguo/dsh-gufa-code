@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.121'
+G.BUILD = '1.3.122'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -5275,6 +5275,8 @@ function GufaTerminalView(props) {
 
     const fitNow = () => {
       if (fit === null || term === null || disposed) return
+      /* 拖分割条时尺寸每帧都在变，xterm.fit() 很重；等 layout:resize-end 一次算到位 */
+      if (G.__gufaSplitterDragging === true) return
       const host = hostRef.current
       if (host === null || host.clientWidth <= 0 || host.clientHeight <= 0) return
       try {
@@ -5676,12 +5678,19 @@ function GufaTerminalView(props) {
       openFrame = window.requestAnimationFrame(tryOpen)
     }
     props.register(terminalId, channel)
+    const offLayoutEnd = G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function'
+      ? () => {}
+      : G.bus.on('layout:resize-end', () => {
+        fitNow()
+        sendCurrentSize()
+      })
 
     startStream()
     if (mode === 'xterm') tryOpen()
 
     return () => {
       disposed = true
+      try { offLayoutEnd() } catch { /* ignore */ }
       if (retryTimer !== null) clearTimeout(retryTimer)
       if (replayTimer !== null) clearTimeout(replayTimer)
       if (openFrame !== 0) window.cancelAnimationFrame(openFrame)
@@ -11087,6 +11096,31 @@ G.ChatDock = function ChatDock(props) {
     }
   }, [active, undock, props.backdrop])
 
+  /* 拖拽分割条时的轻量重定位：只改宿主几何，不 getComputedStyle、不读自身 rect、不 setState。
+     完整 tick 每次都会 getComputedStyle + 最多两次 getBoundingClientRect，按帧跑会把拖拽拖卡。 */
+  const lightTickRef = useRef(null)
+  const lightTick = useCallback(() => {
+    const host = hostRef.current
+    if (host === null) return
+    const root = dockRef.current.root
+    if (root === null) return
+    try {
+      const rect = host.getBoundingClientRect()
+      if (!(rect.width >= 80 && rect.height >= 80)) return
+      root.style.position = 'fixed'
+      root.style.left = `${Math.round(rect.left)}px`
+      root.style.top = `${Math.round(rect.top)}px`
+      root.style.width = `${Math.round(rect.width)}px`
+      root.style.height = `${Math.round(rect.height)}px`
+      root.style.setProperty('--dsh-conversation-column-width', `${Math.round(rect.width)}px`)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+  useEffect(() => {
+    lightTickRef.current = lightTick
+  }, [lightTick])
+
   useEffect(() => {
     tickRef.current = tick
   }, [tick])
@@ -11135,12 +11169,15 @@ G.ChatDock = function ChatDock(props) {
   useEffect(() => {
     if (G.bus === undefined || G.bus === null || typeof G.bus.on !== 'function') return undefined
     let frame = 0
-    const off = G.bus.on('layout:resize', () => {
+    const off = G.bus.on('layout:resize', (detail) => {
+      /* 只有横向聊天栏/宽度变化才需要动 DSH 浮层；终端高度拖拽不用每帧重定位 */
+      const varName = detail !== null && detail !== undefined && typeof detail.varName === 'string' ? detail.varName : ''
+      if (varName !== '' && varName !== '--gufa-w-chat') return
       if (frame !== 0) return
       frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => {
         frame = 0
-        tickRef.current?.()
-      }) : window.setTimeout(() => { frame = 0; tickRef.current?.() }, 16)
+        lightTickRef.current?.()
+      }) : window.setTimeout(() => { frame = 0; lightTickRef.current?.() }, 16)
     })
     return () => {
       try { off?.() } catch { /* ignore */ }
@@ -12154,6 +12191,7 @@ G.useSplitter = function useSplitter(options) {
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onUp)
       if (frame !== 0) {
         try {
           if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
@@ -12179,6 +12217,12 @@ G.useSplitter = function useSplitter(options) {
           /* ignore */
         }
       }
+      G.__gufaSplitterDragging = false
+      try {
+        G.bus.emit('layout:resize-end', { varName: cssVar ?? '', size: latest })
+      } catch {
+        /* ignore */
+      }
     }
     try {
       if (splitter !== null && splitter !== undefined && typeof splitter.setAttribute === 'function') splitter.setAttribute('data-dragging', '')
@@ -12187,8 +12231,15 @@ G.useSplitter = function useSplitter(options) {
     }
     document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize'
     document.body.style.userSelect = 'none'
+    G.__gufaSplitterDragging = true
+    try {
+      G.bus.emit('layout:resize-start', { varName: cssVar ?? '' })
+    } catch {
+      /* ignore */
+    }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
   }, [axis, cssVar, invert, max, min, size, storageKey])
   return [size, onMouseDown, setSize]
 }

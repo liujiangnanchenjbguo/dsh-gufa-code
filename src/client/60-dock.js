@@ -469,6 +469,31 @@ G.ChatDock = function ChatDock(props) {
     }
   }, [active, undock, props.backdrop])
 
+  /* 拖拽分割条时的轻量重定位：只改宿主几何，不 getComputedStyle、不读自身 rect、不 setState。
+     完整 tick 每次都会 getComputedStyle + 最多两次 getBoundingClientRect，按帧跑会把拖拽拖卡。 */
+  const lightTickRef = useRef(null)
+  const lightTick = useCallback(() => {
+    const host = hostRef.current
+    if (host === null) return
+    const root = dockRef.current.root
+    if (root === null) return
+    try {
+      const rect = host.getBoundingClientRect()
+      if (!(rect.width >= 80 && rect.height >= 80)) return
+      root.style.position = 'fixed'
+      root.style.left = `${Math.round(rect.left)}px`
+      root.style.top = `${Math.round(rect.top)}px`
+      root.style.width = `${Math.round(rect.width)}px`
+      root.style.height = `${Math.round(rect.height)}px`
+      root.style.setProperty('--dsh-conversation-column-width', `${Math.round(rect.width)}px`)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+  useEffect(() => {
+    lightTickRef.current = lightTick
+  }, [lightTick])
+
   useEffect(() => {
     tickRef.current = tick
   }, [tick])
@@ -517,12 +542,15 @@ G.ChatDock = function ChatDock(props) {
   useEffect(() => {
     if (G.bus === undefined || G.bus === null || typeof G.bus.on !== 'function') return undefined
     let frame = 0
-    const off = G.bus.on('layout:resize', () => {
+    const off = G.bus.on('layout:resize', (detail) => {
+      /* 只有横向聊天栏/宽度变化才需要动 DSH 浮层；终端高度拖拽不用每帧重定位 */
+      const varName = detail !== null && detail !== undefined && typeof detail.varName === 'string' ? detail.varName : ''
+      if (varName !== '' && varName !== '--gufa-w-chat') return
       if (frame !== 0) return
       frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => {
         frame = 0
-        tickRef.current?.()
-      }) : window.setTimeout(() => { frame = 0; tickRef.current?.() }, 16)
+        lightTickRef.current?.()
+      }) : window.setTimeout(() => { frame = 0; lightTickRef.current?.() }, 16)
     })
     return () => {
       try { off?.() } catch { /* ignore */ }

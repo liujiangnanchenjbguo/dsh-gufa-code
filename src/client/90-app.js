@@ -135,6 +135,7 @@ G.useSplitter = function useSplitter(options) {
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onUp)
       if (frame !== 0) {
         try {
           if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
@@ -160,6 +161,12 @@ G.useSplitter = function useSplitter(options) {
           /* ignore */
         }
       }
+      G.__gufaSplitterDragging = false
+      try {
+        G.bus.emit('layout:resize-end', { varName: cssVar ?? '', size: latest })
+      } catch {
+        /* ignore */
+      }
     }
     try {
       if (splitter !== null && splitter !== undefined && typeof splitter.setAttribute === 'function') splitter.setAttribute('data-dragging', '')
@@ -168,8 +175,15 @@ G.useSplitter = function useSplitter(options) {
     }
     document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize'
     document.body.style.userSelect = 'none'
+    G.__gufaSplitterDragging = true
+    try {
+      G.bus.emit('layout:resize-start', { varName: cssVar ?? '' })
+    } catch {
+      /* ignore */
+    }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
   }, [axis, cssVar, invert, max, min, size, storageKey])
   return [size, onMouseDown, setSize]
 }
