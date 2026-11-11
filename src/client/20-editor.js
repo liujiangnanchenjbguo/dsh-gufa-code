@@ -541,7 +541,7 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
 }
 
 /* 诊断波浪线已关闭（用户要求）；Host lint 也不再在每次输入后跑 tsc，省 CPU */
-const GUFA_LINT_ENABLED = true
+const GUFA_LINT_ENABLED = false
 
 /* ── model / URI ────────────────────────────────────────────────────── */
 
@@ -882,13 +882,27 @@ const GUFA_LINT_ENABLED = true
           } catch {
             /* ignore */
           }
-          /* 诊断改由 Host 的 TypeScript 编译器提供（dsh-app worker 不可靠），
-             关闭 Monaco worker 诊断避免重复/后台报错；补全建议仍由 worker 提供。 */
+          /* 错误诊断恢复 Monaco 原生 TS worker：语法/语义/类型错误都正常画线。
+             Monaco 的 javascriptDefaults 默认关掉了 JS 语义诊断（noSemanticValidation=true），
+             这里显式打开并开 checkJs，否则 .js 里只有语法错误、没有未定义变量等诊断。 */
           try {
             const typescriptLanguages = monaco.languages.typescript
-            const diagnosticsOff = { noSemanticValidation: true, noSyntaxValidation: true }
-            typescriptLanguages?.typescriptDefaults?.setDiagnosticsOptions(diagnosticsOff)
-            typescriptLanguages?.javascriptDefaults?.setDiagnosticsOptions(diagnosticsOff)
+            if (typescriptLanguages !== null && typescriptLanguages !== undefined) {
+              const diagnosticsOn = { noSemanticValidation: false, noSyntaxValidation: false }
+              typescriptLanguages.typescriptDefaults?.setDiagnosticsOptions(diagnosticsOn)
+              typescriptLanguages.javascriptDefaults?.setDiagnosticsOptions(diagnosticsOn)
+              typescriptLanguages.javascriptDefaults?.setCompilerOptions({
+                allowNonTsExtensions: true,
+                allowJs: true,
+                checkJs: true,
+                target: 99,
+                moduleResolution: 2,
+                module: 99,
+                jsx: 1,
+                esModuleInterop: true,
+                allowSyntheticDefaultImports: true,
+              })
+            }
           } catch (error) {
             /* ignore */
           }
