@@ -1147,12 +1147,16 @@ G.GitPanel = function GitPanel(props) {
       setError(t('git.commitNeedsMessage'))
       return
     }
-    if (staged.length === 0) {
-      setError(t('git.noStagedHint'))
+    if (changes.length === 0) {
+      setError(t('git.noChanges'))
       return
     }
     void act(async () => {
-      /* 只提交「已暂存」的改动；未暂存改动保持原样（需要时用「全部暂存」） */
+      /* 有已暂存改动时只提交暂存内容；一个都没暂存时才自动全部暂存再提交（快捷模式） */
+      if (staged.length === 0) {
+        const toStage = changes.filter((item) => item.staged !== true).map((item) => item.path)
+        if (toStage.length > 0) await G.api('git.stage', { root, paths: toStage })
+      }
       await G.api('git.commit', { root, message: text })
       setMessage('')
     })
@@ -1338,15 +1342,15 @@ G.GitPanel = function GitPanel(props) {
                       },
                     )
                   : null,
-                changes.length > 0
-                  ? h('div', { className: 'gufa-hint' }, staged.length === 0 ? t('git.noStagedHint') : t('git.commitStagedOnlyHint'))
+                changes.length > 0 && (staged.length === 0 || unstaged.length > 0)
+                  ? h('div', { className: 'gufa-hint' }, staged.length === 0 ? t('git.autoStageHint') : t('git.commitStagedOnlyHint'))
                   : null,
                 changes.length > 0
                   ? h(
                       'div',
                       { className: 'gufa-row', style: { justifyContent: 'flex-end', alignItems: 'center', gap: 8 } },
                       staged.length > 0 ? h('span', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,
-                      h(G.Button, { disabled: pending || message.trim() === '' || staged.length === 0, primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
+                      h(G.Button, { disabled: pending || message.trim() === '' || changes.length === 0, primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
                     )
                   : null,
                 staged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,

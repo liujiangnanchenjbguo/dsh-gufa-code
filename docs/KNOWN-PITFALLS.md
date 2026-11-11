@@ -72,8 +72,8 @@
 
 ## 0.13 Git 提交只提交已暂存（1.3.113）
 
-- 旧实现里客户端点「提交」会先 `git.stage` 所有未暂存文件再 `git.commit`，导致用户只想提交暂存区却把所有改动都提交了。**提交按钮/⌘⇧↵ 绝不能自动暂存**。
-- 正确行为：`staged.length === 0` 时直接提示 `git.noStagedHint` 并禁用提交；有暂存时只调 `git.commit`（Host 本来就是 `git commit -m`，只消费 index）。未暂存改动保留在工作区，需要时用「全部暂存」。
+- 旧实现点「提交」永远先 `git.stage` 所有未暂存文件再 `git.commit`，导致有暂存+未暂存时把两者都提交了，暂存失去意义。
+- 正确策略（两层）：`staged.length > 0` 时**只**调 `git.commit`（Host 是 `git commit -m`，只消费 index），未暂存保持不动；`staged.length === 0` 且存在改动时才自动 `git.stage` 全部再提交（快捷模式）。按钮只在没有改动或没填 message 时禁用。
 - 单测覆盖：暂存 `src/staged.ts`、保留未跟踪 `src/unstaged.ts` 后提交，断言 unstaged 文件不在 HEAD 且仍出现在 status 的未暂存列表里。
 
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
