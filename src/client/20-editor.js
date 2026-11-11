@@ -446,6 +446,38 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
       }
       return result
     }
+    /* 关掉 Monaco 自带的 TS worker 定义提供者，避免它和 Host 的定义结果合并后
+       多结果/错误结果混在一起；补全、hover 等其它 TS 功能不变。 */
+    try {
+      const tsApi = monaco.languages.typescript
+      for (const defaults of [tsApi?.javascriptDefaults, tsApi?.typescriptDefaults]) {
+        if (defaults === null || defaults === undefined) continue
+        const mode = typeof defaults.modeConfiguration === 'object' && defaults.modeConfiguration !== null ? defaults.modeConfiguration : null
+        const baseMode = mode ?? {
+          completionItems: true,
+          hovers: true,
+          documentSymbols: true,
+          definitions: true,
+          references: true,
+          documentHighlights: true,
+          rename: true,
+          colors: true,
+          foldingRanges: true,
+          diagnostics: true,
+          selectionRanges: true,
+          signatureHelp: true,
+          semanticTokens: true,
+          inlayHints: true,
+          links: true,
+          documentFormatting: true,
+        }
+        if (typeof defaults.setModeConfiguration === 'function') {
+          defaults.setModeConfiguration({ ...baseMode, definitions: false })
+        }
+      }
+    } catch {
+      /* ignore */
+    }
     for (const language of GUFA_DEFINITION_LANGUAGES) {
       try {
         monaco.languages.registerDefinitionProvider(language, {
@@ -467,12 +499,13 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
                   content: model.getValue(),
                 })
               } else {
-                result = await G.api('code.definition', {
+                /* LanguageService 解析定义（TS 编译器），比正则项目搜索准确；
+                   JS/TS 不再回退到 code.definition，避免“宁可跳错也不空着”。 */
+                result = await G.api('code.tsDefinition', {
                   root: info.root,
                   path: info.path,
                   line: position.lineNumber,
                   column: position.column,
-                  word,
                   content: model.getValue(),
                 })
               }

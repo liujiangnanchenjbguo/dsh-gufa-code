@@ -100,9 +100,10 @@
 
 - 旧实现：自定义 DOM mousedown → 先 setPosition 再 `instance.getAction('editor.action.revealDefinition').run()`，但**没有先把光标移到点击位置**，native action 在旧光标处解析；失败后再走 Host 搜索兜底，导致“有时跳错、有时没反应、hover 还要等项目级搜索”。
 - 新实现：
-  - 用 `monaco.languages.registerDefinitionProvider` 给 JS/TS/Python 注册 provider，后端分别调 `code.definition` / pyright `lsp.definition`；
+  - 用 `monaco.languages.registerDefinitionProvider` 给 JS/TS/Python 注册 provider；JS/TS 后端改用 **TypeScript LanguageService 的 `getDefinitionAtPosition`**（`host/ts-definition.js` / `code.tsDefinition`），不再用正则项目搜索（正则会出现同名函数跳到别的文件）；Python 用 pyright `lsp.definition`；
   - 用 `monaco.editor.registerEditorOpener` 把 Monaco 打开的 `file://` 位置转成 App 的 `editor:open-at`；
   - Cmd+点击只做「focus + setPosition(点击位置) + 触发原生 revealDefinition」，F12 同样走原生；多结果由 Monaco 原生 peek 处理；
+  - 同时用 `setModeConfiguration({...mode, definitions:false})` 关掉 Monaco TS worker 自带的 definition provider，避免它和 Host 结果合并/跳错；
   - Cmd 悬停不再跑 Host 搜索，按住 Cmd 立即给当前单词下划线/手型，真正解析只在点击时发生。
 - 注意：`gufaRegisterDefinitionInfrastructure` 全局只注册一次（`G.__gufaDefinitionInfra`），provider 内动态读 `G.projectRoot`，HMR/多窗口都复用。
 

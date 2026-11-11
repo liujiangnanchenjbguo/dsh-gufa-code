@@ -158,6 +158,24 @@ try {
   check('lint suppresses dynamic property warnings', lintNoisy.diagnostics.length === 0, JSON.stringify(lintNoisy.diagnostics))
   await call(router, 'fs.delete', { root, path: 'src/lint-sample.js' }).catch(() => {})
 
+  console.log('code.tsDefinition')
+  await call(router, 'fs.create', { root, path: 'src/tsdef-sample.js', kind: 'file' })
+  await call(router, 'fs.write', {
+    root,
+    path: 'src/tsdef-sample.js',
+    content: 'function zzDefinitionTarget() {\n  return 1\n}\nzzDefinitionTarget()\n',
+  })
+  const tsDefResult = await call(router, 'code.tsDefinition', {
+    root,
+    path: 'src/tsdef-sample.js',
+    line: 4,
+    column: 1,
+    content: 'function zzDefinitionTarget() {\n  return 1\n}\nzzDefinitionTarget()\n',
+  })
+  check('tsDefinition resolves local function', tsDefResult.matches.length > 0 && tsDefResult.matches[0].path === 'src/tsdef-sample.js' && tsDefResult.matches[0].line === 1, JSON.stringify(tsDefResult.matches))
+  check('tsDefinition lands on function name column', tsDefResult.matches[0].column === 10, JSON.stringify(tsDefResult.matches))
+  await call(router, 'fs.delete', { root, path: 'src/tsdef-sample.js' }).catch(() => {})
+
   console.log('fs.search')
   await call(router, 'fs.create', { root, path: 'search.txt', kind: 'file' })
   await call(router, 'fs.write', { root, path: 'search.txt', content: 'Alpha beta\nBETA gamma\nbeta BETA\n' })

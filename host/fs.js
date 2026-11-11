@@ -285,6 +285,18 @@ export function register(router, env) {
   /* Python 语言服务（LSP/pyright）：/lsp/definition API；Cmd+点击与悬停由客户端调用 */
   registerLsp(router, env)
 
+  /* JS/TS 定义解析（Monaco DefinitionProvider 用）：LanguageService 比正则项目搜索准确 */
+  router.method('code.tsDefinition', async (body) => {
+    let stamp = '0'
+    try {
+      stamp = String(statSync(new URL('./ts-definition.js', import.meta.url)).mtimeMs)
+    } catch {
+      stamp = '0'
+    }
+    const module = await import(new URL(`./ts-definition.js?gufa-tsdef=${stamp}`, import.meta.url).href)
+    return module.tsDefinition(body, env)
+  })
+
   /* JS/TS 诊断：TypeScript 编译器在 Host 侧跑，返回 Monaco marker 需要的位置 */
   router.method('lint.javascript', async (body) => {
     let stamp = '0'
