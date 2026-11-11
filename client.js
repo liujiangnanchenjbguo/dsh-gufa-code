@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.122'
+G.BUILD = '1.3.123'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -11169,10 +11169,15 @@ G.ChatDock = function ChatDock(props) {
   useEffect(() => {
     if (G.bus === undefined || G.bus === null || typeof G.bus.on !== 'function') return undefined
     let frame = 0
+    let lastTickAt = 0
     const off = G.bus.on('layout:resize', (detail) => {
       /* 只有横向聊天栏/宽度变化才需要动 DSH 浮层；终端高度拖拽不用每帧重定位 */
       const varName = detail !== null && detail !== undefined && typeof detail.varName === 'string' ? detail.varName : ''
       if (varName !== '' && varName !== '--gufa-w-chat') return
+      /* 拖拽中 20fps 足够跟上视觉；每帧 getBoundingClientRect 会强制布局，反而拖慢分割条 */
+      const now = Date.now()
+      if (now - lastTickAt < 45) return
+      lastTickAt = now
       if (frame !== 0) return
       frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => {
         frame = 0
@@ -12141,24 +12146,48 @@ function selectSessionCwd(state) {
  *  拖拽过程只改根节点 CSS 变量（rAF 合帧），不触发 GufaApp 整棵树重渲染；
  *  松手时才 setSize 一次，避免拖边框卡顿。 */
 G.useSplitter = function useSplitter(options) {
-  const { initial, min, max, axis = 'x', invert = false, storageKey, cssVar } = options
+  const { initial, min, max, axis = 'x', invert = false, storageKey, cssVar, targetSelector } = options
   const [size, setSize] = useState(() => {
     const stored = storageKey === undefined ? null : Number(localStorage.getItem(storageKey))
     return Number.isFinite(stored) && stored > 0 ? Math.min(max, Math.max(min, stored)) : initial
   })
-  /* 布局变量始终与 state 同步；用 layoutEffect 避免首帧宽度闪一下 */
-  React.useLayoutEffect(() => {
-    if (typeof cssVar !== 'string' || cssVar === '') return
+  const findTarget = () => {
+    if (typeof targetSelector !== 'string' || targetSelector === '') return null
     try {
-      document.documentElement.style.setProperty(cssVar, `${size}px`)
+      return typeof document !== 'undefined' ? document.querySelector(targetSelector) : null
     } catch {
-      /* ignore */
+      return null
     }
+  }
+  const applyToTarget = (target, value) => {
+    if (target === null || target === undefined) return false
+    try {
+      if (axis === 'x') target.style.width = `${value}px`
+      else target.style.height = `${value}px`
+      return true
+    } catch {
+      return false
+    }
+  }
+  /* 初始/恢复持久化尺寸：直接写目标元素，不往 documentElement 挂 CSS 变量
+     （根节点自定义属性变化会让整棵文档（含 Monaco/DSH）样式重算，拖拽时非常伤） */
+  React.useLayoutEffect(() => {
+    const target = findTarget()
+    if (!applyToTarget(target, size)) {
+      if (typeof cssVar !== 'string' || cssVar === '') return
+      try {
+        document.documentElement.style.setProperty(cssVar, `${size}px`)
+      } catch {
+        /* ignore */
+      }
+    }
+    return undefined
   }, [cssVar, size])
   const onMouseDown = useCallback((event) => {
     if (event.button !== 0) return
     event.preventDefault()
     const splitter = event.currentTarget
+    const target = findTarget()
     const startPosition = axis === 'x' ? event.clientX : event.clientY
     const startSize = size
     let latest = size
@@ -12170,10 +12199,13 @@ G.useSplitter = function useSplitter(options) {
       const delta = (pendingPosition - startPosition) * (invert ? -1 : 1)
       latest = Math.min(max, Math.max(min, startSize + delta))
       pendingPosition = null
-      try {
-        if (typeof cssVar === 'string' && cssVar !== '') document.documentElement.style.setProperty(cssVar, `${latest}px`)
-      } catch {
-        /* ignore */
+      /* 只改目标元素自身的 width/height：不发散到整个 root 的 CSS 变量 */
+      if (!applyToTarget(target, latest)) {
+        try {
+          if (typeof cssVar === 'string' && cssVar !== '') document.documentElement.style.setProperty(cssVar, `${latest}px`)
+        } catch {
+          /* ignore */
+        }
       }
       /* 聊天栏是 DSH 原生浮层，需要跟着宿主矩形重新定位；终端/Monaco 各自有 ResizeObserver */
       try {
@@ -12404,9 +12436,9 @@ G.GufaApp = function GufaApp(props) {
   const [modalPending, setModalPending] = useState(false)
   const [modalError, setModalError] = useState('')
   const bootedRef = useRef(false)
-  const [explorerWidth, explorerDrag] = G.useSplitter({ initial: 260, min: 190, max: 520, storageKey: 'gufa-code:w:explorer', cssVar: '--gufa-w-explorer' })
-  const [chatWidth, chatDrag] = G.useSplitter({ initial: 430, min: 320, max: 780, axis: 'x', invert: true, storageKey: 'gufa-code:w:chat', cssVar: '--gufa-w-chat' })
-  const [terminalHeight, terminalDrag] = G.useSplitter({ initial: 230, min: 120, max: 560, axis: 'y', invert: true, storageKey: 'gufa-code:h:terminal', cssVar: '--gufa-h-terminal' })
+  const [explorerWidth, explorerDrag] = G.useSplitter({ initial: 260, min: 190, max: 520, storageKey: 'gufa-code:w:explorer', cssVar: '--gufa-w-explorer', targetSelector: '.gufa-sidepanel' })
+  const [chatWidth, chatDrag] = G.useSplitter({ initial: 430, min: 320, max: 780, axis: 'x', invert: true, storageKey: 'gufa-code:w:chat', cssVar: '--gufa-w-chat', targetSelector: '.gufa-chatpane' })
+  const [terminalHeight, terminalDrag] = G.useSplitter({ initial: 230, min: 120, max: 560, axis: 'y', invert: true, storageKey: 'gufa-code:h:terminal', cssVar: '--gufa-h-terminal', targetSelector: '.gufa-termpane' })
   useEffect(() => {
     tabsRef.current = tabs
   }, [tabs])

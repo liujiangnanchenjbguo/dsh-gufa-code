@@ -542,10 +542,15 @@ G.ChatDock = function ChatDock(props) {
   useEffect(() => {
     if (G.bus === undefined || G.bus === null || typeof G.bus.on !== 'function') return undefined
     let frame = 0
+    let lastTickAt = 0
     const off = G.bus.on('layout:resize', (detail) => {
       /* 只有横向聊天栏/宽度变化才需要动 DSH 浮层；终端高度拖拽不用每帧重定位 */
       const varName = detail !== null && detail !== undefined && typeof detail.varName === 'string' ? detail.varName : ''
       if (varName !== '' && varName !== '--gufa-w-chat') return
+      /* 拖拽中 20fps 足够跟上视觉；每帧 getBoundingClientRect 会强制布局，反而拖慢分割条 */
+      const now = Date.now()
+      if (now - lastTickAt < 45) return
+      lastTickAt = now
       if (frame !== 0) return
       frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => {
         frame = 0
