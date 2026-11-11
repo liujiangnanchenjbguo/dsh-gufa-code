@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.129'
+G.BUILD = '1.3.130'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3167,7 +3167,7 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
 }
 
 /* 诊断波浪线已关闭（用户要求）；Host lint 也不再在每次输入后跑 tsc，省 CPU */
-const GUFA_LINT_ENABLED = false
+const GUFA_LINT_ENABLED = true
 
 /* ── model / URI ────────────────────────────────────────────────────── */
 
@@ -3232,8 +3232,6 @@ const GUFA_LINT_ENABLED = false
       hideCursorInOverviewRuler: true,
       scrollBeyondLastLine: false,
       smoothScrolling: true,
-      /* 用户明确要求不要错误波浪线：validation decoration 全局不渲染（marker 仍可被问题面板读取） */
-      renderValidationDecorations: 'off',
       cursorBlinking: 'smooth',
       fontSize: 13,
       lineHeight: 20,
@@ -3682,26 +3680,10 @@ const GUFA_LINT_ENABLED = false
                       /* ignore */
                     }
                   }
-                  const showHoverDecoration = (position, wordInfo) => {
-                    if (wordInfo === null || wordInfo === undefined) return clearHoverDecoration()
-                    let range = null
-                    try {
-                      range = new monaco.Range(position.lineNumber, wordInfo.startColumn, position.lineNumber, wordInfo.endColumn)
-                    } catch {
-                      return clearHoverDecoration()
-                    }
-                    try {
-                      hover.decorationIds = instance.deltaDecorations(hover.decorationIds, [
-                        { range, options: { inlineClassName: 'gufa-def-link', stickiness: 1 } },
-                      ])
-                    } catch {
-                      /* ignore */
-                    }
-                    try {
-                      editorDom.classList.add('gufa-def-hover')
-                    } catch {
-                      /* ignore */
-                    }
+                  /* 用户明确不要 Cmd 悬停的下划线/手型提示：hover 不再加任何 decoration，
+                     Cmd+点击跳转功能本身保持不变。 */
+                  const showHoverDecoration = () => {
+                    clearHoverDecoration()
                   }
                   const evaluateHoverPosition = (position, wordInfo) => {
                     if (!hover.meta) {
