@@ -1258,8 +1258,13 @@ G.GufaApp = function GufaApp(props) {
 
   /* TS 内置 lib 定义（parseInt/Promise 等）：以只读标签打开 */
   const openExternalTab = useCallback(async (detail) => {
-    if (detail === null || detail === undefined || typeof detail.absolutePath !== 'string' || detail.absolutePath === '') return
-    const relative = typeof detail.path === 'string' && detail.path !== '' ? detail.path.replace(/^\/+/, '') : 'lib.d.ts'
+    if (detail === null || detail === undefined) return
+    const absolutePath = typeof detail.absolutePath === 'string' ? detail.absolutePath : ''
+    const libName = typeof detail.libName === 'string' ? detail.libName : ''
+    if (absolutePath === '' && libName === '') return
+    const relative = libName !== ''
+      ? libName
+      : (typeof detail.path === 'string' && detail.path !== '' ? detail.path.replace(/^\/+/, '') : 'lib.d.ts')
     const pseudoPath = `~typescript/${relative}`
     flushBuffersRef.current?.()
     const existing = (tabsRef.current ?? []).find((tab) => tab !== null && tab !== undefined && tab.path === pseudoPath)
@@ -1274,7 +1279,7 @@ G.GufaApp = function GufaApp(props) {
       }, 120)
       return
     }
-    const doc = await G.api('code.readTsLib', { absolutePath: detail.absolutePath })
+    const doc = await G.api('code.readTsLib', libName !== '' ? { libName } : { absolutePath })
     const content = doc !== null && doc !== undefined && typeof doc.content === 'string' ? doc.content : ''
     const tab = {
       path: pseudoPath,

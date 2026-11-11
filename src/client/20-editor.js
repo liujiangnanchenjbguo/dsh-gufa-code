@@ -408,7 +408,9 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
  *  定义解析走 Host API（JS/TS 用 code.definition，Python 用 pyright 的 lsp.definition），
  *  打开文件由 registerEditorOpener 转成 App 的 editor:open-at，多个结果交给 Monaco 原生 peek。
  */
-const GUFA_DEFINITION_LANGUAGES = ['javascript', 'typescript', 'javascriptreact', 'typescriptreact', 'python']
+/* JS/TS 的 F12 交回 Monaco 原生 TS DefinitionProvider（之前被我们关掉过）；
+   Cmd+点击在 click handler 里直接走 Host LanguageService 以拿到最准结果。 */
+const GUFA_DEFINITION_LANGUAGES = ['python']
 function gufaRegisterDefinitionInfrastructure(monaco) {
   try {
     if (monaco === null || monaco === undefined) return
@@ -447,38 +449,6 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
         result.push({ uri, range })
       }
       return result
-    }
-    /* 关掉 Monaco 自带的 TS worker 定义提供者，避免它和 Host 的定义结果合并后
-       多结果/错误结果混在一起；补全、hover 等其它 TS 功能不变。 */
-    try {
-      const tsApi = monaco.languages.typescript
-      for (const defaults of [tsApi?.javascriptDefaults, tsApi?.typescriptDefaults]) {
-        if (defaults === null || defaults === undefined) continue
-        const mode = typeof defaults.modeConfiguration === 'object' && defaults.modeConfiguration !== null ? defaults.modeConfiguration : null
-        const baseMode = mode ?? {
-          completionItems: true,
-          hovers: true,
-          documentSymbols: true,
-          definitions: true,
-          references: true,
-          documentHighlights: true,
-          rename: true,
-          colors: true,
-          foldingRanges: true,
-          diagnostics: true,
-          selectionRanges: true,
-          signatureHelp: true,
-          semanticTokens: true,
-          inlayHints: true,
-          links: true,
-          documentFormatting: true,
-        }
-        if (typeof defaults.setModeConfiguration === 'function') {
-          defaults.setModeConfiguration({ ...baseMode, definitions: false })
-        }
-      }
-    } catch {
-      /* ignore */
     }
     for (const language of GUFA_DEFINITION_LANGUAGES) {
       try {
@@ -535,18 +505,30 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
               return false
             }
             absolute = String(absolute).replace(/\\/g, '/')
-            if (!absolute.startsWith(`${root}/`)) return false
             const selection = selectionOrPosition !== null && selectionOrPosition !== undefined && selectionOrPosition.selection !== undefined
               ? selectionOrPosition.selection
               : selectionOrPosition
             const line = Math.max(1, Math.trunc(Number(selection?.startLineNumber ?? selection?.lineNumber ?? 1) || 1))
             const column = Math.max(1, Math.trunc(Number(selection?.startColumn ?? selection?.column ?? 1) || 1))
-            try {
-              G.bus.emit('editor:open-at', { path: absolute.slice(root.length + 1), line, column })
-            } catch {
-              return false
+            if (absolute.startsWith(`${root}/`)) {
+              try {
+                G.bus.emit('editor:open-at', { path: absolute.slice(root.length + 1), line, column })
+              } catch {
+                return false
+              }
+              return true
             }
-            return true
+            /* 系统内置 API 的定义在 TS worker 的 lib 里（parseInt 等）：按 basename 交给只读标签打开 */
+            const baseName = absolute.slice(absolute.lastIndexOf('/') + 1)
+            if (/^lib\.[A-Za-z0-9._-]+\.d\.ts$/.test(baseName)) {
+              try {
+                G.bus.emit('editor:open-external', { absolutePath: '', libName: baseName, path: baseName, line, column })
+              } catch {
+                return false
+              }
+              return true
+            }
+            return false
           },
         })
       }

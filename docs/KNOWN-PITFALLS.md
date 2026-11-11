@@ -115,6 +115,22 @@
   - 系统 lib → `editor:open-external`，App 调 `code.readTsLib` 以只读标签打开（`~typescript/lib.es5.d.ts`），编辑器 `readOnly=true`，保存/自动保存跳过。
 - `code.readTsLib` 只允许读 `typescript/lib` 下的 `.d.ts/.ts/.js`，不是任意路径读取。
 
+## 0.19 Monaco 原生功能审计（1.3.127）
+
+用户质问「本项目外定义全过滤」后，逐项核对我们对 Monaco 原生行为的覆盖：
+
+| 能力 | 状态 |
+| --- | --- |
+| JS/TS **F12 Go to Definition** | 1.3.121 曾用 `setModeConfiguration({definitions:false})` 关掉原生 TS DefinitionProvider，属于误伤；**1.3.127 已恢复**，F12 重新走 Monaco 原生 TS worker；系统 lib（parseInt 等）由 `registerEditorOpener` 转成只读 `~typescript/lib*.d.ts` 标签 |
+| JS/TS **Cmd+点击** | Monaco standalone **本来就没有** VS Code 层的定义链接（tsMode 只注册 DefinitionProvider/Hover，不注册 LinkProvider）；所以必须自定义手势。现在 Cmd+点击直接走 Host TypeScript LanguageService（`code.tsDefinition`），不再经过原生动作/旧正则兜底，内置 API 也能跳 lib |
+| JS/TS **diagnostics** | 1.3.117 起关闭 Monaco TS worker 诊断（`noSemanticValidation/noSyntaxValidation=true`），改用 Host tsc + 白名单语义错误（2304/2552/2448/2454）。这是**有意替换**：worker 诊断在 dsh-app 下不稳定，且动态 JS 项目全量语义诊断误报多（2339/2306）。若要恢复原生诊断，需同时接受这些误报 |
+| AI Tab 补全 | 从来是自研（不是 Monaco 内置），用户要求移除，已删 |
+| `automaticLayout` | 只在拖拽分割条期间临时关闭，松手恢复并 layout 一次（性能优化，不是功能删除） |
+| 项目根白名单 | `ProjectRegistry` / `fs.read` 只允许项目内路径，这是文件读写安全限制；系统 TS lib 通过只读 `code.readTsLib` 单独放行 |
+| minimap / overview ruler | 初始设计就关闭（视觉取舍），未改过 |
+
+结论：真正误伤原生功能的是「TS DefinitionProvider 被禁用」和「项目外定义被过滤」，1.3.126/1.3.127 已修正；diagnostics 是有意替换，若要原生诊断需要接受误报或用更细的过滤。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

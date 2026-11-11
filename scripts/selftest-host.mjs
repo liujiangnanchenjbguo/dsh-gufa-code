@@ -184,6 +184,15 @@ try {
   check('tsDefinition resolves builtin to TS lib', tsLibResult.matches.some((item) => item.external === true && String(item.absolutePath || '').includes('/typescript/lib/lib.')), JSON.stringify(tsLibResult.matches))
   const tsLibApi = await call(router, 'code.readTsLib', { absolutePath: tsLibResult.matches.find((item) => item.external === true)?.absolutePath ?? '' })
   check('readTsLib returns d.ts content', typeof tsLibApi.content === 'string' && tsLibApi.content.includes('parseInt') && tsLibApi.language === 'typescript')
+  const tsLibByName = await call(router, 'code.readTsLib', { libName: 'lib.es5.d.ts' })
+  check('readTsLib by libName', typeof tsLibByName.content === 'string' && tsLibByName.content.includes('parseInt'), String(tsLibByName.content?.length))
+  let badLibName = false
+  try {
+    await call(router, 'code.readTsLib', { libName: '../package.json' })
+  } catch (error) {
+    badLibName = error.code === 'forbidden'
+  }
+  check('readTsLib rejects traversal', badLibName)
   await call(router, 'fs.delete', { root, path: 'src/tsdef-sample.js' }).catch(() => {})
 
   console.log('fs.search')

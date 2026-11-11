@@ -183,10 +183,17 @@ const LIB_EXTENSIONS = new Set(['.d.ts', '.ts', '.js'])
 
 /** 只读打开 TypeScript 内置 lib（parseInt/Promise/Array 等定义）用。 */
 export async function readTsLib(body) {
-  const rawPath = typeof body.absolutePath === 'string' ? body.absolutePath : ''
-  if (rawPath === '') throw new ApiError('bad-request', 'absolutePath is required', 400)
-  const absolute = resolve(rawPath)
   const libDir = dirname(ts.getDefaultLibFilePath({}))
+  const libName = typeof body.libName === 'string' ? body.libName.trim() : ''
+  const rawPath = typeof body.absolutePath === 'string' ? body.absolutePath : ''
+  let absolute = ''
+  if (libName !== '') {
+    if (!/^lib\.[A-Za-z0-9._-]+\.d\.ts$/.test(libName)) throw new ApiError('forbidden', '非法的 TypeScript lib 名称', 403)
+    absolute = resolve(libDir, libName)
+  } else {
+    if (rawPath === '') throw new ApiError('bad-request', 'absolutePath is required', 400)
+    absolute = resolve(rawPath)
+  }
   if (!inside(libDir, absolute)) throw new ApiError('forbidden', '只允许读取 TypeScript 内置 lib 文件', 403)
   const extension = absolute.slice(absolute.lastIndexOf('.')).toLowerCase()
   if (!LIB_EXTENSIONS.has(extension)) throw new ApiError('forbidden', '不允许的文件类型', 403)
