@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.128'
+G.BUILD = '1.3.129'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3166,6 +3166,9 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
   }
 }
 
+/* 诊断波浪线已关闭（用户要求）；Host lint 也不再在每次输入后跑 tsc，省 CPU */
+const GUFA_LINT_ENABLED = false
+
 /* ── model / URI ────────────────────────────────────────────────────── */
 
   /**
@@ -3229,6 +3232,8 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
       hideCursorInOverviewRuler: true,
       scrollBeyondLastLine: false,
       smoothScrolling: true,
+      /* 用户明确要求不要错误波浪线：validation decoration 全局不渲染（marker 仍可被问题面板读取） */
+      renderValidationDecorations: 'off',
       cursorBlinking: 'smooth',
       fontSize: 13,
       lineHeight: 20,
@@ -4015,6 +4020,7 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
               lintTimers.clear()
             }
             const runLint = async (model, path) => {
+              if (GUFA_LINT_ENABLED !== true) return
               if (model === null || model === undefined || typeof path !== 'string' || path === '') return
               const language = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
               if (language !== 'javascript' && language !== 'typescript') return
@@ -4052,6 +4058,7 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
               }
             }
             const scheduleLint = (model, path) => {
+              if (GUFA_LINT_ENABLED !== true) return
               if (model === null || model === undefined || typeof path !== 'string' || path === '') return
               const previous = lintTimers.get(path)
               if (previous !== undefined) window.clearTimeout(previous)
