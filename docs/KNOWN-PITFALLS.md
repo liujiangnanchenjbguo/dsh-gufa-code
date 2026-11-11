@@ -76,6 +76,12 @@
 - 正确策略（两层）：`staged.length > 0` 时**只**调 `git.commit`（Host 是 `git commit -m`，只消费 index），未暂存保持不动；`staged.length === 0` 且存在改动时才自动 `git.stage` 全部再提交（快捷模式）。按钮只在没有改动或没填 message 时禁用。
 - 单测覆盖：暂存 `src/staged.ts`、保留未跟踪 `src/unstaged.ts` 后提交，断言 unstaged 文件不在 HEAD 且仍出现在 status 的未暂存列表里。
 
+## 0.14 AI Tab 补全已关闭（1.3.116）
+
+- 1.3.90 引入的 AI ghost text 实测结果质量不稳定、且每次停顿都会触发模型请求（约 1s），体感卡顿；用户要求先关掉。
+- 关闭方式：`gufaEditorOptions` 的 `inlineSuggest.enabled=false`，并且 inline provider 的 `provideInlineCompletions` 直接返回空（双保险，不再触发任何 completion.suggest 请求）。
+- 基础代码联想仍由 Monaco 的 `quickSuggestions / wordBasedSuggestions` 提供；Host 的 `completion.suggest` API 保留但客户端不再调用，后续想重做可复用。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

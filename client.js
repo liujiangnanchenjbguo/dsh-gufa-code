@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.115'
+G.BUILD = '1.3.116'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3114,7 +3114,7 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
       wordBasedSuggestions: 'currentDocument',
       acceptSuggestionOnEnter: 'on',
       tabCompletion: 'on',
-      inlineSuggest: { enabled: true, showToolbar: 'never' },
+      inlineSuggest: { enabled: false, showToolbar: 'never' },
     }
   }
 
@@ -3785,6 +3785,10 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                 let inlineLastRequestAt = 0
                 const inlineProvider = {
                   provideInlineCompletions(model, position, context, token) {
+                    /* AI Tab 补全已默认关闭：结果质量差、且每次请求会增加延迟。
+                       需要重新开启时把此处的 return 去掉，并把 inlineSuggest.enabled 改回 true。 */
+                    return Promise.resolve({ items: [] })
+                    // eslint-disable-next-line no-unreachable
                     const path = modelPathRef.current
                     const root = modelsRootRef.current
                     if (path === null || path === undefined || root === null || root === undefined || root === '') {
