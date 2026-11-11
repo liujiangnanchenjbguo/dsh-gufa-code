@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.114'
+G.BUILD = '1.3.115'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -8796,11 +8796,17 @@ G.GitPanel = function GitPanel(props) {
   }
 
   const commitRef = useRef(null)
+  const messageRef = useRef(null)
   const commit = () => {
     if (root === null || pending) return
     const text = typeof message === 'string' ? message.trim() : ''
     if (text === '') {
       setError(t('git.commitNeedsMessage'))
+      try {
+        messageRef.current?.focus()
+      } catch {
+        /* ignore */
+      }
       return
     }
     if (changes.length === 0) {
@@ -8984,6 +8990,7 @@ G.GitPanel = function GitPanel(props) {
                   ? h(
                       'textarea',
                       {
+                        ref: messageRef,
                         className: 'gufa-textarea',
                         placeholder: t('git.commitPlaceholder'),
                         value: message,
@@ -9006,7 +9013,7 @@ G.GitPanel = function GitPanel(props) {
                       'div',
                       { className: 'gufa-row', style: { justifyContent: 'flex-end', alignItems: 'center', gap: 8 } },
                       staged.length > 0 ? h('span', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,
-                      h(G.Button, { disabled: pending || message.trim() === '' || changes.length === 0, primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
+                      h(G.Button, { disabled: pending || changes.length === 0, primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
                     )
                   : null,
                 staged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,

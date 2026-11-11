@@ -1140,11 +1140,17 @@ G.GitPanel = function GitPanel(props) {
   }
 
   const commitRef = useRef(null)
+  const messageRef = useRef(null)
   const commit = () => {
     if (root === null || pending) return
     const text = typeof message === 'string' ? message.trim() : ''
     if (text === '') {
       setError(t('git.commitNeedsMessage'))
+      try {
+        messageRef.current?.focus()
+      } catch {
+        /* ignore */
+      }
       return
     }
     if (changes.length === 0) {
@@ -1328,6 +1334,7 @@ G.GitPanel = function GitPanel(props) {
                   ? h(
                       'textarea',
                       {
+                        ref: messageRef,
                         className: 'gufa-textarea',
                         placeholder: t('git.commitPlaceholder'),
                         value: message,
@@ -1350,7 +1357,7 @@ G.GitPanel = function GitPanel(props) {
                       'div',
                       { className: 'gufa-row', style: { justifyContent: 'flex-end', alignItems: 'center', gap: 8 } },
                       staged.length > 0 ? h('span', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,
-                      h(G.Button, { disabled: pending || message.trim() === '' || changes.length === 0, primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
+                      h(G.Button, { disabled: pending || changes.length === 0, primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
                     )
                   : null,
                 staged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,
