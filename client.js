@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.112'
+G.BUILD = '1.3.113'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -261,7 +261,7 @@ const DICT_ZH = {
   'git.pull': '拉取',
   'git.noUpstreamHint': '当前分支还没有上游：点标题栏 ↑ 推送一次即可自动创建上游（git push -u）',
   'git.discardFile': '还原该文件的改动',
-  'git.autoStageHint': '提交时会自动暂存所有未暂存改动（也可以先手动选择要暂存的文件）',
+  'git.commitStagedOnlyHint': '只提交「已暂存」的改动；未暂存的改动会留在工作区',
   'git.commitNeedsMessage': '请先填写提交信息，再按 ⌘⇧↵ 提交',
   'git.more': '更多操作',
   'git.viewDiff': '查看改动对比',
@@ -511,7 +511,7 @@ const DICT_EN = {
   'git.pull': 'Pull',
   'git.noUpstreamHint': 'No upstream for this branch yet: click ↑ in the header to push once (auto git push -u)',
   'git.discardFile': 'Revert this file',
-  'git.autoStageHint': 'Committing auto-stages all unstaged changes',
+  'git.commitStagedOnlyHint': 'Only staged changes are committed; unstaged changes stay in the working tree',
   'git.commitNeedsMessage': 'Write a commit message first, then press ⌘⇧↵',
   'git.more': 'More actions',
   'git.viewDiff': 'View diff',
@@ -8801,10 +8801,12 @@ G.GitPanel = function GitPanel(props) {
       setError(t('git.commitNeedsMessage'))
       return
     }
+    if (staged.length === 0) {
+      setError(t('git.noStagedHint'))
+      return
+    }
     void act(async () => {
-      // 直接点「提交」或按快捷键时：未暂存的改动自动全部暂存，再提交
-      const toStage = changes.filter((item) => item.staged !== true).map((item) => item.path)
-      if (toStage.length > 0) await G.api('git.stage', { root, paths: toStage })
+      /* 只提交「已暂存」的改动；未暂存改动保持原样（需要时用「全部暂存」） */
       await G.api('git.commit', { root, message: text })
       setMessage('')
     })
@@ -8990,15 +8992,15 @@ G.GitPanel = function GitPanel(props) {
                       },
                     )
                   : null,
-                changes.length > 0 && unstaged.length > 0
-                  ? h('div', { className: 'gufa-hint' }, t('git.autoStageHint'))
+                changes.length > 0
+                  ? h('div', { className: 'gufa-hint' }, staged.length === 0 ? t('git.noStagedHint') : t('git.commitStagedOnlyHint'))
                   : null,
                 changes.length > 0
                   ? h(
                       'div',
                       { className: 'gufa-row', style: { justifyContent: 'flex-end', alignItems: 'center', gap: 8 } },
                       staged.length > 0 ? h('span', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,
-                      h(G.Button, { disabled: pending || message.trim() === '', primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
+                      h(G.Button, { disabled: pending || message.trim() === '' || staged.length === 0, primary: true, onClick: commit }, pending ? h(G.Spinner) : null, t('git.commit')),
                     )
                   : null,
                 staged.length > 0 ? h('div', { className: 'gufa-hint' }, `${t('git.staged')} (${staged.length})`) : null,

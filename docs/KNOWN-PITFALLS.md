@@ -70,6 +70,12 @@
 - 更新 Monaco model 不能只靠 App 的 props 同步：编辑器聚焦时同步 effect 会故意跳过外部内容以避免覆盖输入。App 通过 `G.bus.emit('editor:external-reload', {path, content})` 通知 EditorPane 直接 `model.setValue`，用 `suppressChangeRef` 防止把这次更新当用户输入回传，并恢复光标/滚动；同时写 `lastPropContentRef` 避免后续 props 同步再灌一次。
 - 点击已打开文件（文件树/搜索）时也要先 `reloadTabFromDisk`，否则用户点文件列表看不到 AI 改动。
 
+## 0.13 Git 提交只提交已暂存（1.3.113）
+
+- 旧实现里客户端点「提交」会先 `git.stage` 所有未暂存文件再 `git.commit`，导致用户只想提交暂存区却把所有改动都提交了。**提交按钮/⌘⇧↵ 绝不能自动暂存**。
+- 正确行为：`staged.length === 0` 时直接提示 `git.noStagedHint` 并禁用提交；有暂存时只调 `git.commit`（Host 本来就是 `git commit -m`，只消费 index）。未暂存改动保留在工作区，需要时用「全部暂存」。
+- 单测覆盖：暂存 `src/staged.ts`、保留未跟踪 `src/unstaged.ts` 后提交，断言 unstaged 文件不在 HEAD 且仍出现在 status 的未暂存列表里。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。
