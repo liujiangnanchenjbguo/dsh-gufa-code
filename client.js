@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.118'
+G.BUILD = '1.3.119'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -6087,7 +6087,7 @@ G.TerminalPane = function TerminalPane(props) {
     {
       className: 'gufa-termpane',
       style: {
-        height,
+        height: `var(--gufa-h-terminal, ${height}px)`,
         flex: '0 0 auto',
         display: 'flex',
         flexDirection: 'column',
@@ -11012,6 +11012,28 @@ G.ChatDock = function ChatDock(props) {
     tickRef.current?.()
   }, [props.width, props.backdrop])
 
+  // 拖拽过程中宽高每帧变化（App 不重渲染），DSH 浮层需要跟着宿主矩形逐帧重定位
+  useEffect(() => {
+    if (G.bus === undefined || G.bus === null || typeof G.bus.on !== 'function') return undefined
+    let frame = 0
+    const off = G.bus.on('layout:resize', () => {
+      if (frame !== 0) return
+      frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => {
+        frame = 0
+        tickRef.current?.()
+      }) : window.setTimeout(() => { frame = 0; tickRef.current?.() }, 16)
+    })
+    return () => {
+      try { off?.() } catch { /* ignore */ }
+      if (frame !== 0) {
+        try {
+          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+          else window.clearTimeout(frame)
+        } catch { /* ignore */ }
+      }
+    }
+  }, [])
+
   const newSession = useCallback(() => {
     const ui = G.ctx === null || G.ctx === undefined ? undefined : G.ctx.get('uiWorkspace')
     if (ui === undefined || ui === null || typeof ui.startSession !== 'function') {
@@ -11959,30 +11981,78 @@ function selectSessionCwd(state) {
   return picked?.projectionValues?.workingDirectory ?? picked?.cwd ?? null
 }
 
-/** 可拖拽尺寸 hook：返回 [size, onMouseDown, setSize]。 */
+/** 可拖拽尺寸 hook：返回 [size, onMouseDown, setSize]。
+ *  拖拽过程只改根节点 CSS 变量（rAF 合帧），不触发 GufaApp 整棵树重渲染；
+ *  松手时才 setSize 一次，避免拖边框卡顿。 */
 G.useSplitter = function useSplitter(options) {
-  const { initial, min, max, axis = 'x', invert = false, storageKey } = options
+  const { initial, min, max, axis = 'x', invert = false, storageKey, cssVar } = options
   const [size, setSize] = useState(() => {
     const stored = storageKey === undefined ? null : Number(localStorage.getItem(storageKey))
     return Number.isFinite(stored) && stored > 0 ? Math.min(max, Math.max(min, stored)) : initial
   })
+  /* 布局变量始终与 state 同步；用 layoutEffect 避免首帧宽度闪一下 */
+  React.useLayoutEffect(() => {
+    if (typeof cssVar !== 'string' || cssVar === '') return
+    try {
+      document.documentElement.style.setProperty(cssVar, `${size}px`)
+    } catch {
+      /* ignore */
+    }
+  }, [cssVar, size])
   const onMouseDown = useCallback((event) => {
     if (event.button !== 0) return
     event.preventDefault()
+    const splitter = event.currentTarget
     const startPosition = axis === 'x' ? event.clientX : event.clientY
     const startSize = size
     let latest = size
-    const onMove = (moveEvent) => {
-      const position = axis === 'x' ? moveEvent.clientX : moveEvent.clientY
-      const delta = (position - startPosition) * (invert ? -1 : 1)
+    let frame = 0
+    let pendingPosition = null
+    const applySize = () => {
+      frame = 0
+      if (pendingPosition === null) return
+      const delta = (pendingPosition - startPosition) * (invert ? -1 : 1)
       latest = Math.min(max, Math.max(min, startSize + delta))
-      setSize(latest)
+      pendingPosition = null
+      try {
+        if (typeof cssVar === 'string' && cssVar !== '') document.documentElement.style.setProperty(cssVar, `${latest}px`)
+      } catch {
+        /* ignore */
+      }
+      /* 聊天栏是 DSH 原生浮层，需要跟着宿主矩形重新定位；终端/Monaco 各自有 ResizeObserver */
+      try {
+        G.bus.emit('layout:resize', { varName: cssVar ?? '', size: latest })
+      } catch {
+        /* ignore */
+      }
+    }
+    const onMove = (moveEvent) => {
+      pendingPosition = axis === 'x' ? moveEvent.clientX : moveEvent.clientY
+      if (frame === 0) {
+        frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(applySize) : window.setTimeout(applySize, 16)
+      }
     }
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      if (frame !== 0) {
+        try {
+          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+          else window.clearTimeout(frame)
+        } catch {
+          /* ignore */
+        }
+        frame = 0
+      }
+      if (pendingPosition !== null) applySize()
+      setSize(latest)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      try {
+        if (splitter !== null && splitter !== undefined && typeof splitter.removeAttribute === 'function') splitter.removeAttribute('data-dragging')
+      } catch {
+        /* ignore */
+      }
       if (storageKey !== undefined) {
         try {
           localStorage.setItem(storageKey, String(latest))
@@ -11991,11 +12061,16 @@ G.useSplitter = function useSplitter(options) {
         }
       }
     }
+    try {
+      if (splitter !== null && splitter !== undefined && typeof splitter.setAttribute === 'function') splitter.setAttribute('data-dragging', '')
+    } catch {
+      /* ignore */
+    }
     document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize'
     document.body.style.userSelect = 'none'
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [axis, invert, max, min, size, storageKey])
+  }, [axis, cssVar, invert, max, min, size, storageKey])
   return [size, onMouseDown, setSize]
 }
 
@@ -12159,9 +12234,9 @@ G.GufaApp = function GufaApp(props) {
   const [modalPending, setModalPending] = useState(false)
   const [modalError, setModalError] = useState('')
   const bootedRef = useRef(false)
-  const [explorerWidth, explorerDrag] = G.useSplitter({ initial: 260, min: 190, max: 520, storageKey: 'gufa-code:w:explorer' })
-  const [chatWidth, chatDrag] = G.useSplitter({ initial: 430, min: 320, max: 780, axis: 'x', invert: true, storageKey: 'gufa-code:w:chat' })
-  const [terminalHeight, terminalDrag] = G.useSplitter({ initial: 230, min: 120, max: 560, axis: 'y', invert: true, storageKey: 'gufa-code:h:terminal' })
+  const [explorerWidth, explorerDrag] = G.useSplitter({ initial: 260, min: 190, max: 520, storageKey: 'gufa-code:w:explorer', cssVar: '--gufa-w-explorer' })
+  const [chatWidth, chatDrag] = G.useSplitter({ initial: 430, min: 320, max: 780, axis: 'x', invert: true, storageKey: 'gufa-code:w:chat', cssVar: '--gufa-w-chat' })
+  const [terminalHeight, terminalDrag] = G.useSplitter({ initial: 230, min: 120, max: 560, axis: 'y', invert: true, storageKey: 'gufa-code:h:terminal', cssVar: '--gufa-h-terminal' })
   useEffect(() => {
     tabsRef.current = tabs
   }, [tabs])
@@ -14338,7 +14413,7 @@ G.GufaApp = function GufaApp(props) {
     {
       className: 'gufa-root',
       'data-backdrop': backdropActive ? 'on' : undefined,
-      style: { '--gufa-dock-width': ui.chatOpen ? `${Math.round(chatWidth)}px` : '0px' },
+      style: { '--gufa-dock-width': ui.chatOpen ? `var(--gufa-w-chat, ${Math.round(chatWidth)}px)` : '0px' },
     },
     backdropActive ? h(G.SkinBackdrop, { meta: skinBackdrop, enabled: true, strength: backdropStrength }) : null,
     h(
@@ -14473,7 +14548,7 @@ G.GufaApp = function GufaApp(props) {
         ? null
         : h(
             'div',
-            { className: 'gufa-sidepanel', style: { width: explorerWidth } },
+            { className: 'gufa-sidepanel', style: { width: `var(--gufa-w-explorer, ${explorerWidth}px)` } },
             h('div', { style: { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' } }, leftPanel),
           ),
       ui.sidebarOpen === false ? null : h('div', { className: 'gufa-splitter', onMouseDown: explorerDrag, title: '' }),
@@ -14555,7 +14630,7 @@ G.GufaApp = function GufaApp(props) {
             h('div', { className: 'gufa-splitter', onMouseDown: chatDrag }),
             h(
               'div',
-              { className: 'gufa-chatpane', style: { width: chatWidth } },
+              { className: 'gufa-chatpane', style: { width: `var(--gufa-w-chat, ${chatWidth}px)` } },
               h(G.ChatDock, {
                 project,
                 activeFile: activeFileForChat,

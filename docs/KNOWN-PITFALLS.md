@@ -90,6 +90,12 @@
 - 策略：语法诊断（`getSyntacticDiagnostics`）全保留；语义诊断白名单 `2304/2552/2448/2454`（Cannot find name / Block-scoped variable before declaration 等），其余（2339、2306、模块解析类）不展示。
 - 实测 `baiducomp/taskks.js` 从 4 条误报 → 0 条；回归测试覆盖“属性不存在不报”。
 
+## 0.16 分割条拖拽不能每帧 setState（1.3.119）
+
+- 现象：拖动左栏/聊天栏/终端高度拖沓。原因：`useSplitter` 的 mousemove 每帧 `setSize`，导致 `GufaApp` 整棵树（含 Monaco 容器、DSH ChatDock）反复 re-render，且聊天栏里的 DSH 原生浮层还要等下一次轮询才重定位。
+- 方案：拖拽中只写根节点 CSS 变量（`--gufa-w-explorer / --gufa-w-chat / --gufa-h-terminal`），用 rAF 合帧、不触发 React；松手时才 `setSize` 一次并写 localStorage。终端/Monaco 靠自己的 ResizeObserver 自适应；ChatDock 监听 `layout:resize` 事件逐帧重定位原生浮层。
+- 组件尺寸统一走 `var(--gufa-*, 数值px)`，`useLayoutEffect` 在首帧前同步变量，避免恢复持久化宽度时闪一下。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

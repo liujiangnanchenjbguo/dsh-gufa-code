@@ -1489,7 +1489,7 @@ G.TerminalPane = function TerminalPane(props) {
     {
       className: 'gufa-termpane',
       style: {
-        height,
+        height: `var(--gufa-h-terminal, ${height}px)`,
         flex: '0 0 auto',
         display: 'flex',
         flexDirection: 'column',

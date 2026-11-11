@@ -513,6 +513,28 @@ G.ChatDock = function ChatDock(props) {
     tickRef.current?.()
   }, [props.width, props.backdrop])
 
+  // 拖拽过程中宽高每帧变化（App 不重渲染），DSH 浮层需要跟着宿主矩形逐帧重定位
+  useEffect(() => {
+    if (G.bus === undefined || G.bus === null || typeof G.bus.on !== 'function') return undefined
+    let frame = 0
+    const off = G.bus.on('layout:resize', () => {
+      if (frame !== 0) return
+      frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => {
+        frame = 0
+        tickRef.current?.()
+      }) : window.setTimeout(() => { frame = 0; tickRef.current?.() }, 16)
+    })
+    return () => {
+      try { off?.() } catch { /* ignore */ }
+      if (frame !== 0) {
+        try {
+          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+          else window.clearTimeout(frame)
+        } catch { /* ignore */ }
+      }
+    }
+  }, [])
+
   const newSession = useCallback(() => {
     const ui = G.ctx === null || G.ctx === undefined ? undefined : G.ctx.get('uiWorkspace')
     if (ui === undefined || ui === null || typeof ui.startSession !== 'function') {
