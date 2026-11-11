@@ -1,8 +1,9 @@
 name: publish
 
+# ⚠️ 发布规则（用户明确要求）：默认不自动发布 npm。
+# - 只有用户明确说「发布」时，才在本地打 tag / 建 Release，并手动触发本 workflow。
+# - 创建 GitHub Release 不再自动发布 npm，避免每次修 bug 都占用几分钟发布窗口。
 on:
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
