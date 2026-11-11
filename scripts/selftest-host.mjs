@@ -133,6 +133,24 @@ try {
   const missingMtimes = await call(router, 'fs.mtimes', { root, paths: [] })
   check('fs.mtimes handles empty list', missingMtimes.files !== null && typeof missingMtimes.files === 'object' && Object.keys(missingMtimes.files).length === 0)
 
+  console.log('lint.javascript')
+  await call(router, 'fs.create', { root, path: 'src/lint-sample.js', kind: 'file' })
+  const lintResult = await call(router, 'lint.javascript', {
+    root,
+    path: 'src/lint-sample.js',
+    language: 'javascript',
+    content: 'const lintValue = undefinedVariable\n',
+  })
+  check('lint reports undefined variable', lintResult.diagnostics.some((item) => item.code === 2304 && item.line === 1), JSON.stringify(lintResult.diagnostics))
+  const lintSyntax = await call(router, 'lint.javascript', {
+    root,
+    path: 'src/lint-sample.js',
+    language: 'javascript',
+    content: 'const = 1\n',
+  })
+  check('lint reports syntax error', lintSyntax.diagnostics.some((item) => item.severity === 1 && item.code === 1134), JSON.stringify(lintSyntax.diagnostics))
+  await call(router, 'fs.delete', { root, path: 'src/lint-sample.js' }).catch(() => {})
+
   console.log('fs.search')
   await call(router, 'fs.create', { root, path: 'search.txt', kind: 'file' })
   await call(router, 'fs.write', { root, path: 'search.txt', content: 'Alpha beta\nBETA gamma\nbeta BETA\n' })

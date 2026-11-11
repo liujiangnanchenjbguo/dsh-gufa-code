@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.116'
+G.BUILD = '1.3.117'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3097,6 +3097,9 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
       lineHeight: 20,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
       autoIndent: 'full',
+      autoClosingBrackets: 'languageDefined',
+      autoClosingQuotes: 'languageDefined',
+      autoSurround: 'languageDefined',
       detectIndentation: true,
       tabSize: 2,
       insertSpaces: true,
@@ -3114,7 +3117,6 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
       wordBasedSuggestions: 'currentDocument',
       acceptSuggestionOnEnter: 'on',
       tabCompletion: 'on',
-      inlineSuggest: { enabled: false, showToolbar: 'never' },
     }
   }
 
@@ -3360,6 +3362,16 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
             if (typeof G.registerTemplateLanguages === 'function') G.registerTemplateLanguages(monaco)
           } catch (error) {
             /* 模板语言注册失败不影响编辑器 */
+          }
+          /* 诊断改由 Host 的 TypeScript 编译器提供（dsh-app worker 不可靠），
+             关闭 Monaco worker 诊断避免重复/后台报错；补全建议仍由 worker 提供。 */
+          try {
+            const typescriptLanguages = monaco.languages.typescript
+            const diagnosticsOff = { noSemanticValidation: true, noSyntaxValidation: true }
+            typescriptLanguages?.typescriptDefaults?.setDiagnosticsOptions(diagnosticsOff)
+            typescriptLanguages?.javascriptDefaults?.setDiagnosticsOptions(diagnosticsOff)
+          } catch (error) {
+            /* ignore */
           }
           try {
             const instance = monaco.editor.create(host, gufaEditorOptions(propsRef.current.theme))
@@ -3777,134 +3789,6 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
             } catch {
               /* ignore */
             }
-            /* ── Copilot 风格 Tab 行内补全（复用 Harness 模型服务） ───────── */
-            try {
-              if (typeof monaco.languages.registerInlineCompletionsProvider === 'function') {
-                const inlineLanguages = ['python', 'javascript', 'typescript', 'javascriptreact', 'typescriptreact', 'java', 'go', 'rust', 'csharp', 'cpp', 'c', 'shell', 'json', 'yaml', 'sql', 'html', 'css']
-                const inlineCache = new Map()
-                let inlineLastRequestAt = 0
-                const inlineProvider = {
-                  provideInlineCompletions(model, position, context, token) {
-                    /* AI Tab 补全已默认关闭：结果质量差、且每次请求会增加延迟。
-                       需要重新开启时把此处的 return 去掉，并把 inlineSuggest.enabled 改回 true。 */
-                    return Promise.resolve({ items: [] })
-                    // eslint-disable-next-line no-unreachable
-                    const path = modelPathRef.current
-                    const root = modelsRootRef.current
-                    if (path === null || path === undefined || root === null || root === undefined || root === '') {
-                      return Promise.resolve({ items: [] })
-                    }
-                    if (token !== null && token !== undefined && token.isCancellationRequested === true) return Promise.resolve({ items: [] })
-                    return new Promise((resolve) => {
-                      let settled = false
-                      const finish = (value) => {
-                        if (settled) return
-                        settled = true
-                        resolve(value)
-                      }
-                      const timer = window.setTimeout(() => {
-                        void (async () => {
-                          try {
-                            if (token !== null && token !== undefined && token.isCancellationRequested === true) return finish({ items: [] })
-                            const now = Date.now()
-                            if (now - inlineLastRequestAt < 500) return finish({ items: [] })
-                            inlineLastRequestAt = now
-                            const language = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
-                            if (!inlineLanguages.includes(language)) return finish({ items: [] })
-                            const lineCount = model.getLineCount()
-                            const startLine = Math.max(1, position.lineNumber - 140)
-                            const endLine = Math.min(lineCount, position.lineNumber + 30)
-                            const endColumn = model.getLineMaxColumn(endLine)
-                            let prefix = ''
-                            let suffix = ''
-                            try {
-                              prefix = model.getValueInRange(new monaco.Range(startLine, 1, position.lineNumber, position.column)).slice(-3200)
-                              suffix = model.getValueInRange(new monaco.Range(position.lineNumber, position.column, endLine, endColumn)).slice(0, 800)
-                            } catch {
-                              return finish({ items: [] })
-                            }
-                            const version = typeof model.getVersionId === 'function' ? model.getVersionId() : 0
-                            const cacheKey = `${path}|${version}|${position.lineNumber}:${position.column}|${language}`
-                            const cached = inlineCache.get(cacheKey)
-                            if (cached !== undefined) return finish(cached)
-                            const value = await G.api('completion.suggest', { root, path, language, prefix, suffix })
-                            if (token !== null && token !== undefined && token.isCancellationRequested === true) return finish({ items: [] })
-                            const text = value !== null && value !== undefined && typeof value.text === 'string' ? value.text : ''
-                            const result = text === ''
-                              ? { items: [] }
-                              : { items: [{ insertText: text, range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column) }] }
-                            if (inlineCache.size > 30) inlineCache.clear()
-                            inlineCache.set(cacheKey, result)
-                            finish(result)
-                          } catch {
-                            finish({ items: [] })
-                          }
-                        })()
-                      }, 260)
-                      if (token !== null && token !== undefined && typeof token.onCancellationRequested === 'function') {
-                        token.onCancellationRequested(() => {
-                          window.clearTimeout(timer)
-                          finish({ items: [] })
-                        })
-                      }
-                    })
-                  },
-                  freeInlineCompletions() {},
-                }
-                const inlineDisposable = monaco.languages.registerInlineCompletionsProvider(inlineLanguages, inlineProvider)
-                if (inlineDisposable !== null && inlineDisposable !== undefined && typeof inlineDisposable.dispose === 'function') subscriptions.push(inlineDisposable)
-              }
-            } catch {
-              /* ignore */
-            }
-
-            /* 外部/AI 修改磁盘后由 App 轮询发现，通过 bus 通知编辑器热替换 model 内容 */
-            try {
-              if (G.bus !== null && G.bus !== undefined && typeof G.bus.on === 'function') {
-                const offExternalReload = G.bus.on('editor:external-reload', (detail) => {
-                  if (detail === null || detail === undefined || typeof detail.path !== 'string' || typeof detail.content !== 'string') return
-                  const target = modelsRef.current.get(detail.path)
-                  if (target === null || target === undefined) return
-                  let content = ''
-                  try {
-                    content = target.getValue()
-                  } catch {
-                    return
-                  }
-                  if (content === detail.content) return
-                  const active = modelPathRef.current === detail.path
-                  let position = null
-                  let scrollTop = 0
-                  if (active) {
-                    try {
-                      position = instance.getPosition()
-                      scrollTop = instance.getScrollTop()
-                    } catch {
-                      position = null
-                    }
-                  }
-                  suppressChangeRef.current = true
-                  try {
-                    target.setValue(detail.content)
-                  } finally {
-                    suppressChangeRef.current = false
-                  }
-                  lastPropContentRef.current.set(detail.path, detail.content)
-                  if (active && position !== null && position !== undefined) {
-                    try {
-                      instance.setPosition(position)
-                      instance.setScrollTop(scrollTop)
-                    } catch {
-                      /* ignore */
-                    }
-                  }
-                })
-                if (typeof offExternalReload === 'function') subscriptions.push({ dispose: offExternalReload })
-              }
-            } catch {
-              /* ignore */
-            }
-
             G.__gufaEditorDebug = {
                 focus: () => {
                   try {
@@ -3961,6 +3845,84 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
             }))
             /* 光标 / 选区变化上报（状态栏行号列、AI 上下文选区）。 */
             subscriptions.push(instance.onDidChangeCursorSelection(() => reportCursor()))
+            /* ── JS/TS 诊断（Host 侧 tsc）：语法错误 / 未定义变量 / 类型错误 ── */
+            const lintTimers = new Map()
+            const clearLintTimers = () => {
+              for (const timer of lintTimers.values()) window.clearTimeout(timer)
+              lintTimers.clear()
+            }
+            const runLint = async (model, path) => {
+              if (model === null || model === undefined || typeof path !== 'string' || path === '') return
+              const language = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
+              if (language !== 'javascript' && language !== 'typescript') return
+              const root = modelsRootRef.current
+              if (root === null || root === undefined || root === '') return
+              const version = typeof model.getVersionId === 'function' ? model.getVersionId() : 0
+              let result = null
+              try {
+                result = await G.api('lint.javascript', { root, path, language, content: model.getValue() })
+              } catch {
+                return
+              }
+              try {
+                if (typeof model.isDisposed === 'function' && model.isDisposed() === true) return
+                if (typeof model.getVersionId === 'function' && model.getVersionId() !== version) return
+                const list = result !== null && result !== undefined && Array.isArray(result.diagnostics) ? result.diagnostics : []
+                const markerList = []
+                for (const item of list.slice(0, 200)) {
+                  if (item === null || typeof item !== 'object') continue
+                  const severity = Number(item.severity)
+                  markerList.push({
+                    severity: severity === 1 ? monaco.MarkerSeverity.Error : (severity === 0 ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Info),
+                    message: String(item.message ?? ''),
+                    startLineNumber: Number(item.line) || 1,
+                    startColumn: Number(item.column) || 1,
+                    endLineNumber: Number(item.endLine ?? item.line) || 1,
+                    endColumn: Number(item.endColumn ?? item.column) || 1,
+                    source: 'gufa-ts',
+                    code: String(item.code ?? ''),
+                  })
+                }
+                monaco.editor.setModelMarkers(model, 'gufa-ts', markerList)
+              } catch {
+                /* ignore */
+              }
+            }
+            const scheduleLint = (model, path) => {
+              if (model === null || model === undefined || typeof path !== 'string' || path === '') return
+              const previous = lintTimers.get(path)
+              if (previous !== undefined) window.clearTimeout(previous)
+              const timer = window.setTimeout(() => {
+                lintTimers.delete(path)
+                void runLint(model, path)
+              }, 650)
+              lintTimers.set(path, timer)
+            }
+            subscriptions.push({ dispose: clearLintTimers })
+            try {
+              subscriptions.push(instance.onDidChangeModel(() => {
+                const model = instance.getModel()
+                const path = modelPathRef.current
+                if (model !== null && model !== undefined && path !== null && path !== undefined) scheduleLint(model, path)
+              }))
+            } catch {
+              /* ignore */
+            }
+            subscriptions.push(instance.onDidChangeModelContent(() => {
+              const model = instance.getModel()
+              const path = modelPathRef.current
+              if (model !== null && model !== undefined && path !== null && path !== undefined) scheduleLint(model, path)
+            }))
+            try {
+              const initialModel = instance.getModel()
+              const initialPath = modelPathRef.current
+              if (initialModel !== null && initialModel !== undefined && initialPath !== null && initialPath !== undefined) {
+                window.setTimeout(() => { scheduleLint(initialModel, initialPath) }, 0)
+              }
+            } catch {
+              /* ignore */
+            }
+
             /* 语言服务（JS/TS/JSON/CSS/HTML）诊断 → 资源管理器 / 标签页 / 状态栏 */
             const publishProblems = () => {
               if (typeof G.problemsStore?.set !== 'function') return

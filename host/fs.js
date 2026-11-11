@@ -285,16 +285,16 @@ export function register(router, env) {
   /* Python 语言服务（LSP/pyright）：/lsp/definition API；Cmd+点击与悬停由客户端调用 */
   registerLsp(router, env)
 
-  /* Tab 行内补全：借用 Harness 自己的模型服务（completion.js 用带 mtime 的动态 import，改它免重启） */
-  router.method('completion.suggest', async (body) => {
+  /* JS/TS 诊断：TypeScript 编译器在 Host 侧跑，返回 Monaco marker 需要的位置 */
+  router.method('lint.javascript', async (body) => {
     let stamp = '0'
     try {
-      stamp = String(statSync(new URL('./completion.js', import.meta.url)).mtimeMs)
+      stamp = String(statSync(new URL('./lint.js', import.meta.url)).mtimeMs)
     } catch {
       stamp = '0'
     }
-    const module = await import(new URL(`./completion.js?gufa-completion=${stamp}`, import.meta.url).href)
-    return module.suggest(body, env)
+    const module = await import(new URL(`./lint.js?gufa-lint=${stamp}`, import.meta.url).href)
+    return module.diagnose(body, env)
   })
 
   /* ⌘⇧N：打开新的 Harness 实例窗口（Electron 单实例下新建 BrowserWindow）。
