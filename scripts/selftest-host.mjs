@@ -174,6 +174,16 @@ try {
   })
   check('tsDefinition resolves local function', tsDefResult.matches.length > 0 && tsDefResult.matches[0].path === 'src/tsdef-sample.js' && tsDefResult.matches[0].line === 1, JSON.stringify(tsDefResult.matches))
   check('tsDefinition lands on function name column', tsDefResult.matches[0].column === 10, JSON.stringify(tsDefResult.matches))
+  const tsLibResult = await call(router, 'code.tsDefinition', {
+    root,
+    path: 'src/tsdef-sample.js',
+    line: 1,
+    column: 18,
+    content: 'const zzParsed = parseInt("42", 10)\n',
+  })
+  check('tsDefinition resolves builtin to TS lib', tsLibResult.matches.some((item) => item.external === true && String(item.absolutePath || '').includes('/typescript/lib/lib.')), JSON.stringify(tsLibResult.matches))
+  const tsLibApi = await call(router, 'code.readTsLib', { absolutePath: tsLibResult.matches.find((item) => item.external === true)?.absolutePath ?? '' })
+  check('readTsLib returns d.ts content', typeof tsLibApi.content === 'string' && tsLibApi.content.includes('parseInt') && tsLibApi.language === 'typescript')
   await call(router, 'fs.delete', { root, path: 'src/tsdef-sample.js' }).catch(() => {})
 
   console.log('fs.search')

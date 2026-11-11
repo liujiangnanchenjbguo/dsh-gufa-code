@@ -297,6 +297,18 @@ export function register(router, env) {
     return module.tsDefinition(body, env)
   })
 
+  /* 只读读取 TypeScript 内置 lib（parseInt/Promise 等系统 API 定义） */
+  router.method('code.readTsLib', async (body) => {
+    let stamp = '0'
+    try {
+      stamp = String(statSync(new URL('./ts-definition.js', import.meta.url)).mtimeMs)
+    } catch {
+      stamp = '0'
+    }
+    const module = await import(new URL(`./ts-definition.js?gufa-tsdef=${stamp}`, import.meta.url).href)
+    return module.readTsLib(body)
+  })
+
   /* JS/TS 诊断：TypeScript 编译器在 Host 侧跑，返回 Monaco marker 需要的位置 */
   router.method('lint.javascript', async (body) => {
     let stamp = '0'

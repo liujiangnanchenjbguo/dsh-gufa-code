@@ -141,12 +141,16 @@ export async function tsDefinition(body, env) {
   } catch {
     definitions = []
   }
+  const libDir = dirname(ts.getDefaultLibFilePath(options))
   const matches = []
   const seen = new Set()
   for (const definition of definitions) {
     if (definition === null || definition === undefined) continue
     const fileName = resolve(definition.fileName)
-    if (!inside(root, fileName)) continue
+    const internal = inside(root, fileName)
+    /* 项目内定义正常返回；TS 内置 lib（parseInt/Promise 等）也返回，
+       客户端会以只读标签打开 node_modules/typescript/lib/*.d.ts。 */
+    if (!internal && !inside(libDir, fileName)) continue
     let defSource = null
     try {
       defSource = languageService.getProgram()?.getSourceFile(fileName)
@@ -156,23 +160,46 @@ export async function tsDefinition(body, env) {
     if (defSource === undefined || defSource === null) continue
     const start = Math.max(0, Number(definition.textSpan?.start) || 0)
     const position = ts.getLineAndCharacterOfPosition(defSource, start)
-    const path = relative(root, fileName).split(sep).join('/')
-    const key = `${path}:${position.line + 1}:${position.character + 1}`
+    const path = internal ? relative(root, fileName).split(sep).join('/') : relative(libDir, fileName).split(sep).join('/')
+    const key = `${internal ? 'in' : 'lib'}:${fileName}:${position.line + 1}:${position.character + 1}`
     if (seen.has(key)) continue
     seen.add(key)
     matches.push({
       path,
+      absolutePath: internal ? undefined : fileName,
+      external: internal ? undefined : true,
       line: position.line + 1,
       column: position.character + 1,
-      kind: 'lsp',
-      preview: '',
-      score: 1000,
+      kind: internal ? 'lsp' : 'lib',
+      preview: internal ? '' : `typescript/lib/${path}`,
+      score: internal ? 1000 : 900,
     })
     if (matches.length >= 8) break
   }
   return { matches }
 }
 
+const LIB_EXTENSIONS = new Set(['.d.ts', '.ts', '.js'])
+
+/** 只读打开 TypeScript 内置 lib（parseInt/Promise/Array 等定义）用。 */
+export async function readTsLib(body) {
+  const rawPath = typeof body.absolutePath === 'string' ? body.absolutePath : ''
+  if (rawPath === '') throw new ApiError('bad-request', 'absolutePath is required', 400)
+  const absolute = resolve(rawPath)
+  const libDir = dirname(ts.getDefaultLibFilePath({}))
+  if (!inside(libDir, absolute)) throw new ApiError('forbidden', '只允许读取 TypeScript 内置 lib 文件', 403)
+  const extension = absolute.slice(absolute.lastIndexOf('.')).toLowerCase()
+  if (!LIB_EXTENSIONS.has(extension)) throw new ApiError('forbidden', '不允许的文件类型', 403)
+  const content = await readFile(absolute, 'utf8')
+  return {
+    content,
+    language: 'typescript',
+    absolutePath: absolute,
+    name: absolute.slice(absolute.lastIndexOf('/') + 1),
+  }
+}
+
 export function registerTsDefinition(router, env) {
   router.method('code.tsDefinition', (body) => tsDefinition(body, env))
+  router.method('code.readTsLib', (body) => readTsLib(body))
 }

@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.125'
+G.BUILD = '1.3.126'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3061,6 +3061,8 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
       const seen = new Set()
       for (const match of list.slice(0, 10)) {
         if (match === null || typeof match !== 'object' || typeof match.path !== 'string') continue
+        /* TS lib 定义（parseInt/Promise 等）走 readTsLib 只读标签，不交给 Monaco 原生动作 */
+        if (match.external === true || typeof match.absolutePath === 'string') continue
         const line = Math.max(1, Math.trunc(Number(match.line) || 1))
         const column = Math.max(1, Math.trunc(Number(match.column) || 1))
         const key = `${match.path}:${line}:${column}`
@@ -3840,6 +3842,40 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
                     } catch {
                       /* ignore */
                     }
+                    /* Cmd+点击：JS/TS 直接用 Host TypeScript LanguageService 的结果打开，
+                       不再经过 Monaco 原生动作/旧正则兜底（避免跳到同名使用处）；
+                       系统内置 API（parseInt 等）打开 TypeScript lib 的只读标签。 */
+                    const clickLanguage = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
+                    if (clickLanguage === 'javascript' || clickLanguage === 'typescript') {
+                      try {
+                        const resolved = await G.api('code.tsDefinition', {
+                          root,
+                          path,
+                          line: position.lineNumber,
+                          column: position.column,
+                          content: model.getValue(),
+                        })
+                        const matches = resolved !== null && resolved !== undefined && Array.isArray(resolved.matches) ? resolved.matches : []
+                        const internal = matches.find((item) => item !== null && item !== undefined && item.external !== true && typeof item.path === 'string' && item.path !== '')
+                        if (internal !== undefined) {
+                          G.bus.emit('editor:open-at', { path: internal.path, line: internal.line, column: internal.column })
+                        } else {
+                          const external = matches.find((item) => item !== null && item !== undefined && item.external === true && typeof item.absolutePath === 'string')
+                          if (external !== undefined) {
+                            G.bus.emit('editor:open-external', {
+                              absolutePath: external.absolutePath,
+                              path: typeof external.path === 'string' ? external.path : '',
+                              line: external.line,
+                              column: external.column,
+                            })
+                          }
+                        }
+                      } catch {
+                        /* 解析失败就停在原地，不跳错 */
+                      }
+                      clearHoverDecoration()
+                      return
+                    }
                     /* 关键：把光标放到点击位置，否则 Monaco 原生 revealDefinition 会在旧光标处解析 */
                     try {
                       instance.focus()
@@ -4179,6 +4215,20 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
         disposeAllModels()
       }
     }, [attempt, reportCursor, disposeAllModels])
+
+    /* TS 内置 lib（parseInt 等）标签是只读预览 */
+    const activeExternal = activeTab !== null && activeTab.external === true
+    useEffect(() => {
+      if (status !== 'ready') return undefined
+      const instance = editorRef.current
+      if (instance === null || instance === undefined) return undefined
+      try {
+        instance.updateOptions({ readOnly: activeExternal })
+      } catch {
+        /* ignore */
+      }
+      return undefined
+    }, [activeExternal, status])
 
     /* ── 同步 tabs ↔ models，并切换当前 model ──────────────────────── */
     useEffect(() => {
@@ -12947,6 +12997,7 @@ G.GufaApp = function GufaApp(props) {
     if (project === null) return
     const tab = tabsRef.current.find((item) => item !== null && item.path === path)
     if (tab === undefined) return
+    if (tab.external === true) return
     /* 缓冲里可能有比 tabs 更新的内容（按键后 300ms 内保存/自动保存） */
     const content = editorBuffersRef.current.has(path) ? editorBuffersRef.current.get(path) : tab.content
     if (content === tab.savedContent) {
@@ -13397,6 +13448,60 @@ G.GufaApp = function GufaApp(props) {
       setBanner(error.code === 'revision-conflict' ? t('editor.saveConflict') : G.errorText(error))
     }
   }, [project, tabs, patchTab, refreshGit, t])
+
+  /* TS 内置 lib 定义（parseInt/Promise 等）：以只读标签打开 */
+  const openExternalTab = useCallback(async (detail) => {
+    if (detail === null || detail === undefined || typeof detail.absolutePath !== 'string' || detail.absolutePath === '') return
+    const relative = typeof detail.path === 'string' && detail.path !== '' ? detail.path.replace(/^\/+/, '') : 'lib.d.ts'
+    const pseudoPath = `~typescript/${relative}`
+    flushBuffersRef.current?.()
+    const existing = (tabsRef.current ?? []).find((tab) => tab !== null && tab !== undefined && tab.path === pseudoPath)
+    if (existing !== undefined) {
+      setActivePath(pseudoPath)
+      window.setTimeout(() => {
+        try {
+          G.bus.emit('editor:reveal', { path: pseudoPath, line: Number(detail.line) || 1, column: Number(detail.column) || 1 })
+        } catch {
+          /* ignore */
+        }
+      }, 120)
+      return
+    }
+    const doc = await G.api('code.readTsLib', { absolutePath: detail.absolutePath })
+    const content = doc !== null && doc !== undefined && typeof doc.content === 'string' ? doc.content : ''
+    const tab = {
+      path: pseudoPath,
+      content,
+      savedContent: content,
+      revision: 'external',
+      savedRevision: 'external',
+      dirty: false,
+      size: content.length,
+      language: doc !== null && doc !== undefined && typeof doc.language === 'string' ? doc.language : 'typescript',
+      external: true,
+      absolutePath: detail.absolutePath,
+      name: doc !== null && doc !== undefined && typeof doc.name === 'string' ? doc.name : pseudoPath,
+    }
+    setTabs((current) => (current.some((item) => item !== null && item !== undefined && item.path === pseudoPath) ? current : [...current, tab]))
+    setActivePath(pseudoPath)
+    window.setTimeout(() => {
+      try {
+        G.bus.emit('editor:reveal', { path: pseudoPath, line: Number(detail.line) || 1, column: Number(detail.column) || 1 })
+      } catch {
+        /* ignore */
+      }
+    }, 120)
+  }, [])
+
+  useEffect(() => {
+    if (G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function') return undefined
+    const offExternal = G.bus.on('editor:open-external', (detail) => {
+      void openExternalTab(detail).catch((error) => setBanner(G.errorText(error)))
+    })
+    return () => {
+      offExternal?.()
+    }
+  }, [openExternalTab])
 
   /* 自动保存：dirty 后 700ms 静默保存（普通文件 / 工作树 diff / 两文件对比） */
   const saveFileRef = useRef(null)

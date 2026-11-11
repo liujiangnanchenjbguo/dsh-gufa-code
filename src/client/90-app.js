@@ -804,6 +804,7 @@ G.GufaApp = function GufaApp(props) {
     if (project === null) return
     const tab = tabsRef.current.find((item) => item !== null && item.path === path)
     if (tab === undefined) return
+    if (tab.external === true) return
     /* 缓冲里可能有比 tabs 更新的内容（按键后 300ms 内保存/自动保存） */
     const content = editorBuffersRef.current.has(path) ? editorBuffersRef.current.get(path) : tab.content
     if (content === tab.savedContent) {
@@ -1254,6 +1255,60 @@ G.GufaApp = function GufaApp(props) {
       setBanner(error.code === 'revision-conflict' ? t('editor.saveConflict') : G.errorText(error))
     }
   }, [project, tabs, patchTab, refreshGit, t])
+
+  /* TS 内置 lib 定义（parseInt/Promise 等）：以只读标签打开 */
+  const openExternalTab = useCallback(async (detail) => {
+    if (detail === null || detail === undefined || typeof detail.absolutePath !== 'string' || detail.absolutePath === '') return
+    const relative = typeof detail.path === 'string' && detail.path !== '' ? detail.path.replace(/^\/+/, '') : 'lib.d.ts'
+    const pseudoPath = `~typescript/${relative}`
+    flushBuffersRef.current?.()
+    const existing = (tabsRef.current ?? []).find((tab) => tab !== null && tab !== undefined && tab.path === pseudoPath)
+    if (existing !== undefined) {
+      setActivePath(pseudoPath)
+      window.setTimeout(() => {
+        try {
+          G.bus.emit('editor:reveal', { path: pseudoPath, line: Number(detail.line) || 1, column: Number(detail.column) || 1 })
+        } catch {
+          /* ignore */
+        }
+      }, 120)
+      return
+    }
+    const doc = await G.api('code.readTsLib', { absolutePath: detail.absolutePath })
+    const content = doc !== null && doc !== undefined && typeof doc.content === 'string' ? doc.content : ''
+    const tab = {
+      path: pseudoPath,
+      content,
+      savedContent: content,
+      revision: 'external',
+      savedRevision: 'external',
+      dirty: false,
+      size: content.length,
+      language: doc !== null && doc !== undefined && typeof doc.language === 'string' ? doc.language : 'typescript',
+      external: true,
+      absolutePath: detail.absolutePath,
+      name: doc !== null && doc !== undefined && typeof doc.name === 'string' ? doc.name : pseudoPath,
+    }
+    setTabs((current) => (current.some((item) => item !== null && item !== undefined && item.path === pseudoPath) ? current : [...current, tab]))
+    setActivePath(pseudoPath)
+    window.setTimeout(() => {
+      try {
+        G.bus.emit('editor:reveal', { path: pseudoPath, line: Number(detail.line) || 1, column: Number(detail.column) || 1 })
+      } catch {
+        /* ignore */
+      }
+    }, 120)
+  }, [])
+
+  useEffect(() => {
+    if (G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function') return undefined
+    const offExternal = G.bus.on('editor:open-external', (detail) => {
+      void openExternalTab(detail).catch((error) => setBanner(G.errorText(error)))
+    })
+    return () => {
+      offExternal?.()
+    }
+  }, [openExternalTab])
 
   /* 自动保存：dirty 后 700ms 静默保存（普通文件 / 工作树 diff / 两文件对比） */
   const saveFileRef = useRef(null)

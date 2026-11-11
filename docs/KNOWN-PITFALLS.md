@@ -107,6 +107,14 @@
   - Cmd 悬停不再跑 Host 搜索，按住 Cmd 立即给当前单词下划线/手型，真正解析只在点击时发生。
 - 注意：`gufaRegisterDefinitionInfrastructure` 全局只注册一次（`G.__gufaDefinitionInfra`），provider 内动态读 `G.projectRoot`，HMR/多窗口都复用。
 
+## 0.18 ⌘+点击内置 API 跳到 TS lib（1.3.126）
+
+- `parseInt` 这类系统 API 的定义在 `node_modules/typescript/lib/*.d.ts`，不在项目根内。旧 `code.tsDefinition` 把 root 外的定义全过滤掉，客户端拿不到结果；而旧兜底 `code.definition` 是正则项目搜索，会把 `parseInt` 当成普通单词，跳到项目里别的使用处（用户看到的“乱跳”）。
+- 现在：`tsDefinition` 允许返回 TypeScript lib 内的定义（`external: true, absolutePath`）；Cmd+点击不再经过 Monaco 原生动作/正则兜底，直接调 `code.tsDefinition`：
+  - 项目内定义 → `editor:open-at`；
+  - 系统 lib → `editor:open-external`，App 调 `code.readTsLib` 以只读标签打开（`~typescript/lib.es5.d.ts`），编辑器 `readOnly=true`，保存/自动保存跳过。
+- `code.readTsLib` 只允许读 `typescript/lib` 下的 `.d.ts/.ts/.js`，不是任意路径读取。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。
