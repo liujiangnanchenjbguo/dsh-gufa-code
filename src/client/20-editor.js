@@ -1228,6 +1228,53 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
               /* ignore */
             }
 
+            /* 外部/AI 修改磁盘后由 App 轮询发现，通过 bus 通知编辑器热替换 model 内容 */
+            try {
+              if (G.bus !== null && G.bus !== undefined && typeof G.bus.on === 'function') {
+                const offExternalReload = G.bus.on('editor:external-reload', (detail) => {
+                  if (detail === null || detail === undefined || typeof detail.path !== 'string' || typeof detail.content !== 'string') return
+                  const target = modelsRef.current.get(detail.path)
+                  if (target === null || target === undefined) return
+                  let content = ''
+                  try {
+                    content = target.getValue()
+                  } catch {
+                    return
+                  }
+                  if (content === detail.content) return
+                  const active = modelPathRef.current === detail.path
+                  let position = null
+                  let scrollTop = 0
+                  if (active) {
+                    try {
+                      position = instance.getPosition()
+                      scrollTop = instance.getScrollTop()
+                    } catch {
+                      position = null
+                    }
+                  }
+                  suppressChangeRef.current = true
+                  try {
+                    target.setValue(detail.content)
+                  } finally {
+                    suppressChangeRef.current = false
+                  }
+                  lastPropContentRef.current.set(detail.path, detail.content)
+                  if (active && position !== null && position !== undefined) {
+                    try {
+                      instance.setPosition(position)
+                      instance.setScrollTop(scrollTop)
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                })
+                if (typeof offExternalReload === 'function') subscriptions.push({ dispose: offExternalReload })
+              }
+            } catch {
+              /* ignore */
+            }
+
             G.__gufaEditorDebug = {
                 focus: () => {
                   try {

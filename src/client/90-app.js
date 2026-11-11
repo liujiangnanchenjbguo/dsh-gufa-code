@@ -255,6 +255,7 @@ G.GufaApp = function GufaApp(props) {
   /* 编辑器内容缓冲：Monaco 每次按键只写这里，300ms 停顿后才同步进 tabs（保存/自动保存直接读缓冲）。 */
   const editorBuffersRef = useRef(new Map())
   const tabsRef = useRef([])
+  const reloadTabFromDiskRef = useRef(null)
   const flushTimerRef = useRef(null)
   const selectionTimerRef = useRef(null)
   const pendingSelectionRef = useRef(null)
@@ -481,6 +482,12 @@ G.GufaApp = function GufaApp(props) {
     flushBuffersRef.current?.()
     const existing = tabs.find((tab) => tab.path === path)
     if (existing !== undefined) {
+      /* 已经打开的文件再次点击：先对齐磁盘最新版本（AI/外部修改后不用关掉重开） */
+      try {
+        await reloadTabFromDiskRef.current?.(path)
+      } catch {
+        /* ignore */
+      }
       setActivePath(path)
       return
     }
@@ -566,6 +573,84 @@ G.GufaApp = function GufaApp(props) {
       return next
     })
   }, [])
+
+  /* 把某个已打开标签重新对齐磁盘内容（AI/外部修改检测、点击文件树时使用）。
+     有未保存修改（dirty）时绝不覆盖用户内容。 */
+  const reloadTabFromDisk = useCallback(async (path) => {
+    if (project === null) return false
+    const tab = (tabsRef.current ?? []).find((item) => item !== null && item !== undefined && item.path === path)
+    if (tab === undefined || tab.kind === 'diff' || tab.kind === 'graph') return false
+    try {
+      const doc = await G.api('fs.read', { root: project.root, path })
+      const latest = (tabsRef.current ?? []).find((item) => item !== null && item !== undefined && item.path === path)
+      if (latest === undefined || latest.dirty === true) return false
+      if (latest.revision === doc.revision && latest.content === doc.content) return false
+      editorBuffersRef.current.delete(path)
+      patchTab(path, {
+        content: doc.content,
+        revision: doc.revision,
+        savedRevision: doc.revision,
+        savedContent: doc.content,
+        dirty: false,
+        size: doc.size,
+        mtimeMs: doc.mtimeMs,
+      })
+      try {
+        G.bus.emit('editor:external-reload', { path, content: doc.content })
+      } catch {
+        /* ignore */
+      }
+      return true
+    } catch {
+      return false
+    }
+  }, [project, patchTab])
+  reloadTabFromDiskRef.current = reloadTabFromDisk
+
+  /* AI/外部进程修改磁盘文件：轮询已打开且未修改的标签，自动同步编辑器和标签内容。
+     1.6s 一次 fs.mtimes（只 stat），发现 mtime/size 变化才 fs.read 全文。 */
+  useEffect(() => {
+    if (project === null) return undefined
+    let cancelled = false
+    let busy = false
+    const sync = async () => {
+      if (busy || cancelled || document.visibilityState !== 'visible') return
+      busy = true
+      try {
+        const open = (tabsRef.current ?? []).filter((tab) => tab !== null && tab !== undefined
+          && typeof tab.path === 'string' && tab.kind !== 'diff' && tab.kind !== 'graph')
+        const clean = open.filter((tab) => tab.dirty !== true).slice(0, 24)
+        if (clean.length === 0) return
+        let result = null
+        try {
+          result = await G.api('fs.mtimes', { root: project.root, paths: clean.map((tab) => tab.path) })
+        } catch {
+          return
+        }
+        const files = result !== null && result !== undefined && result.files !== null && result.files !== undefined ? result.files : {}
+        for (const tab of clean) {
+          if (cancelled) break
+          const info = files[tab.path]
+          if (info === null || info === undefined || info.missing === true) continue
+          if (Number(info.mtimeMs) === Number(tab.mtimeMs) && Number(info.size) === Number(tab.size)) continue
+          await reloadTabFromDisk(tab.path)
+        }
+      } finally {
+        busy = false
+      }
+    }
+    const timer = window.setInterval(() => { void sync() }, 1600)
+    const onVisible = () => { if (document.visibilityState === 'visible') void sync() }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    void sync()
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [project, reloadTabFromDisk])
 
   /* 把缓冲内容写回 tabs（停顿 / 保存 / 切换标签时调用），不会在每次按键触发渲染。 */
   const flushEditorBuffers = useCallback(() => {

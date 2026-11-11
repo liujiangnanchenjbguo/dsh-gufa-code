@@ -126,6 +126,13 @@ try {
     ['.babelrc', 'json'], ['.gitconfig', 'ini'],
   ]
   for (const [file, expected] of languageCases) check(`languageOf ${file} -> ${expected}`, fs.languageOf(file) === expected, fs.languageOf(file))
+  console.log('fs.mtimes')
+  const mtimes = await call(router, 'fs.mtimes', { root, paths: ['src/main.ts', 'missing-file.txt'] })
+  check('fs.mtimes returns mtime/size', typeof mtimes.files['src/main.ts']?.mtimeMs === 'number' && mtimes.files['src/main.ts']?.size > 0)
+  check('fs.mtimes marks missing file', mtimes.files['missing-file.txt']?.missing === true)
+  const missingMtimes = await call(router, 'fs.mtimes', { root, paths: [] })
+  check('fs.mtimes handles empty list', missingMtimes.files !== null && typeof missingMtimes.files === 'object' && Object.keys(missingMtimes.files).length === 0)
+
   console.log('fs.search')
   await call(router, 'fs.create', { root, path: 'search.txt', kind: 'file' })
   await call(router, 'fs.write', { root, path: 'search.txt', content: 'Alpha beta\nBETA gamma\nbeta BETA\n' })

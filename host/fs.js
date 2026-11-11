@@ -346,6 +346,23 @@ export function register(router, env) {
     return { path: relativePath(root, absolute), entries: rows }
   })
 
+  /* 批量取 mtime/size：客户端轮询已打开文件是否被 AI/外部修改，避免每个文件都 fs.read 全文 */
+  router.method('fs.mtimes', async (body) => {
+    const root = await projectOf(env, body)
+    const paths = Array.isArray(body.paths) ? body.paths.filter((value) => typeof value === 'string' && value !== '').slice(0, 100) : []
+    const files = {}
+    for (const path of paths) {
+      try {
+        const absolute = await resolveProjectPath(root, path)
+        const info = await stat(absolute)
+        files[path] = { mtimeMs: info.mtimeMs, size: info.size, missing: false }
+      } catch {
+        files[path] = { missing: true }
+      }
+    }
+    return { files }
+  })
+
   router.method('fs.read', async (body) => {
     const root = await projectOf(env, body)
     const absolute = await resolveProjectPath(root, body.path)

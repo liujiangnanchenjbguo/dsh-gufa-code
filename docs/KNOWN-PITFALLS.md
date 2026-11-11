@@ -63,6 +63,13 @@
 - helper 的 WKWebView data store 与摸鱼悬浮层共享；full 模式必须清残留标记，否则新窗口会误进摸鱼 UI 或恢复上次项目。
 - **全屏继承**：客户端用 `innerWidth/innerHeight` 对比 `screen.width/height` 和 `screen.availWidth/availHeight` 判断当前是否全屏，payload 传 `fullscreen:true`，helper 在窗口显示后 `toggleFullScreen`；不要依赖 Electron preload 或 AX 查询（Host 在 Node 模式进程里拿不到 Electron）。
 
+## 0.12 AI/外部修改后编辑器自动刷新（1.3.112）
+
+- 不能只在 Git 签名变化时刷新资源管理器：已打开标签的**内容**不会自己变，用户必须关掉重开；点击文件树时 `openFile` 对已存在标签只 `setActivePath`，也不会重新读盘。
+- 方案：Host 新增 `fs.mtimes`（批量 stat，只返回 mtimeMs/size，不读全文）；客户端每 1.6s 对可见窗口里的已打开干净标签轮询，mtime/size 变了才 `fs.read` 并更新 tab；`dirty` 标签绝不覆盖。
+- 更新 Monaco model 不能只靠 App 的 props 同步：编辑器聚焦时同步 effect 会故意跳过外部内容以避免覆盖输入。App 通过 `G.bus.emit('editor:external-reload', {path, content})` 通知 EditorPane 直接 `model.setValue`，用 `suppressChangeRef` 防止把这次更新当用户输入回传，并恢复光标/滚动；同时写 `lastPropContentRef` 避免后续 props 同步再灌一次。
+- 点击已打开文件（文件树/搜索）时也要先 `reloadTabFromDisk`，否则用户点文件列表看不到 AI 改动。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

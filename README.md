@@ -41,6 +41,7 @@ dsh plugin add dsh-gufa-code
 - Monaco 编辑器（离线随包分发，无需联网下载）；Monaco 自带 81 种语言全部映射（ABAP、Apex、Clojure、Elixir、F#、GraphQL、HCL/Terraform、Julia、Objective-C、Pascal、Perl、Protobuf、R、RST、Scheme、Solidity、SystemVerilog/Verilog、Tcl、TypeSpec、VB、WGSL、Bicep、Batch、CoffeeScript、Cypher、DAX、Logstash/ECL、MIPS、Power Query、Q#、Redis、SPARQL、Structured Text、Modula-3、ATS、Pony 系列等）；
 - **HTML 模板语法高亮**：EJS / Eta、ERB、Nunjucks / Jinja2（`.njk/.nunjucks/.jinja/.jinja2/.j2`）、Blade（`.blade.php`）、Haml、Slim，以及 Monaco 内置的 Handlebars / Mustache / Pug / Twig / Liquid / Razor / FreeMarker；扩展名自动识别；
 - 多标签、按扩展名语法高亮、面包屑、状态栏（分支 / 行列 / 保存状态）；
+- **AI/外部修改自动刷新**：已打开的标签每 1.6s 检查一次磁盘 mtime/size，AI 在会话里改完代码后编辑器自动换成新内容（保留光标位置），不需要关闭重开；点击文件树里的已打开文件也会重新对齐磁盘；有未保存修改时不会覆盖用户内容；
 - **Copilot 风格 Tab 行内补全**：光标停/打字后，基于 Harness 自己的 DeepSeek 模型（默认 `deepseek-flash`，不需要额外 Copilot 订阅）流式生成灰色 ghost text，Tab 接受、Esc 忽略；支持 JS/TS/Python/Java/Go/Rust/C++/C#/JSON/YAML/Shell 等常见语言；
 - 保存走磁盘版本冲突检测 + 原子写；未保存标记；
 - **⌘/Ctrl + 点击跳转定义 / 方法实现**：Python 走 **Pyright 语言服务（LSP）**，JS/TS 走 Monaco 内置 TypeScript 语言服务（点击前会按需把当前文件的 import 依赖加载进 Monaco，跨文件变量/函数由 TS 语言服务解析）；其他语言暂用项目级定义搜索兜底；优先走 Monaco 语言服务；目标文件没在 Monaco 里打开、或语言没有内置语言服务时，自动用项目级定义搜索兜底（函数 / 类 / 方法 / const / type 等声明）。兜底会解析 import/require 直接定位来源文件，并跳过压缩产物/大文件；同一个文件里的声明、import 命中的定义、目录距离近的定义直接跳，只有多个真正同名的声明才弹「跳转到定义」列表，点同名属性/变量时不会拿远端无关的 const 来凑数；按住 ⌘/Ctrl 悬停时，可跳转的符号会显示下划线 + 手型光标；
