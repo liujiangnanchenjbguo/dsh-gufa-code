@@ -1221,6 +1221,115 @@ const GUFA_LINT_ENABLED = false
                     await new Promise((resolve) => { window.setTimeout(resolve, 200) })
                     clearHoverDecoration()
                   }
+                  /* ── Monaco 原生 LinkProvider：按住 Cmd 悬停时由 LinkDetector 给链接变色，
+                     不做下划线；点击仍由上面的 mousedown 手势处理（native link 的 no-op
+                     命令会被手势 stopPropagation 拦掉，不会双重跳转）。 */
+                  try {
+                    const linkLanguages = ['javascript', 'typescript', 'python']
+                    const linkRegistrations = []
+                    let linkRefreshTimer = 0
+                    const noopCommand = 'gufa.codeDefinitionLinkNoop'
+                    if (G.__gufaLinkNoopRegistered !== true && typeof monaco.editor.registerCommand === 'function') {
+                      G.__gufaLinkNoopRegistered = true
+                      try {
+                        monaco.editor.registerCommand(noopCommand, () => {})
+                      } catch {
+                        /* ignore */
+                      }
+                    }
+                    const provider = {
+                      provideLinks(model, token) {
+                        if (token !== null && token !== undefined && token.isCancellationRequested === true) return { links: [] }
+                        const editor = instance
+                        if (editor === null || editor === undefined || editor.hasModel() !== true || editor.getModel() !== model) return { links: [] }
+                        let root = ''
+                        let path = ''
+                        try {
+                          root = typeof G.projectRoot === 'string' ? G.projectRoot.replace(/\\/g, '/').replace(/\/+$/, '') : ''
+                          const uri = model.uri
+                          const absolute = String(uri?.fsPath ?? '').replace(/\\/g, '/')
+                          if (root !== '' && absolute.startsWith(`${root}/`)) path = absolute.slice(root.length + 1)
+                        } catch {
+                          return { links: [] }
+                        }
+                        if (root === '' || path === '' || path.startsWith('~typescript/')) return { links: [] }
+                        const language = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
+                        if (language !== 'javascript' && language !== 'typescript' && language !== 'python') return { links: [] }
+                        let visible = []
+                        try {
+                          visible = typeof editor.getVisibleRanges === 'function' ? editor.getVisibleRanges() : []
+                        } catch {
+                          visible = []
+                        }
+                        const links = []
+                        const seen = new Set()
+                        const wordPattern = /[$A-Za-z_][$A-Za-z0-9_]*/g
+                        for (const range of Array.isArray(visible) ? visible : []) {
+                          const startLine = Math.max(1, Number(range.startLineNumber) - 2)
+                          const endLine = Math.min(model.getLineCount(), Number(range.endLineNumber) + 2)
+                          for (let line = startLine; line <= endLine; line += 1) {
+                            const text = model.getLineContent(line)
+                            wordPattern.lastIndex = 0
+                            let match = null
+                            while ((match = wordPattern.exec(text)) !== null) {
+                              const word = match[0]
+                              if (word.length < 2) continue
+                              const column = match.index + 1
+                              const key = `${line}:${column}`
+                              if (seen.has(key)) continue
+                              seen.add(key)
+                              links.push({
+                                range: new monaco.Range(line, column, line, column + word.length),
+                                url: `command:${noopCommand}`,
+                                tooltip: '跳转到定义',
+                              })
+                              if (links.length >= 400) break
+                            }
+                            if (links.length >= 400) break
+                          }
+                          if (links.length >= 400) break
+                        }
+                        return { links }
+                      },
+                    }
+                    const refreshLinks = () => {
+                      for (const registration of linkRegistrations.splice(0)) {
+                        try { registration?.dispose?.() } catch { /* ignore */ }
+                      }
+                      for (const languageId of linkLanguages) {
+                        try {
+                          const registration = monaco.languages.registerLinkProvider(languageId, provider)
+                          if (registration !== null && registration !== undefined) linkRegistrations.push(registration)
+                        } catch {
+                          /* ignore */
+                        }
+                      }
+                    }
+                    refreshLinks()
+                    const onLinkScroll = () => {
+                      if (linkRefreshTimer !== 0) return
+                      linkRefreshTimer = window.setTimeout(() => {
+                        linkRefreshTimer = 0
+                        refreshLinks()
+                      }, 220)
+                    }
+                    try {
+                      subscriptions.push(instance.onDidScrollChange(onLinkScroll))
+                    } catch {
+                      /* ignore */
+                    }
+                    subscriptions.push({
+                      dispose: () => {
+                        if (linkRefreshTimer !== 0) window.clearTimeout(linkRefreshTimer)
+                        for (const registration of linkRegistrations.splice(0)) {
+                          try { registration?.dispose?.() } catch { /* ignore */ }
+                        }
+                      },
+                    })
+                  } catch {
+                    /* ignore */
+                  }
+
                   document.addEventListener('mousedown', onDefinitionClick, true)
                   document.addEventListener('keydown', onMetaDown, true)
                   document.addEventListener('keyup', onMetaUp, true)
