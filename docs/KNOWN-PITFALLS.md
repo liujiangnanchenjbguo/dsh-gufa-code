@@ -96,6 +96,16 @@
 - 方案：拖拽中只写根节点 CSS 变量（`--gufa-w-explorer / --gufa-w-chat / --gufa-h-terminal`），用 rAF 合帧、不触发 React；松手时才 `setSize` 一次并写 localStorage。终端/Monaco 靠自己的 ResizeObserver 自适应；ChatDock 监听 `layout:resize` 事件逐帧重定位原生浮层。
 - 组件尺寸统一走 `var(--gufa-*, 数值px)`，`useLayoutEffect` 在首帧前同步变量，避免恢复持久化宽度时闪一下。
 
+## 0.17 Cmd+点击跳转定义改回 Monaco 原生链路（1.3.120）
+
+- 旧实现：自定义 DOM mousedown → 先 setPosition 再 `instance.getAction('editor.action.revealDefinition').run()`，但**没有先把光标移到点击位置**，native action 在旧光标处解析；失败后再走 Host 搜索兜底，导致“有时跳错、有时没反应、hover 还要等项目级搜索”。
+- 新实现：
+  - 用 `monaco.languages.registerDefinitionProvider` 给 JS/TS/Python 注册 provider，后端分别调 `code.definition` / pyright `lsp.definition`；
+  - 用 `monaco.editor.registerEditorOpener` 把 Monaco 打开的 `file://` 位置转成 App 的 `editor:open-at`；
+  - Cmd+点击只做「focus + setPosition(点击位置) + 触发原生 revealDefinition」，F12 同样走原生；多结果由 Monaco 原生 peek 处理；
+  - Cmd 悬停不再跑 Host 搜索，按住 Cmd 立即给当前单词下划线/手型，真正解析只在点击时发生。
+- 注意：`gufaRegisterDefinitionInfrastructure` 全局只注册一次（`G.__gufaDefinitionInfra`），provider 内动态读 `G.projectRoot`，HMR/多窗口都复用。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

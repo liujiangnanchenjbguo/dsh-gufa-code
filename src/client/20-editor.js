@@ -403,6 +403,126 @@
 const GUFA_LSP_WARMED = new Set()
 const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'def', 'func', 'fn', 'type', 'export', 'lsp'])
 
+/* ── 原生 DefinitionProvider + editor opener ─────────────────────────
+ *  Cmd+点击 / F12 都交给 Monaco 自己的 `editor.action.revealDefinition`；
+ *  定义解析走 Host API（JS/TS 用 code.definition，Python 用 pyright 的 lsp.definition），
+ *  打开文件由 registerEditorOpener 转成 App 的 editor:open-at，多个结果交给 Monaco 原生 peek。
+ */
+const GUFA_DEFINITION_LANGUAGES = ['javascript', 'typescript', 'javascriptreact', 'typescriptreact', 'python']
+function gufaRegisterDefinitionInfrastructure(monaco) {
+  try {
+    if (monaco === null || monaco === undefined) return
+    if (G.__gufaDefinitionInfra === true) return
+    if (monaco.languages === null || monaco.languages === undefined || typeof monaco.languages.registerDefinitionProvider !== 'function') return
+    G.__gufaDefinitionInfra = true
+    const rootAt = () => (typeof G.projectRoot === 'string' ? G.projectRoot.replace(/\\/g, '/').replace(/\/+$/, '') : '')
+    const pathOfModel = (model) => {
+      const root = rootAt()
+      if (root === '' || model === null || model === undefined) return null
+      let absolute = ''
+      try {
+        absolute = model.uri?.fsPath ?? (typeof model.uri?.path === 'string' ? decodeURIComponent(model.uri.path) : '')
+      } catch {
+        return null
+      }
+      absolute = String(absolute).replace(/\\/g, '/')
+      if (!absolute.startsWith(`${root}/`)) return null
+      return { root, path: absolute.slice(root.length + 1) }
+    }
+    const locationsOf = (root, matches, word, monacoNs) => {
+      const list = Array.isArray(matches) ? matches : []
+      const result = []
+      const seen = new Set()
+      for (const match of list.slice(0, 10)) {
+        if (match === null || typeof match !== 'object' || typeof match.path !== 'string') continue
+        const line = Math.max(1, Math.trunc(Number(match.line) || 1))
+        const column = Math.max(1, Math.trunc(Number(match.column) || 1))
+        const key = `${match.path}:${line}:${column}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const uri = gufaModelUri(monacoNs, root, match.path)
+        const range = new monacoNs.Range(line, column, line, column + Math.max(1, word.length))
+        result.push({ uri, range })
+      }
+      return result
+    }
+    for (const language of GUFA_DEFINITION_LANGUAGES) {
+      try {
+        monaco.languages.registerDefinitionProvider(language, {
+          async provideDefinition(model, position, token) {
+            if (token !== null && token !== undefined && token.isCancellationRequested === true) return []
+            const info = pathOfModel(model)
+            if (info === null) return []
+            const wordInfo = typeof model.getWordAtPosition === 'function' ? model.getWordAtPosition(position) : null
+            const word = wordInfo !== null && wordInfo !== undefined && typeof wordInfo.word === 'string' ? wordInfo.word : ''
+            try {
+              let result = null
+              if (language === 'python') {
+                result = await G.api('lsp.definition', {
+                  root: info.root,
+                  path: info.path,
+                  line: position.lineNumber,
+                  column: position.column,
+                  language: 'python',
+                  content: model.getValue(),
+                })
+              } else {
+                result = await G.api('code.definition', {
+                  root: info.root,
+                  path: info.path,
+                  line: position.lineNumber,
+                  column: position.column,
+                  word,
+                  content: model.getValue(),
+                })
+              }
+              if (token !== null && token !== undefined && token.isCancellationRequested === true) return []
+              return locationsOf(info.root, result !== null && result !== undefined ? result.matches : null, word, monaco)
+            } catch {
+              return []
+            }
+          },
+        })
+      } catch {
+        /* 单个语言注册失败不影响其它语言 */
+      }
+    }
+    try {
+      if (typeof monaco.editor.registerEditorOpener === 'function') {
+        monaco.editor.registerEditorOpener({
+          openCodeEditor(source, resource, selectionOrPosition) {
+            const root = rootAt()
+            if (root === '') return false
+            let absolute = ''
+            try {
+              absolute = resource?.fsPath ?? (typeof resource?.path === 'string' ? decodeURIComponent(resource.path) : '')
+            } catch {
+              return false
+            }
+            absolute = String(absolute).replace(/\\/g, '/')
+            if (!absolute.startsWith(`${root}/`)) return false
+            const selection = selectionOrPosition !== null && selectionOrPosition !== undefined && selectionOrPosition.selection !== undefined
+              ? selectionOrPosition.selection
+              : selectionOrPosition
+            const line = Math.max(1, Math.trunc(Number(selection?.startLineNumber ?? selection?.lineNumber ?? 1) || 1))
+            const column = Math.max(1, Math.trunc(Number(selection?.startColumn ?? selection?.column ?? 1) || 1))
+            try {
+              G.bus.emit('editor:open-at', { path: absolute.slice(root.length + 1), line, column })
+            } catch {
+              return false
+            }
+            return true
+          },
+        })
+      }
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 /* ── model / URI ────────────────────────────────────────────────────── */
 
   /**
@@ -737,6 +857,11 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
           } catch (error) {
             /* 模板语言注册失败不影响编辑器 */
           }
+          try {
+            gufaRegisterDefinitionInfrastructure(monaco)
+          } catch {
+            /* ignore */
+          }
           /* 诊断改由 Host 的 TypeScript 编译器提供（dsh-app worker 不可靠），
              关闭 Monaco worker 诊断避免重复/后台报错；补全建议仍由 worker 提供。 */
           try {
@@ -935,52 +1060,17 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                       clearHoverDecoration()
                       return
                     }
-                    const model = instance.getModel()
                     const word = wordInfo !== null && wordInfo !== undefined && typeof wordInfo.word === 'string' ? wordInfo.word : ''
-                    const path = modelPathRef.current
-                    const root = modelsRootRef.current
-                    if (position === null || position === undefined || model === null || model === undefined
-                      || word.length < 2 || path === null || path === undefined || root === null || root === undefined || root === '') {
+                    if (position === null || position === undefined || word.length < 2) {
                       clearHoverDecoration()
                       return
                     }
-                    hover.lastPosition = position
-                    hover.lastWordInfo = wordInfo
-                    const key = `${path}|${word}`
+                    /* 不再为了下划线去跑项目级定义搜索：按住 Cmd 立刻标出当前单词，
+                       真正解析只发生在点击时。之前 hover 的 host 扫描是「难用/卡」的主要来源。 */
+                    const key = `${position.lineNumber}:${wordInfo.startColumn}:${wordInfo.endColumn}`
+                    if (hover.lastKey === key && hover.decorationIds.length > 0) return
                     hover.lastKey = key
-                    const cached = hover.cache.get(key)
-                    if (cached === 'none') {
-                      clearHoverDecoration()
-                      return
-                    }
-                    if (cached === 'yes') {
-                      showHoverDecoration(position, wordInfo)
-                      return
-                    }
-                    if (hover.timer !== 0) {
-                      window.clearTimeout(hover.timer)
-                      hover.timer = 0
-                    }
-                    const seq = ++hover.seq
-                    hover.timer = window.setTimeout(() => {
-                      hover.timer = 0
-                      if (!hover.meta || seq !== hover.seq) return
-                      void queryDefinitions(position, word, model, path, root).then((result) => {
-                        if (!hover.meta || seq !== hover.seq || hover.lastKey !== key) return
-                        const decision = decideDefinition(result)
-                        if (decision.kind === 'none') {
-                          if (hover.cache.size > 100) hover.cache.clear()
-                          hover.cache.set(key, 'none')
-                          clearHoverDecoration()
-                          return
-                        }
-                        if (hover.cache.size > 100) hover.cache.clear()
-                        hover.cache.set(key, 'yes')
-                        showHoverDecoration(position, wordInfo)
-                      }).catch(() => {
-                        /* ignore */
-                      })
-                    }, 130)
+                    showHoverDecoration(position, wordInfo)
                   }
                   /* 用 Monaco 自己的 onMouseMove（带修饰键状态 + 精确 position），
                      不依赖 DOM mousedown/getTargetAtClientPoint 的坐标系与包含关系。 */
@@ -1091,35 +1181,31 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
                     } catch {
                       /* ignore */
                     }
+                    /* 关键：把光标放到点击位置，否则 Monaco 原生 revealDefinition 会在旧光标处解析 */
                     try {
-                      await preloadTsDependencies(model, path, root)
+                      instance.focus()
+                      instance.setPosition(position)
                     } catch {
                       /* ignore */
                     }
-                    const beforePath = modelPathRef.current
-                    const beforePosition = instance.getPosition()
+                    /* 原生链路：Monaco revealDefinition → 我们注册的 DefinitionProvider（Host）→
+                       registerEditorOpener 转成 App 的 editor:open-at；多结果时 Monaco 自己弹 peek。 */
+                    let nativeActionSupported = false
                     try {
                       const action = typeof instance.getAction === 'function' ? instance.getAction('editor.action.revealDefinition') : null
                       if (action !== null && action !== undefined) {
                         const supported = typeof action.isSupported === 'function' ? action.isSupported() : true
-                        if (supported !== false) await action.run()
+                        if (supported !== false) {
+                          nativeActionSupported = true
+                          await action.run()
+                        }
                       }
                     } catch {
                       /* ignore */
                     }
-                    await new Promise((resolve) => { window.setTimeout(resolve, 160) })
-                    let monacoHandled = false
-                    try {
-                      const afterPosition = instance.getPosition()
-                      monacoHandled = modelPathRef.current !== beforePath
-                        || (beforePosition !== null && beforePosition !== undefined && afterPosition !== null && afterPosition !== undefined
-                          && (afterPosition.lineNumber !== beforePosition.lineNumber || afterPosition.column !== beforePosition.column))
-                        || document.querySelector('.monaco-editor .peekview-widget, .monaco-editor .reference-zone-widget') !== null
-                    } catch {
-                      monacoHandled = false
-                    }
+                    await new Promise((resolve) => { window.setTimeout(resolve, 200) })
                     clearHoverDecoration()
-                    if (monacoHandled) return
+                    if (nativeActionSupported) return
                     try {
                       const result = await queryDefinitions(position, word, model, path, root)
                       const decision = decideDefinition(result)
