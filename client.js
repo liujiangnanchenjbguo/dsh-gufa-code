@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.124'
+G.BUILD = '1.3.125'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3908,6 +3908,88 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
             } catch {
               /* ignore */
             }
+            /* 外部/AI 修改磁盘后由 App 轮询发现，通过 bus 通知编辑器热替换 model 内容。
+               （1.3.117 删 AI Tab 时误删过这一段，1.3.125 恢复） */
+            try {
+              if (G.bus !== null && G.bus !== undefined && typeof G.bus.on === 'function') {
+                const offExternalReload = G.bus.on('editor:external-reload', (detail) => {
+                  if (detail === null || detail === undefined || typeof detail.path !== 'string' || typeof detail.content !== 'string') return
+                  const target = modelsRef.current.get(detail.path)
+                  if (target === null || target === undefined) return
+                  let content = ''
+                  try {
+                    content = target.getValue()
+                  } catch {
+                    return
+                  }
+                  if (content === detail.content) return
+                  const active = modelPathRef.current === detail.path
+                  let position = null
+                  let scrollTop = 0
+                  if (active) {
+                    try {
+                      position = instance.getPosition()
+                      scrollTop = instance.getScrollTop()
+                    } catch {
+                      position = null
+                    }
+                  }
+                  suppressChangeRef.current = true
+                  try {
+                    target.setValue(detail.content)
+                  } finally {
+                    suppressChangeRef.current = false
+                  }
+                  lastPropContentRef.current.set(detail.path, detail.content)
+                  if (active && position !== null && position !== undefined) {
+                    try {
+                      instance.setPosition(position)
+                      instance.setScrollTop(scrollTop)
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                })
+                if (typeof offExternalReload === 'function') subscriptions.push({ dispose: offExternalReload })
+              }
+            } catch {
+              /* ignore */
+            }
+
+            /* 拖拽分割条期间暂停 Monaco automaticLayout：
+               宽度每帧变化时 Monaco layout() 会跟着重排整块编辑器，是「不跟手」的大头；
+               拖拽先只动容器/别的面板，松手后再 layout 一次。 */
+            try {
+              if (G.bus !== null && G.bus !== undefined && typeof G.bus.on === 'function') {
+                const offResizeStart = G.bus.on('layout:resize-start', () => {
+                  try {
+                    instance.updateOptions({ automaticLayout: false })
+                  } catch {
+                    /* ignore */
+                  }
+                })
+                const offResizeEnd = G.bus.on('layout:resize-end', () => {
+                  const relayout = () => {
+                    try {
+                      instance.updateOptions({ automaticLayout: true })
+                      instance.layout()
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                  if (typeof requestAnimationFrame === 'function') {
+                    requestAnimationFrame(() => requestAnimationFrame(relayout))
+                  } else {
+                    window.setTimeout(relayout, 32)
+                  }
+                })
+                if (typeof offResizeStart === 'function') subscriptions.push({ dispose: offResizeStart })
+                if (typeof offResizeEnd === 'function') subscriptions.push({ dispose: offResizeEnd })
+              }
+            } catch {
+              /* ignore */
+            }
+
             G.__gufaEditorDebug = {
                 focus: () => {
                   try {
