@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.127'
+G.BUILD = '1.3.128'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3824,83 +3824,27 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
                     } catch {
                       /* ignore */
                     }
-                    /* Cmd+点击：JS/TS 直接用 Host TypeScript LanguageService 的结果打开，
-                       不再经过 Monaco 原生动作/旧正则兜底（避免跳到同名使用处）；
-                       系统内置 API（parseInt 等）打开 TypeScript lib 的只读标签。 */
-                    const clickLanguage = typeof model.getLanguageId === 'function' ? model.getLanguageId() : ''
-                    if (clickLanguage === 'javascript' || clickLanguage === 'typescript') {
-                      try {
-                        const resolved = await G.api('code.tsDefinition', {
-                          root,
-                          path,
-                          line: position.lineNumber,
-                          column: position.column,
-                          content: model.getValue(),
-                        })
-                        const matches = resolved !== null && resolved !== undefined && Array.isArray(resolved.matches) ? resolved.matches : []
-                        const internal = matches.find((item) => item !== null && item !== undefined && item.external !== true && typeof item.path === 'string' && item.path !== '')
-                        if (internal !== undefined) {
-                          G.bus.emit('editor:open-at', { path: internal.path, line: internal.line, column: internal.column })
-                        } else {
-                          const external = matches.find((item) => item !== null && item !== undefined && item.external === true && typeof item.absolutePath === 'string')
-                          if (external !== undefined) {
-                            G.bus.emit('editor:open-external', {
-                              absolutePath: external.absolutePath,
-                              path: typeof external.path === 'string' ? external.path : '',
-                              line: external.line,
-                              column: external.column,
-                            })
-                          }
-                        }
-                      } catch {
-                        /* 解析失败就停在原地，不跳错 */
-                      }
-                      clearHoverDecoration()
-                      return
-                    }
-                    /* 关键：把光标放到点击位置，否则 Monaco 原生 revealDefinition 会在旧光标处解析 */
+                    /* 与 F12 完全同一条逻辑：把光标移到点击位置，然后触发 Monaco 原生
+                       `editor.action.revealDefinition`。它会查询已注册的 DefinitionProvider
+                       （JS/TS 是 Monaco 自带 TS worker；Python 是我们注册的 pyright provider），
+                       再通过 registerEditorOpener 打开文件/只读 lib。Cmd+点击不再是另一套解析。 */
                     try {
                       instance.focus()
                       instance.setPosition(position)
                     } catch {
                       /* ignore */
                     }
-                    /* 原生链路：Monaco revealDefinition → 我们注册的 DefinitionProvider（Host）→
-                       registerEditorOpener 转成 App 的 editor:open-at；多结果时 Monaco 自己弹 peek。 */
-                    let nativeActionSupported = false
                     try {
                       const action = typeof instance.getAction === 'function' ? instance.getAction('editor.action.revealDefinition') : null
                       if (action !== null && action !== undefined) {
                         const supported = typeof action.isSupported === 'function' ? action.isSupported() : true
-                        if (supported !== false) {
-                          nativeActionSupported = true
-                          await action.run()
-                        }
+                        if (supported !== false) await action.run()
                       }
                     } catch {
                       /* ignore */
                     }
                     await new Promise((resolve) => { window.setTimeout(resolve, 200) })
                     clearHoverDecoration()
-                    if (nativeActionSupported) return
-                    try {
-                      const result = await queryDefinitions(position, word, model, path, root)
-                      const decision = decideDefinition(result)
-                      if (decision.kind === 'open') {
-                        G.bus.emit('editor:open-at', { path: decision.match.path, line: decision.match.line, column: decision.match.column })
-                        return
-                      }
-                      if (decision.kind === 'pick') {
-                        G.bus.emit('definition:pick', {
-                          word: result !== null && result !== undefined && typeof result.word === 'string' ? result.word : word,
-                          matches: decision.matches,
-                          x: event.clientX,
-                          y: event.clientY,
-                        })
-                      }
-                    } catch {
-                      /* ignore */
-                    }
                   }
                   document.addEventListener('mousedown', onDefinitionClick, true)
                   document.addEventListener('keydown', onMetaDown, true)

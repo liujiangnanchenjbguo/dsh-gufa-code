@@ -131,6 +131,15 @@
 
 结论：真正误伤原生功能的是「TS DefinitionProvider 被禁用」和「项目外定义被过滤」，1.3.126/1.3.127 已修正；diagnostics 是有意替换，若要原生诊断需要接受误报或用更细的过滤。
 
+## 0.20 Cmd+点击与 F12 统一（1.3.128）
+
+- Monaco 的 F12 是内置 action：`editor.action.revealDefinition` → 查询所有 `registerDefinitionProvider` → 通过 `ICodeEditorService` + `registerEditorOpener` 打开。Cmd+点击不是 action，Monaco standalone 没有鼠标手势；`tsMode.js` 只注册 DefinitionProvider/Hover，不注册 LinkProvider（VS Code 的 Cmd+点击是 workbench 层另做的），所以鼠标事件必须自定义。
+- 之前为了绕开不稳定的 TS worker，Cmd+点击走了 Host LanguageService 另一套解析，导致 F12 和 Cmd+点击行为不一致；1.3.123 恢复原生 TS DefinitionProvider 后，1.3.128 把 Cmd+点击改成：
+  1. `focus()` + `setPosition(点击位置)`；
+  2. 直接 `instance.getAction('editor.action.revealDefinition').run()`；
+  3. 同一个 `registerEditorOpener` 打开项目文件或只读 `~typescript/lib*.d.ts`。
+- 也就是说 Cmd+点击现在和 F12 **完全同一条代码路径**，不再有自己的解析/兜底。唯一的自定义只是「把鼠标事件翻译成这个 action」这一层。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。
