@@ -22,6 +22,10 @@ const IGNORED_CODES = new Set([
   2580, // Cannot find name 'require' 等（由 globals shim 兜底，仍兜不住时静默）
 ])
 
+/** 只保留用户真正需要的语义诊断：未定义变量（2304/2552）等；
+ *  属性类型不匹配（2339 等）在动态 JS/JSON 配置项目里误报太多，直接不展示。 */
+const SEMANTIC_CODES = new Set([2304, 2552, 2448, 2454])
+
 const GLOBALS_FILE = '/__gufa_code_globals__.d.ts'
 const GLOBALS_TEXT = [
   'declare var process: any;',
@@ -161,7 +165,10 @@ export async function diagnose(body, env) {
   const program = ts.createProgram(rootNames, options, host)
   const sourceFile = program.getSourceFile(canonical(absolute))
   if (sourceFile === undefined || sourceFile === null) return { diagnostics: [] }
-  const collected = [...program.getSyntacticDiagnostics(sourceFile), ...program.getSemanticDiagnostics(sourceFile)]
+  /* 语法错误全保留；语义只保留「未定义变量」这类，避免动态 JS 项目的类型误报 */
+  const syntactic = program.getSyntacticDiagnostics(sourceFile)
+  const semantic = program.getSemanticDiagnostics(sourceFile).filter((diagnostic) => SEMANTIC_CODES.has(Number(diagnostic.code)))
+  const collected = [...syntactic, ...semantic]
   const diagnostics = []
   const seenDiagnostics = new Set()
   for (const diagnostic of collected) {

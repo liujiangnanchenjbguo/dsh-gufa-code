@@ -41,7 +41,7 @@ dsh plugin add dsh-gufa-code
 - Monaco 编辑器（离线随包分发，无需联网下载）；Monaco 自带 81 种语言全部映射（ABAP、Apex、Clojure、Elixir、F#、GraphQL、HCL/Terraform、Julia、Objective-C、Pascal、Perl、Protobuf、R、RST、Scheme、Solidity、SystemVerilog/Verilog、Tcl、TypeSpec、VB、WGSL、Bicep、Batch、CoffeeScript、Cypher、DAX、Logstash/ECL、MIPS、Power Query、Q#、Redis、SPARQL、Structured Text、Modula-3、ATS、Pony 系列等）；
 - **HTML 模板语法高亮**：EJS / Eta、ERB、Nunjucks / Jinja2（`.njk/.nunjucks/.jinja/.jinja2/.j2`）、Blade（`.blade.php`）、Haml、Slim，以及 Monaco 内置的 Handlebars / Mustache / Pug / Twig / Liquid / Razor / FreeMarker；扩展名自动识别；
 - 多标签、按扩展名语法高亮、面包屑、状态栏（分支 / 行列 / 保存状态）；
-- **JS/TS 实时诊断**：Host 侧用 TypeScript 编译器分析当前编辑内容（含未保存改动），语法错误、未定义变量、类型错误以下划线/波浪线标出，并计入问题面板；Monaco 的自动缩进/括号引号自动闭合保持开启；
+- **JS/TS 实时诊断**：Host 侧用 TypeScript 编译器分析当前编辑内容（含未保存改动），语法错误、未定义变量以下划线/波浪线标出，并计入问题面板；动态 JS/JSON 项目里容易误报的属性类型错误默认不展示；Monaco 的自动缩进/括号引号自动闭合保持开启；
 - **AI Tab 行内补全已移除**（结果质量不稳定且增加输入延迟）；基础代码联想（Monaco 建议列表 / 当前文档单词）保持开启；
 - **AI/外部修改自动刷新**：已打开的标签每 1.6s 检查一次磁盘 mtime/size，AI 在会话里改完代码后编辑器自动换成新内容（保留光标位置），不需要关闭重开；点击文件树里的已打开文件也会重新对齐磁盘；有未保存修改时不会覆盖用户内容；
 - 保存走磁盘版本冲突检测 + 原子写；未保存标记；

@@ -84,6 +84,12 @@
   - 同时关闭 Monaco worker 诊断（`noSemanticValidation/noSyntaxValidation=true`），避免 dsh-app 自定义协议下 worker importScripts 失败产生重复/后台报错；补全仍由 worker 提供。
   - 模块解析失败码（2307/2792 等）忽略，并注入 Node 全局 shim（process/require/module/Buffer 等），否则 JS 文件会被 `Cannot find name process` 淹没。
 
+## 0.15 诊断误报：只保留语法 + 未定义变量（1.3.118）
+
+- 全量 `getSemanticDiagnostics` 在动态 JS/JSON 配置项目里误报极多：`lodash` 的 UMD 包报 2306 "File is not a module"、从 `config.json` 推断出的类型报 2339 "Property 'username' does not exist"、`node-uuid` 类型声明报 `v4` 不存在等等。用户看到的 3/19/45 行“语法错误”都是这类噪音。
+- 策略：语法诊断（`getSyntacticDiagnostics`）全保留；语义诊断白名单 `2304/2552/2448/2454`（Cannot find name / Block-scoped variable before declaration 等），其余（2339、2306、模块解析类）不展示。
+- 实测 `baiducomp/taskks.js` 从 4 条误报 → 0 条；回归测试覆盖“属性不存在不报”。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

@@ -149,6 +149,13 @@ try {
     content: 'const = 1\n',
   })
   check('lint reports syntax error', lintSyntax.diagnostics.some((item) => item.severity === 1 && item.code === 1134), JSON.stringify(lintSyntax.diagnostics))
+  const lintNoisy = await call(router, 'lint.javascript', {
+    root,
+    path: 'src/lint-sample.js',
+    language: 'javascript',
+    content: 'const someObject = {}\nsomeObject.missingProperty\n',
+  })
+  check('lint suppresses dynamic property warnings', lintNoisy.diagnostics.length === 0, JSON.stringify(lintNoisy.diagnostics))
   await call(router, 'fs.delete', { root, path: 'src/lint-sample.js' }).catch(() => {})
 
   console.log('fs.search')
