@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.155'
+G.BUILD = '1.3.156'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -4266,7 +4266,7 @@ const GUFA_LINT_ENABLED = true
 
             /* ── 临时滚动性能采样：对比 dsh/myrta 两个工作区时定位长任务来源 ── */
             try {
-              const perf = { active: false, start: 0, last: 0, frames: 0, maxGap: 0, longTasks: 0, longTaskMs: 0, logs: 0, timer: 0, observer: null, renderStart: 0 }
+              const perf = { active: false, start: 0, last: 0, frames: 0, maxGap: 0, longTasks: 0, longTaskMs: 0, logs: 0, timer: 0, observer: null, loftObserver: null, renderStart: 0, loaf: [] }
               const profilerDom = typeof document !== 'undefined' ? document : null
               const flushPerf = () => {
                 perf.timer = 0
@@ -4327,8 +4327,10 @@ const GUFA_LINT_ENABLED = true
                 } catch {
                   detail = ''
                 }
+                let loafText = ''
+                try { loafText = ` loaf=${JSON.stringify(perf.loaf.slice(0, 4))}` } catch { loafText = '' }
                 void G.api('dev.log', {
-                  message: `scroll-prof root=${String(G.projectRoot ?? '')} path=${String(modelPathRef.current ?? '')} frames=${perf.frames} duration=${duration}ms fps=${fps} maxGap=${Math.round(perf.maxGap)}ms longTasks=${perf.longTasks} longTaskMs=${Math.round(perf.longTaskMs || 0)} markers=${markers} dom=${domCount} canvases=${canvasCount} dockChildren=${dockCount}${detail}`,
+                  message: `scroll-prof root=${String(G.projectRoot ?? '')} path=${String(modelPathRef.current ?? '')} frames=${perf.frames} duration=${duration}ms fps=${fps} maxGap=${Math.round(perf.maxGap)}ms longTasks=${perf.longTasks} longTaskMs=${Math.round(perf.longTaskMs || 0)} markers=${markers} dom=${domCount} canvases=${canvasCount} dockChildren=${dockCount}${detail}${loafText}`,
                 }).catch(() => {})
               }
               try {
@@ -4346,6 +4348,32 @@ const GUFA_LINT_ENABLED = true
               } catch {
                 perf.observer = null
               }
+              /* Long Animation Frame 归因：能指出长帧主要花在哪个脚本/样式布局上 */
+              try {
+                if (typeof PerformanceObserver === 'function') {
+                  perf.loftObserver = new PerformanceObserver((list) => {
+                    if (!perf.active || perf.loaf.length >= 6) return
+                    for (const entry of list.getEntries()) {
+                      const item = {
+                        d: Math.round(entry.duration || 0),
+                        block: Math.round(entry.blockingDuration || 0),
+                        style: Math.round(entry.styleAndLayoutStart ? Math.max(0, entry.startTime + entry.duration - entry.styleAndLayoutStart) : 0),
+                        scripts: Array.isArray(entry.scripts) ? entry.scripts.slice(0, 2).map((script) => ({
+                          src: String(script.sourceURL || '').split('/').pop(),
+                          fn: String(script.sourceFunctionName || ''),
+                          inv: String(script.invoker || ''),
+                          force: Math.round(script.forcedStyleAndLayoutDuration || 0),
+                          d: Math.round(script.duration || 0),
+                        })) : [],
+                      }
+                      perf.loaf.push(item)
+                    }
+                  })
+                  perf.loftObserver.observe({ type: 'long-animation-frame', buffered: false })
+                }
+              } catch {
+                perf.loftObserver = null
+              }
               subscriptions.push(instance.onDidScrollChange(() => {
                 const now = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
                 if (!perf.active) {
@@ -4357,6 +4385,7 @@ const GUFA_LINT_ENABLED = true
                   perf.longTasks = 0
                   perf.longTaskMs = 0
                   perf.renderStart = typeof G.__gufaRenderCount === 'number' ? G.__gufaRenderCount : 0
+                  perf.loaf = []
                 }
                 perf.frames += 1
                 if (perf.last !== 0) perf.maxGap = Math.max(perf.maxGap, now - perf.last)
@@ -4367,6 +4396,7 @@ const GUFA_LINT_ENABLED = true
               subscriptions.push({
                 dispose: () => {
                   try { perf.observer?.disconnect() } catch { /* ignore */ }
+                  try { perf.loftObserver?.disconnect() } catch { /* ignore */ }
                   if (perf.timer !== 0) window.clearTimeout(perf.timer)
                 },
               })
