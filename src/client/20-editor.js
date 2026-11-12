@@ -1680,7 +1680,7 @@ const GUFA_LINT_ENABLED = true
                   } catch {
                     /* ignore */
                   }
-                  detail = ` renders=${renderCount - perf.renderStart}` +
+                  detail += ` renders=${renderCount - perf.renderStart}` +
                     ` treeRows=${qsa('.gufa-tree-row')}` +
                     ` editorNodes=${qsa('.gufa-editor-area *')}` +
                     ` sideNodes=${qsa('.gufa-sidepanel *')}` +
