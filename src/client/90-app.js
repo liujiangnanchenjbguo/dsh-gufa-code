@@ -2647,6 +2647,27 @@ G.GufaApp = function GufaApp(props) {
     if (selectionTimerRef.current !== null) { window.clearTimeout(selectionTimerRef.current); selectionTimerRef.current = null }
   }, [])
 
+  useEffect(() => {
+    if (project === null) return undefined
+    const timer = window.setTimeout(() => {
+      try {
+        const pick = (sel) => {
+          const node = document.querySelector(sel)
+          if (node === null) return `${sel}=none`
+          const style = getComputedStyle(node)
+          return `${sel}=${style.backgroundColor}`
+        }
+        const root = document.querySelector('[data-gufa-dock]')
+        void G.api('dev.log', {
+          message: `opacity-probe backdrop=${String(backdropActive)} skinAvail=${String(skinBackdrop.available)} ${pick('.gufa-chatpane')} ${pick('.gufa-chatdock')} ${pick('.gufa-dock-host')} dock=${root !== null ? getComputedStyle(root).backgroundColor : 'none'} overlay=${pick('.gufa-overlay-root')}`,
+        }).catch(() => {})
+      } catch {
+        /* ignore */
+      }
+    }, 1500)
+    return () => window.clearTimeout(timer)
+  }, [project, backdropActive, skinBackdrop.available])
+
   const uiTheme = moyuMode ? 'dark' : theme
   const statusBranch = project?.isGit === true && gitStatus?.branch ? gitStatus.branch : null
   const lineCount = activeTab === null || activeTab.kind === 'graph' ? 0 : String(activeTab.content ?? '').split('\n').length
