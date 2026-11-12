@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.175'
+G.BUILD = '1.3.176'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -12114,7 +12114,51 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
       delete registry.__gufaOriginalDispatch
     }
 
-    // 2) IDE 模式内的命令改派表（被原生占用的组合 → IDE 动作）
+    // 2) 撤销上一轮命令包装：经典模式必须保持 DSH 原生行为，不能带着我们的
+    //    resolve 包装运行（这是 Cmd+/ 呼不出快捷键面板的根因）。
+    const restoreWrappedCommands = () => {
+      const patched = Array.isArray(service.__gufaPatchedCommands) ? service.__gufaPatchedCommands : []
+      for (const item of patched) {
+        try {
+          if (item !== null && item !== undefined && item.command !== null && item.command !== undefined) {
+            item.command.resolve = item.originalResolve
+            try { delete item.command.__gufaWrapped } catch { /* ignore */ }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      service.__gufaPatchedCommands = []
+    }
+    restoreWrappedCommands()
+
+    // 模式切换时重新评估：进 IDE 才包装，退出立刻还原
+    if (service.__gufaModeSubscribed !== true && G.mode !== null && G.mode !== undefined && typeof G.mode.subscribe === 'function') {
+      service.__gufaModeSubscribed = true
+      try {
+        G.mode.subscribe(() => {
+          try { G.installShortcutIntegration(service) } catch { /* ignore */ }
+        })
+      } catch {
+        /* ignore */
+      }
+    }
+
+    // 经典模式：不碰任何 DSH 原生命令
+    if (G.mode.get() !== true) {
+      try {
+        if (window !== undefined && window !== null) {
+          if (window.__gufaClassicShortcutLogs === undefined) window.__gufaClassicShortcutLogs = 3
+          if (window.__gufaClassicShortcutLogs > 0) {
+            window.__gufaClassicShortcutLogs -= 1
+            void G.api('dev.log', { message: 'shortcut-integration skipped: classic mode (native untouched)' }).catch(() => {})
+          }
+        }
+      } catch { /* ignore */ }
+      return true
+    }
+
+    // 3) IDE 模式内的命令改派表（被原生占用的组合 → IDE 动作）
     const commandActions = {
       'session.search': 'clearTerminal',
       'sidebar.left.toggle': 'toggleSidebar',
@@ -12187,6 +12231,8 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
         } catch {
           /* ignore */
         }
+        if (Array.isArray(service.__gufaPatchedCommands) !== true) service.__gufaPatchedCommands = []
+        service.__gufaPatchedCommands.push({ command, originalResolve })
         wrapped.push(id)
       }
     }
