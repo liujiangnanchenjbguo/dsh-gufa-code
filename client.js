@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.163'
+G.BUILD = '1.3.164'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -4263,187 +4263,6 @@ const GUFA_LINT_ENABLED = true
               if (initialModel !== null && initialModel !== undefined && initialPath !== null && initialPath !== undefined) {
                 window.setTimeout(() => { scheduleLint(initialModel, initialPath) }, 0)
               }
-            } catch {
-              /* ignore */
-            }
-
-            /* ── 临时滚动性能采样：对比 dsh/myrta 两个工作区时定位长任务来源 ── */
-            try {
-              const perf = { active: false, start: 0, last: 0, frames: 0, maxGap: 0, longTasks: 0, longTaskMs: 0, logs: 0, timer: 0, observer: null, loftObserver: null, renderStart: 0, loaf: [] }
-              const profilerDom = typeof document !== 'undefined' ? document : null
-              const flushPerf = () => {
-                perf.timer = 0
-                if (!perf.active || perf.logs >= 12) { perf.active = false; return }
-                perf.active = false
-                perf.logs += 1
-                let markers = 0
-                try {
-                  const model = instance.getModel()
-                  markers = model !== null && model !== undefined ? monaco.editor.getModelMarkers({ resource: model.uri }).length : 0
-                } catch {
-                  markers = -1
-                }
-                let domCount = 0
-                let canvasCount = 0
-                let dockCount = 0
-                try {
-                  domCount = profilerDom !== null ? profilerDom.getElementsByTagName('*').length : 0
-                  canvasCount = profilerDom !== null ? profilerDom.querySelectorAll('canvas').length : 0
-                  dockCount = profilerDom !== null ? profilerDom.querySelectorAll('[data-gufa-dock] *').length : 0
-                } catch {
-                  /* ignore */
-                }
-                const duration = Math.max(1, Math.round(perf.last - perf.start))
-                const fps = Math.round((perf.frames / duration) * 1000)
-                let detail = ''
-                try {
-                  const qsa = (selector) => profilerDom !== null ? profilerDom.querySelectorAll(selector).length : 0
-                  const renderCount = typeof G.__gufaRenderCount === 'number' ? G.__gufaRenderCount : 0
-                  let findVisible = false
-                  let findMatches = 0
-                  let decorations = 0
-                  let overlayNodes = 0
-                  let overlayRoots = 0
-                  try {
-                    findVisible = profilerDom !== null && profilerDom.querySelector('.find-widget.visible') !== null
-                    findMatches = qsa('.findMatch')
-                    decorations = typeof instance.getModel()?.getAllDecorations === 'function' ? instance.getModel().getAllDecorations().length : -1
-                    overlayNodes = qsa('.gufa-overlay-root *')
-                    overlayRoots = qsa('.gufa-overlay-root')
-                    const conversationRoot = profilerDom !== null ? profilerDom.querySelector('[data-gufa-dock]') : null
-                    if (conversationRoot !== null && conversationRoot !== undefined) {
-                      try { detail = `chatDisplay=${getComputedStyle(conversationRoot).display}` } catch { detail = '' }
-                    }
-                    try {
-                      const groups = {}
-                      for (const deco of instance.getModel()?.getAllDecorations?.() ?? []) {
-                        const options = deco !== null && deco !== undefined ? deco.options : null
-                        const key = `${options?.description ?? ''}|${options?.inlineClassName ?? ''}|${options?.className ?? ''}`
-                        groups[key] = (groups[key] ?? 0) + 1
-                      }
-                      const rows = Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 6)
-                      detail += ` decoGroups=${JSON.stringify(rows)}`
-                    } catch {
-                      /* ignore */
-                    }
-                  } catch {
-                    /* ignore */
-                  }
-                  try {
-                    const listing = []
-                    const addNode = (node, depth) => {
-                      if (node === null || node === undefined || node.nodeType !== 1) return
-                      const count = node.getElementsByTagName('*').length + 1
-                      if (count > 200 || depth < 2) {
-                        listing.push({
-                          d: depth,
-                          t: node.tagName,
-                          id: node.id || '',
-                          c: String(node.className || '').slice(0, 60),
-                          r: node.getAttribute('role') || '',
-                          n: count,
-                        })
-                      }
-                      if (depth < 6 && count > 300) {
-                        for (const child of node.children) addNode(child, depth + 1)
-                      }
-                    }
-                    for (const child of document.body.children) addNode(child, 0)
-                    listing.sort((a, b) => b.n - a.n)
-                    detail += ` bigDoms=${JSON.stringify(listing.sort((a, b) => b.n - a.n).slice(0, 20))}`
-                  } catch {
-                    /* ignore */
-                  }
-                  detail += ` renders=${renderCount - perf.renderStart}` +
-                    ` treeRows=${qsa('.gufa-tree-row')}` +
-                    ` editorNodes=${qsa('.gufa-editor-area *')}` +
-                    ` sideNodes=${qsa('.gufa-sidepanel *')}` +
-                    ` chatdock=${qsa('.gufa-chatdock')}` +
-                    ` conversation=${qsa('[data-conversation-scroll] *')}` +
-                    ` streaming=${qsa('[data-streaming]')}` +
-                    ` xterm=${qsa('.xterm *')}` +
-                    ` monaco=${qsa('.monaco-editor')}` +
-                    ` findVisible=${findVisible}` +
-                    ` findMatches=${findMatches}` +
-                    ` decorations=${decorations}` +
-                    ` overlayRoots=${overlayRoots}` +
-                    ` overlayNodes=${overlayNodes}`
-                } catch {
-                  detail = ''
-                }
-                let loafText = ''
-                try { loafText = ` loaf=${JSON.stringify(perf.loaf.slice(0, 4))}` } catch { loafText = '' }
-                void G.api('dev.log', {
-                  message: `scroll-prof root=${String(G.projectRoot ?? '')} path=${String(modelPathRef.current ?? '')} frames=${perf.frames} duration=${duration}ms fps=${fps} maxGap=${Math.round(perf.maxGap)}ms longTasks=${perf.longTasks} longTaskMs=${Math.round(perf.longTaskMs || 0)} markers=${markers} dom=${domCount} canvases=${canvasCount} dockChildren=${dockCount}${detail}${loafText}`,
-                }).catch(() => {})
-              }
-              try {
-                if (typeof PerformanceObserver === 'function') {
-                  perf.observer = new PerformanceObserver((list) => {
-                    try {
-                      for (const entry of list.getEntries()) {
-                        perf.longTasks += 1
-                        perf.longTaskMs = (perf.longTaskMs || 0) + (Number(entry.duration) || 0)
-                      }
-                    } catch { /* ignore */ }
-                  })
-                  perf.observer.observe({ type: 'longtask', buffered: false })
-                }
-              } catch {
-                perf.observer = null
-              }
-              /* Long Animation Frame 归因：能指出长帧主要花在哪个脚本/样式布局上 */
-              try {
-                if (typeof PerformanceObserver === 'function') {
-                  perf.loftObserver = new PerformanceObserver((list) => {
-                    if (!perf.active || perf.loaf.length >= 6) return
-                    for (const entry of list.getEntries()) {
-                      const item = {
-                        d: Math.round(entry.duration || 0),
-                        block: Math.round(entry.blockingDuration || 0),
-                        style: Math.round(entry.styleAndLayoutStart ? Math.max(0, entry.startTime + entry.duration - entry.styleAndLayoutStart) : 0),
-                        scripts: Array.isArray(entry.scripts) ? entry.scripts.slice(0, 2).map((script) => ({
-                          src: String(script.sourceURL || '').split('/').pop(),
-                          fn: String(script.sourceFunctionName || ''),
-                          inv: String(script.invoker || ''),
-                          force: Math.round(script.forcedStyleAndLayoutDuration || 0),
-                          d: Math.round(script.duration || 0),
-                        })) : [],
-                      }
-                      perf.loaf.push(item)
-                    }
-                  })
-                  perf.loftObserver.observe({ type: 'long-animation-frame', buffered: false })
-                }
-              } catch {
-                perf.loftObserver = null
-              }
-              subscriptions.push(instance.onDidScrollChange(() => {
-                const now = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
-                if (!perf.active) {
-                  perf.active = true
-                  perf.start = now
-                  perf.last = now
-                  perf.frames = 0
-                  perf.maxGap = 0
-                  perf.longTasks = 0
-                  perf.longTaskMs = 0
-                  perf.renderStart = typeof G.__gufaRenderCount === 'number' ? G.__gufaRenderCount : 0
-                  perf.loaf = []
-                }
-                perf.frames += 1
-                if (perf.last !== 0) perf.maxGap = Math.max(perf.maxGap, now - perf.last)
-                perf.last = now
-                if (perf.timer !== 0) window.clearTimeout(perf.timer)
-                perf.timer = window.setTimeout(flushPerf, 800)
-              }))
-              subscriptions.push({
-                dispose: () => {
-                  try { perf.observer?.disconnect() } catch { /* ignore */ }
-                  try { perf.loftObserver?.disconnect() } catch { /* ignore */ }
-                  if (perf.timer !== 0) window.clearTimeout(perf.timer)
-                },
-              })
             } catch {
               /* ignore */
             }
@@ -12931,7 +12750,6 @@ G.MiniEditorView = function MiniEditorView(props) {
 }
 
 G.GufaApp = function GufaApp(props) {
-  try { G.__gufaRenderCount = (G.__gufaRenderCount ?? 0) + 1 } catch { /* ignore */ }
   const t = G.useT()
   const theme = G.useTheme()
   const problems = G.useProblems()
