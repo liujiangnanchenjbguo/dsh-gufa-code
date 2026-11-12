@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.140'
+G.BUILD = '1.3.141'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3225,15 +3225,75 @@ const GUFA_LINT_ENABLED = true
     return model
   }
 
+  /**
+   * 查找框可见时才打开 overview ruler（查找匹配标记），关闭时收起。
+   * 常开 ruler 会在每次滚动时额外渲染诊断/查找标记，体感卡。
+   */
+  function gufaInstallFindRuler(instance) {
+    try {
+      const dom = typeof instance.getDomNode === 'function' ? instance.getDomNode() : null
+      if (dom === null || dom === undefined) return null
+      let frame = 0
+      const apply = () => {
+        frame = 0
+        let visible = false
+        try {
+          const widget = dom.querySelector('.find-widget')
+          visible = widget !== null && widget !== undefined && widget.classList.contains('visible')
+        } catch {
+          visible = false
+        }
+        try {
+          instance.updateOptions({ renderOverviewRuler: visible, overviewRulerLanes: visible ? 1 : 0 })
+        } catch {
+          /* ignore */
+        }
+      }
+      const schedule = () => {
+        if (frame !== 0) return
+        frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(apply) : window.setTimeout(apply, 16)
+      }
+      const observer = typeof MutationObserver === 'function' ? new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.type === 'attributes' && record.target instanceof Element && record.target.classList.contains('find-widget')) {
+            schedule()
+            return
+          }
+          if (record.type === 'childList') {
+            for (const node of record.addedNodes) {
+              if (node instanceof Element && (node.classList.contains('find-widget') || node.querySelector('.find-widget') !== null)) {
+                schedule()
+                return
+              }
+            }
+          }
+        }
+      }) : null
+      observer?.observe(dom, { subtree: true, attributes: true, attributeFilter: ['class'], childList: true })
+      return () => {
+        try { observer?.disconnect() } catch { /* ignore */ }
+        if (frame !== 0) {
+          try {
+            if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+            else window.clearTimeout(frame)
+          } catch { /* ignore */ }
+          frame = 0
+        }
+      }
+    } catch {
+      return null
+    }
+  }
+
   /** Monaco 编辑器选项：关闭 minimap / overview ruler，automaticLayout 跟随容器尺寸。 */
   function gufaEditorOptions(theme) {
     return {
       theme: gufaMonacoTheme(theme),
       automaticLayout: true,
       minimap: { enabled: false },
-      /* 右侧 ruler 打开：Ctrl+F 查找匹配会在滚动条旁显示标记（用户要求） */
-      renderOverviewRuler: true,
-      overviewRulerLanes: 1,
+      /* 右侧 ruler 默认关闭，只有查找框可见时临时打开（避免滚动时 ruler 渲染开销） */
+      renderOverviewRuler: false,
+      overviewRulerLanes: 0,
       overviewRulerBorder: false,
       hideCursorInOverviewRuler: true,
       scrollBeyondLastLine: false,
@@ -3528,6 +3588,12 @@ const GUFA_LINT_ENABLED = true
             const instance = monaco.editor.create(host, gufaEditorOptions(propsRef.current.theme))
             editor = instance
             editorRef.current = instance
+            try {
+              const disposeFindRuler = gufaInstallFindRuler(instance)
+              if (typeof disposeFindRuler === 'function') subscriptions.push({ dispose: disposeFindRuler })
+            } catch {
+              /* ignore */
+            }
             try {
               try {
               G.__gufaEditorController = {
