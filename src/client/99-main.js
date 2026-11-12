@@ -234,7 +234,7 @@ const GUFA_PLUGIN = {
             const portalNode = document.getElementById('gufa-portal-root')
             if (portalNode !== null) {
               const computed = getComputedStyle(portalNode)
-              portalRegion = String(computed.getPropertyValue('-webkit-app-region') || computed.webkitAppRegion || 'empty')
+              portalRegion = `${String(computed.getPropertyValue('-webkit-app-region') || computed.webkitAppRegion || 'empty')}/display=${String(computed.display)}/children=${String(portalNode.childElementCount)}`
             }
           } catch { portalRegion = 'err' }
           void G.api('dev.log', {
