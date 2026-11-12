@@ -666,11 +666,6 @@ const GUFA_PLUGIN = {
           } catch (error) {
             console.error('[gufa-code] 安装原生快捷键集成失败', error)
           }
-          try {
-            if (typeof G.installShortcutBridge === 'function') G.installShortcutBridge()
-          } catch (error) {
-            console.error('[gufa-code] 安装快捷键桥失败', error)
-          }
         })
       }
     } catch (error) {

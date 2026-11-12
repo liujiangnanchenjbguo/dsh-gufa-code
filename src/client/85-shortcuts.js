@@ -568,9 +568,21 @@ G.useIdeShortcuts = function useIdeShortcuts(handlers) {
     } catch {
       /* ignore */
     }
-    if (typeof G.installShortcutBridge === 'function') G.installShortcutBridge()
     return () => {
       if (gufaShortcutHandlers === handlers) gufaShortcutHandlers = null
     }
   }, [handlers])
+  /* 键盘桥只在 IDE 覆盖层挂载期间存在，经典模式完全不装监听器 */
+  useEffect(() => {
+    if (typeof G.installShortcutBridge === 'function') G.installShortcutBridge()
+    return () => {
+      try {
+        if (typeof window.__gufaShortcutBridgeDispose === 'function') window.__gufaShortcutBridgeDispose()
+      } catch {
+        /* ignore */
+      }
+      try { window.__gufaShortcutBridgeDispose = null } catch { /* ignore */ }
+      try { window.__gufaShortcutBridge = false } catch { /* ignore */ }
+    }
+  }, [])
 }
