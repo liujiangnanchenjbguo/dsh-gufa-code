@@ -985,7 +985,10 @@ G.OverlayHost = function OverlayHost(props) {
       }
     }
     apply()
-    const timer = window.setInterval(apply, 800)
+    try { if (typeof G.suspendSkinEffects === 'function') G.suspendSkinEffects() } catch { /* ignore */ }
+    try { window.dispatchEvent(new Event('resize')) } catch { /* ignore */ }
+    /* 800ms 的 apply 会周期性 getComputedStyle/取色，和滚动叠加容易顿一下；放宽到 2s */
+    const timer = window.setInterval(apply, 2000)
     let observer = null
     if (typeof MutationObserver === 'function') {
       /* 只监听语义属性；绝对不能监听 body 的 style/class ——
@@ -997,6 +1000,8 @@ G.OverlayHost = function OverlayHost(props) {
     return () => {
       window.clearInterval(timer)
       observer?.disconnect()
+      try { if (typeof G.resumeSkinEffects === 'function') G.resumeSkinEffects() } catch { /* ignore */ }
+      try { window.dispatchEvent(new Event('resize')) } catch { /* ignore */ }
       try {
         document.documentElement.removeAttribute('data-gufa-ide')
         document.documentElement.removeAttribute('data-gufa-skin-live')

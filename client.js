@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.145'
+G.BUILD = '1.3.146'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1305,6 +1305,9 @@ html[data-gufa-float] #root .gufa-overlay-root *,
 html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483050!important}
+/* 古法/摸鱼模式下皮肤自身的粒子 canvas 不参与绘制（防止 WebGL/rAF 在覆盖层下面持续跑） */
+html[data-gufa-ide] .liang-ambient,
+html[data-gufa-float] .liang-ambient{display:none!important}
 /* 外部弹窗（DSH 设置等）打开时：停靠会话、古法 portal、桌宠全部降到官方弹窗之下 */
 html[data-gufa-external-modal] [data-gufa-dock]{z-index:2!important}
 html[data-gufa-external-modal] #gufa-portal-root{z-index:1!important}
@@ -10014,6 +10017,58 @@ G.BackdropParticles = function BackdropParticles(props) {
   return h('canvas', { ref: canvasRef, className: 'gufa-backdrop-particles', 'aria-hidden': 'true', style: { mixBlendMode: 'screen' } })
 }
 
+/** 进入古法 IDE 时临时关掉皮肤自身的粒子/动效（它们会在覆盖层下面持续跑 WebGL/rAF）；
+ *  退出时恢复用户原设置，不改变用户偏好。 */
+const SKIN_SETTINGS_KEY = 'dsh-liang-intensity-skin.settings.v1'
+let gufaSkinEffectsSaved = null
+G.suspendSkinEffects = function suspendSkinEffects() {
+  try {
+    if (gufaSkinEffectsSaved !== null) return
+    const raw = localStorage.getItem(SKIN_SETTINGS_KEY)
+    if (raw === null || raw === '') return
+    const record = JSON.parse(raw)
+    if (record === null || typeof record !== 'object' || record.values === null || typeof record.values !== 'object') return
+    const values = record.values
+    if (values.particlesEnabled !== true && values.motionEnabled !== true) return
+    gufaSkinEffectsSaved = raw
+    const next = { ...record, values: { ...values, particlesEnabled: false, motionEnabled: false } }
+    const payload = JSON.stringify(next)
+    localStorage.setItem(SKIN_SETTINGS_KEY, payload)
+    try {
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: SKIN_SETTINGS_KEY,
+        oldValue: raw,
+        newValue: payload,
+        storageArea: localStorage,
+      }))
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    gufaSkinEffectsSaved = null
+  }
+}
+G.resumeSkinEffects = function resumeSkinEffects() {
+  try {
+    if (gufaSkinEffectsSaved === null) return
+    const raw = gufaSkinEffectsSaved
+    gufaSkinEffectsSaved = null
+    localStorage.setItem(SKIN_SETTINGS_KEY, raw)
+    try {
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: SKIN_SETTINGS_KEY,
+        oldValue: null,
+        newValue: raw,
+        storageArea: localStorage,
+      }))
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 /** 背景浓度滑杆（无级、连续；双击恢复「跟随皮肤」）。 */
 G.BackdropStrengthSlider = function BackdropStrengthSlider(props) {
   const t = G.useT()
@@ -11796,7 +11851,10 @@ G.OverlayHost = function OverlayHost(props) {
       }
     }
     apply()
-    const timer = window.setInterval(apply, 800)
+    try { if (typeof G.suspendSkinEffects === 'function') G.suspendSkinEffects() } catch { /* ignore */ }
+    try { window.dispatchEvent(new Event('resize')) } catch { /* ignore */ }
+    /* 800ms 的 apply 会周期性 getComputedStyle/取色，和滚动叠加容易顿一下；放宽到 2s */
+    const timer = window.setInterval(apply, 2000)
     let observer = null
     if (typeof MutationObserver === 'function') {
       /* 只监听语义属性；绝对不能监听 body 的 style/class ——
@@ -11808,6 +11866,8 @@ G.OverlayHost = function OverlayHost(props) {
     return () => {
       window.clearInterval(timer)
       observer?.disconnect()
+      try { if (typeof G.resumeSkinEffects === 'function') G.resumeSkinEffects() } catch { /* ignore */ }
+      try { window.dispatchEvent(new Event('resize')) } catch { /* ignore */ }
       try {
         document.documentElement.removeAttribute('data-gufa-ide')
         document.documentElement.removeAttribute('data-gufa-skin-live')

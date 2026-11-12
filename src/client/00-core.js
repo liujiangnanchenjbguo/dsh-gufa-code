@@ -1297,6 +1297,9 @@ html[data-gufa-float] #root .gufa-overlay-root *,
 html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483050!important}
+/* 古法/摸鱼模式下皮肤自身的粒子 canvas 不参与绘制（防止 WebGL/rAF 在覆盖层下面持续跑） */
+html[data-gufa-ide] .liang-ambient,
+html[data-gufa-float] .liang-ambient{display:none!important}
 /* 外部弹窗（DSH 设置等）打开时：停靠会话、古法 portal、桌宠全部降到官方弹窗之下 */
 html[data-gufa-external-modal] [data-gufa-dock]{z-index:2!important}
 html[data-gufa-external-modal] #gufa-portal-root{z-index:1!important}

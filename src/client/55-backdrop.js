@@ -505,6 +505,58 @@ G.BackdropParticles = function BackdropParticles(props) {
   return h('canvas', { ref: canvasRef, className: 'gufa-backdrop-particles', 'aria-hidden': 'true', style: { mixBlendMode: 'screen' } })
 }
 
+/** 进入古法 IDE 时临时关掉皮肤自身的粒子/动效（它们会在覆盖层下面持续跑 WebGL/rAF）；
+ *  退出时恢复用户原设置，不改变用户偏好。 */
+const SKIN_SETTINGS_KEY = 'dsh-liang-intensity-skin.settings.v1'
+let gufaSkinEffectsSaved = null
+G.suspendSkinEffects = function suspendSkinEffects() {
+  try {
+    if (gufaSkinEffectsSaved !== null) return
+    const raw = localStorage.getItem(SKIN_SETTINGS_KEY)
+    if (raw === null || raw === '') return
+    const record = JSON.parse(raw)
+    if (record === null || typeof record !== 'object' || record.values === null || typeof record.values !== 'object') return
+    const values = record.values
+    if (values.particlesEnabled !== true && values.motionEnabled !== true) return
+    gufaSkinEffectsSaved = raw
+    const next = { ...record, values: { ...values, particlesEnabled: false, motionEnabled: false } }
+    const payload = JSON.stringify(next)
+    localStorage.setItem(SKIN_SETTINGS_KEY, payload)
+    try {
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: SKIN_SETTINGS_KEY,
+        oldValue: raw,
+        newValue: payload,
+        storageArea: localStorage,
+      }))
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    gufaSkinEffectsSaved = null
+  }
+}
+G.resumeSkinEffects = function resumeSkinEffects() {
+  try {
+    if (gufaSkinEffectsSaved === null) return
+    const raw = gufaSkinEffectsSaved
+    gufaSkinEffectsSaved = null
+    localStorage.setItem(SKIN_SETTINGS_KEY, raw)
+    try {
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: SKIN_SETTINGS_KEY,
+        oldValue: null,
+        newValue: raw,
+        storageArea: localStorage,
+      }))
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 /** 背景浓度滑杆（无级、连续；双击恢复「跟随皮肤」）。 */
 G.BackdropStrengthSlider = function BackdropStrengthSlider(props) {
   const t = G.useT()
