@@ -663,9 +663,9 @@ const GUFA_LINT_ENABLED = true
       theme: gufaMonacoTheme(theme),
       automaticLayout: true,
       minimap: { enabled: false },
-      /* 右侧 ruler 默认关闭，只有查找框可见时临时打开（避免滚动时 ruler 渲染开销） */
-      renderOverviewRuler: false,
-      overviewRulerLanes: 0,
+      /* 右侧 ruler 常开：查找匹配/诊断标记显示在滚动条旁 */
+      renderOverviewRuler: true,
+      overviewRulerLanes: 1,
       overviewRulerBorder: false,
       hideCursorInOverviewRuler: true,
       scrollBeyondLastLine: false,
@@ -962,12 +962,6 @@ const GUFA_LINT_ENABLED = true
             const instance = monaco.editor.create(host, gufaEditorOptions(propsRef.current.theme))
             editor = instance
             editorRef.current = instance
-            try {
-              const disposeFindRuler = gufaInstallFindRuler(instance)
-              if (typeof disposeFindRuler === 'function') subscriptions.push({ dispose: disposeFindRuler })
-            } catch {
-              /* ignore */
-            }
             try {
               try {
               G.__gufaEditorController = {

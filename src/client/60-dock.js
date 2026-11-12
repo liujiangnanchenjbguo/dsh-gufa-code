@@ -617,27 +617,30 @@ G.ChatDock = function ChatDock(props) {
     startedRef.current = Date.now()
     setPhase((previous) => (previous === 'docked' ? previous : 'searching'))
     let disposed = false
+    /* dock 住之后彻底断开 body MutationObserver：Monaco 滚动会不断增删行 DOM，
+       observer 即使不跑 tick，浏览器也要为整棵 body 维护/遍历 mutation record，依然拖慢滚动。
+       发现/替换会话根交给 300ms 轮询（未 dock 时才观察）。 */
+    let observer = typeof MutationObserver === 'function' ? new MutationObserver(() => { run() }) : null
+    let observing = false
+    const setObserving = (next) => {
+      if (observer === null || observing === next) return
+      observing = next
+      try {
+        if (next) observer.observe(document.body, { childList: true, subtree: true })
+        else observer.disconnect()
+      } catch {
+        /* ignore */
+      }
+    }
     const run = () => {
-      if (!disposed) tickRef.current?.()
+      if (disposed) return
+      tickRef.current?.()
+      const current = dockRef.current.root
+      setObserving(!(current !== null && current.isConnected === true))
     }
+    setObserving(true)
     run()
-    const timer = window.setInterval(run, 400)
-    /* 只在「还没找到会话根」或「根被替换/移除」时需要重定位；
-       编辑器滚动时 Monaco 会大量增删行 DOM，之前的 observer 直接跑完整 tick，
-       每次滚动都 getComputedStyle + getBoundingClientRect，是代码区滚动卡的主因。 */
-    let observerTimer = 0
-    const scheduleFromMutation = () => {
-      if (disposed || observerTimer !== 0) return
-      observerTimer = window.setTimeout(() => {
-        observerTimer = 0
-        if (disposed) return
-        const current = dockRef.current.root
-        if (current !== null && current.isConnected === true) return
-        run()
-      }, 150)
-    }
-    const observer = typeof MutationObserver === 'function' ? new MutationObserver(scheduleFromMutation) : null
-    if (observer !== null) observer.observe(document.body, { childList: true, subtree: true })
+    const timer = window.setInterval(run, 300)
     let resizeObserver = null
     if (typeof ResizeObserver === 'function') {
       resizeObserver = new ResizeObserver(run)
@@ -649,7 +652,6 @@ G.ChatDock = function ChatDock(props) {
     return () => {
       disposed = true
       window.clearInterval(timer)
-      if (observerTimer !== 0) window.clearTimeout(observerTimer)
       observer?.disconnect()
       resizeObserver?.disconnect()
       window.removeEventListener('resize', onWindowResize)
