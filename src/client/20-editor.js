@@ -714,6 +714,37 @@ const GUFA_LINT_ENABLED = true
 
   /* ── 组件 ───────────────────────────────────────────────────────────── */
 
+  /**
+   * 纯净滚动测试编辑器：只挂一个 Monaco，无覆盖层/聊天/资源管理器等外壳。
+   * 用来判断“滚动卡”是 Monaco/页面本身，还是 IDE 外壳（chat dock、背景等）。
+   */
+  G.mountMiniEditor = function mountMiniEditor(container, options) {
+    let disposed = false
+    let editor = null
+    let model = null
+    const opts = options !== null && options !== undefined ? options : {}
+    gufaMonacoPromise.then((monaco) => {
+      if (disposed || container === null || container === undefined || container.isConnected !== true) return
+      try {
+        editor = monaco.editor.create(container, {
+          ...gufaEditorOptions(opts.theme === 'light' ? 'light' : 'dark'),
+          readOnly: true,
+          renderOverviewRuler: true,
+          overviewRulerLanes: 1,
+        })
+        model = monaco.editor.createModel(String(opts.content ?? ''), typeof opts.language === 'string' && opts.language !== '' ? opts.language : 'plaintext')
+        editor.setModel(model)
+      } catch {
+        /* ignore */
+      }
+    }).catch(() => {})
+    return () => {
+      disposed = true
+      try { editor?.dispose() } catch { /* ignore */ }
+      try { model?.dispose() } catch { /* ignore */ }
+    }
+  }
+
   function GufaEditorPaneComponent(props) {
     const tabs = useMemo(() => (Array.isArray(props.tabs) ? props.tabs : []), [props.tabs])
     const activePath = typeof props.activePath === 'string' ? props.activePath : null

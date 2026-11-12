@@ -1169,7 +1169,15 @@ html[data-gufa-float] .gufa-overlay-root{
   --gufa-solid-text:#f4f1e8!important;--gufa-solid-text-dim:rgba(244,241,232,0.68)!important;
 }
 html[data-gufa-float] .gufa-overlay-root,
-html[data-gufa-float] .gufa-root{
+html[data-gufa-float] /* 纯净编辑器（滚动测试）：只保留 Monaco，用于隔离卡顿来源 */
+.gufa-mini-editor{position:fixed;inset:0;z-index:2147483060;display:flex;flex-direction:column;
+  background:var(--gufa-bg,#15171c);color:var(--gufa-text,#e8e8e8)}
+.gufa-mini-bar{flex:0 0 auto;height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;
+  border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer,#1b1e24)}
+.gufa-mini-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.gufa-mini-host{flex:1 1 auto;min-height:0;position:relative}
+
+.gufa-root{
   --gufa-solid-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;--gufa-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;
   --gufa-solid-layer:rgba(20,22,27,var(--gufa-float-alpha))!important;--gufa-layer:rgba(20,22,27,var(--gufa-float-alpha))!important;
   --gufa-solid-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;--gufa-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;
