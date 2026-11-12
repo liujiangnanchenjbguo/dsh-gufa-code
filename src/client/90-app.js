@@ -215,47 +215,7 @@ G.useSplitter = function useSplitter(options) {
   return [size, onMouseDown, setSize]
 }
 
-/** 主界面组件。props 由 slot 框架注入（useSessions 等标准 hook）。 */
-/** 纯净单文件编辑器：复用正式 EditorPane（加载/降级/主题都走成熟路径），只去掉 IDE 外壳。 */
-G.MiniEditorView = function MiniEditorView(props) {
-  const [doc, setDoc] = useState(null)
-  const [error, setError] = useState('')
-  useEffect(() => {
-    let cancelled = false
-    setError('')
-    void (async () => {
-      try {
-        const value = await G.api('fs.read', { root: props.root, path: props.path })
-        if (!cancelled) setDoc(value)
-      } catch (failure) {
-        if (!cancelled) setError(G.errorText(failure))
-      }
-    })()
-    return () => { cancelled = true }
-  }, [props.root, props.path])
-  const tab = doc !== null && doc !== undefined ? { ...doc, savedContent: doc.content, savedRevision: doc.revision, dirty: false } : null
-  return h('div', { className: 'gufa-mini-editor' },
-    h('div', { className: 'gufa-mini-bar' },
-      h('span', { className: 'gufa-mini-title' }, `纯净编辑器（滚动测试） · ${props.path}`),
-      h(G.Button, { icon: 'arrow-left', onClick: props.onExit }, '退出纯净编辑'),
-    ),
-    error !== ''
-      ? h('div', { className: 'gufa-hint', style: { padding: '8px 12px' } }, error)
-      : tab !== null
-        ? h('div', { className: 'gufa-mini-host' }, h(G.EditorPane, {
-            tabs: [tab],
-            activePath: tab.path,
-            root: props.root,
-            theme: props.theme,
-            palette: null,
-            backdropMode: false,
-            onChange: () => {},
-            onSave: () => {},
-            onCursor: () => {},
-          }))
-        : h('div', { className: 'gufa-hint', style: { padding: '8px 12px' } }, '加载中…'),
-  )
-}
+
 
 G.GufaApp = function GufaApp(props) {
   const t = G.useT()
@@ -300,7 +260,6 @@ G.GufaApp = function GufaApp(props) {
   const [floatReport, setFloatReport] = useState('')
   /* 摸鱼模式（悬浮窗实例）与界面透明度 */
   const [moyuMode] = useState(() => G.isFloatMode())
-  const [miniScrollTest, setMiniScrollTest] = useState(null)
   const [floatAlpha, setFloatAlpha] = useState(() => {
     try {
       const saved = Number(localStorage.getItem('gufa-code:float-alpha'))
@@ -2651,15 +2610,6 @@ G.GufaApp = function GufaApp(props) {
   const statusBranch = project?.isGit === true && gitStatus?.branch ? gitStatus.branch : null
   const lineCount = activeTab === null || activeTab.kind === 'graph' ? 0 : String(activeTab.content ?? '').split('\n').length
 
-  if (miniScrollTest !== null) {
-    return h(G.MiniEditorView, {
-      root: miniScrollTest.root,
-      path: miniScrollTest.path,
-      theme: uiTheme,
-      onExit: () => setMiniScrollTest(null),
-    })
-  }
-
   return h(
     'div',
     {
@@ -2752,18 +2702,6 @@ G.GufaApp = function GufaApp(props) {
           : null,
         moyuMode === false
           ? h(G.IconButton, { title: t('app.refresh'), onClick: () => { setRefreshToken((token) => token + 1); setGitRefreshToken((token) => token + 1); setSshRefreshToken((token) => token + 1) } }, h(G.Icon, { name: 'refresh', size: 15 }))
-          : null,
-        moyuMode === false
-          ? h(G.IconButton, {
-              title: '纯净编辑器（滚动测试）',
-              onClick: () => {
-                if (project === null || activeTab === null) {
-                  setBanner(t('app.noProjectHintTop') ?? '先打开一个文件，再用纯净编辑器测试')
-                  return
-                }
-                setMiniScrollTest({ root: project.root, path: activeTab.path })
-              },
-            }, h(G.Icon, { name: 'file', size: 15 }))
           : null,
         h(G.IconButton, {
           title: ui.chatOpen ? t('activity.collapseChat') : t('activity.expandChat'),

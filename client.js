@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.171'
+G.BUILD = '1.3.172'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1175,13 +1175,7 @@ html[data-gufa-float] .gufa-overlay-root{
   --gufa-solid-text:#f4f1e8!important;--gufa-solid-text-dim:rgba(244,241,232,0.68)!important;
 }
 html[data-gufa-float] .gufa-overlay-root,
-html[data-gufa-float] /* 纯净编辑器（滚动测试）：只保留 Monaco，用于隔离卡顿来源 */
-.gufa-mini-editor{position:fixed;inset:0;z-index:2147483060;display:flex;flex-direction:column;
-  background:var(--gufa-bg,#15171c);color:var(--gufa-text,#e8e8e8)}
-.gufa-mini-bar{flex:0 0 auto;height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;
-  border-bottom:1px solid var(--gufa-border);background:var(--gufa-layer,#1b1e24)}
-.gufa-mini-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
-.gufa-mini-host{flex:1 1 auto;min-height:0;position:relative}
+html[data-gufa-float] .gufa-root{
 
 .gufa-root{
   --gufa-solid-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;--gufa-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;
@@ -3360,47 +3354,6 @@ const GUFA_LINT_ENABLED = true
   }
 
   /* ── 组件 ───────────────────────────────────────────────────────────── */
-
-  /**
-   * 纯净滚动测试编辑器：只挂一个 Monaco，无覆盖层/聊天/资源管理器等外壳。
-   * 用来判断“滚动卡”是 Monaco/页面本身，还是 IDE 外壳（chat dock、背景等）。
-   */
-  G.mountMiniEditor = function mountMiniEditor(container, options) {
-    let disposed = false
-    let editor = null
-    let model = null
-    const opts = options !== null && options !== undefined ? options : {}
-    const mount = (monaco) => {
-      if (disposed || container === null || container === undefined || container.isConnected !== true) return
-      try {
-        editor = monaco.editor.create(container, {
-          ...gufaEditorOptions(opts.theme === 'light' ? 'light' : 'dark'),
-          readOnly: true,
-          renderOverviewRuler: true,
-          overviewRulerLanes: 1,
-        })
-        model = monaco.editor.createModel(String(opts.content ?? ''), typeof opts.language === 'string' && opts.language !== '' ? opts.language : 'plaintext')
-        editor.setModel(model)
-      } catch {
-        /* ignore */
-      }
-    }
-    try {
-      const ready = gufaReadyMonaco()
-      if (ready !== null) {
-        mount(ready)
-      } else {
-        gufaLoadMonaco().then(mount).catch(() => {})
-      }
-    } catch {
-      /* ignore */
-    }
-    return () => {
-      disposed = true
-      try { editor?.dispose() } catch { /* ignore */ }
-      try { model?.dispose() } catch { /* ignore */ }
-    }
-  }
 
   function GufaEditorPaneComponent(props) {
     const tabs = useMemo(() => (Array.isArray(props.tabs) ? props.tabs : []), [props.tabs])
@@ -12705,47 +12658,7 @@ G.useSplitter = function useSplitter(options) {
   return [size, onMouseDown, setSize]
 }
 
-/** 主界面组件。props 由 slot 框架注入（useSessions 等标准 hook）。 */
-/** 纯净单文件编辑器：复用正式 EditorPane（加载/降级/主题都走成熟路径），只去掉 IDE 外壳。 */
-G.MiniEditorView = function MiniEditorView(props) {
-  const [doc, setDoc] = useState(null)
-  const [error, setError] = useState('')
-  useEffect(() => {
-    let cancelled = false
-    setError('')
-    void (async () => {
-      try {
-        const value = await G.api('fs.read', { root: props.root, path: props.path })
-        if (!cancelled) setDoc(value)
-      } catch (failure) {
-        if (!cancelled) setError(G.errorText(failure))
-      }
-    })()
-    return () => { cancelled = true }
-  }, [props.root, props.path])
-  const tab = doc !== null && doc !== undefined ? { ...doc, savedContent: doc.content, savedRevision: doc.revision, dirty: false } : null
-  return h('div', { className: 'gufa-mini-editor' },
-    h('div', { className: 'gufa-mini-bar' },
-      h('span', { className: 'gufa-mini-title' }, `纯净编辑器（滚动测试） · ${props.path}`),
-      h(G.Button, { icon: 'arrow-left', onClick: props.onExit }, '退出纯净编辑'),
-    ),
-    error !== ''
-      ? h('div', { className: 'gufa-hint', style: { padding: '8px 12px' } }, error)
-      : tab !== null
-        ? h('div', { className: 'gufa-mini-host' }, h(G.EditorPane, {
-            tabs: [tab],
-            activePath: tab.path,
-            root: props.root,
-            theme: props.theme,
-            palette: null,
-            backdropMode: false,
-            onChange: () => {},
-            onSave: () => {},
-            onCursor: () => {},
-          }))
-        : h('div', { className: 'gufa-hint', style: { padding: '8px 12px' } }, '加载中…'),
-  )
-}
+
 
 G.GufaApp = function GufaApp(props) {
   const t = G.useT()
@@ -12790,7 +12703,6 @@ G.GufaApp = function GufaApp(props) {
   const [floatReport, setFloatReport] = useState('')
   /* 摸鱼模式（悬浮窗实例）与界面透明度 */
   const [moyuMode] = useState(() => G.isFloatMode())
-  const [miniScrollTest, setMiniScrollTest] = useState(null)
   const [floatAlpha, setFloatAlpha] = useState(() => {
     try {
       const saved = Number(localStorage.getItem('gufa-code:float-alpha'))
@@ -15141,15 +15053,6 @@ G.GufaApp = function GufaApp(props) {
   const statusBranch = project?.isGit === true && gitStatus?.branch ? gitStatus.branch : null
   const lineCount = activeTab === null || activeTab.kind === 'graph' ? 0 : String(activeTab.content ?? '').split('\n').length
 
-  if (miniScrollTest !== null) {
-    return h(G.MiniEditorView, {
-      root: miniScrollTest.root,
-      path: miniScrollTest.path,
-      theme: uiTheme,
-      onExit: () => setMiniScrollTest(null),
-    })
-  }
-
   return h(
     'div',
     {
@@ -15242,18 +15145,6 @@ G.GufaApp = function GufaApp(props) {
           : null,
         moyuMode === false
           ? h(G.IconButton, { title: t('app.refresh'), onClick: () => { setRefreshToken((token) => token + 1); setGitRefreshToken((token) => token + 1); setSshRefreshToken((token) => token + 1) } }, h(G.Icon, { name: 'refresh', size: 15 }))
-          : null,
-        moyuMode === false
-          ? h(G.IconButton, {
-              title: '纯净编辑器（滚动测试）',
-              onClick: () => {
-                if (project === null || activeTab === null) {
-                  setBanner(t('app.noProjectHintTop') ?? '先打开一个文件，再用纯净编辑器测试')
-                  return
-                }
-                setMiniScrollTest({ root: project.root, path: activeTab.path })
-              },
-            }, h(G.Icon, { name: 'file', size: 15 }))
           : null,
         h(G.IconButton, {
           title: ui.chatOpen ? t('activity.collapseChat') : t('activity.expandChat'),
