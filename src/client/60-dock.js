@@ -92,6 +92,8 @@ function gufaPlaceDockedConversation(root, host, options) {
   else root.style.background = dockBackground === '' ? 'var(--gufa-solid-bg, #1a1b1f)' : dockBackground
   root.style.borderLeft = '1px solid var(--dsw-alias-border-l1)'
   root.style.boxSizing = 'border-box'
+  /* 独立合成层：滚动编辑器时避免整页（含大块会话 DOM）反复重绘 */
+  try { root.style.contain = 'layout paint' } catch { /* ignore */ }
   root.style.setProperty('--dsh-chat-user-width', 'calc(100% - 24px)')
   root.style.setProperty('--dsh-conversation-column-width', `${target.width}px`)
   root.setAttribute('data-gufa-dock', '1')
@@ -619,8 +621,22 @@ G.ChatDock = function ChatDock(props) {
       if (!disposed) tickRef.current?.()
     }
     run()
-    const timer = window.setInterval(run, 250)
-    const observer = typeof MutationObserver === 'function' ? new MutationObserver(run) : null
+    const timer = window.setInterval(run, 400)
+    /* 只在「还没找到会话根」或「根被替换/移除」时需要重定位；
+       编辑器滚动时 Monaco 会大量增删行 DOM，之前的 observer 直接跑完整 tick，
+       每次滚动都 getComputedStyle + getBoundingClientRect，是代码区滚动卡的主因。 */
+    let observerTimer = 0
+    const scheduleFromMutation = () => {
+      if (disposed || observerTimer !== 0) return
+      observerTimer = window.setTimeout(() => {
+        observerTimer = 0
+        if (disposed) return
+        const current = dockRef.current.root
+        if (current !== null && current.isConnected === true) return
+        run()
+      }, 150)
+    }
+    const observer = typeof MutationObserver === 'function' ? new MutationObserver(scheduleFromMutation) : null
     if (observer !== null) observer.observe(document.body, { childList: true, subtree: true })
     let resizeObserver = null
     if (typeof ResizeObserver === 'function') {
@@ -633,6 +649,7 @@ G.ChatDock = function ChatDock(props) {
     return () => {
       disposed = true
       window.clearInterval(timer)
+      if (observerTimer !== 0) window.clearTimeout(observerTimer)
       observer?.disconnect()
       resizeObserver?.disconnect()
       window.removeEventListener('resize', onWindowResize)

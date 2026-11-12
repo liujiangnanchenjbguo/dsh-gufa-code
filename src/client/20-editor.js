@@ -669,8 +669,10 @@ const GUFA_LINT_ENABLED = true
       overviewRulerBorder: false,
       hideCursorInOverviewRuler: true,
       scrollBeyondLastLine: false,
-      smoothScrolling: true,
+      smoothScrolling: false,
       cursorBlinking: 'smooth',
+      /* 滚动相关的额外渲染关掉：sticky scroll / 常驻 overview ruler 已单独处理 */
+      stickyScroll: { enabled: false },
       fontSize: 13,
       lineHeight: 20,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
