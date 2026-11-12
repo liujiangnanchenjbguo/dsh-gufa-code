@@ -1,7 +1,7 @@
 # 古法编程 · AI 辅助（dsh-gufa-code）
 
-> **古法编程 = 用老办法亲手写代码，AI 就是停在你右边的那位。**
-> 在 DeepSeek Harness 里一键进入 VS Code 风格的 IDE 模式：左边写代码，右边就是当前 DSH 会话本人 —— 它会改文件、跑终端、提审批，你全看得见。
+> **古法编程：代码自己敲，AI 在右边打下手。**
+> “古法”说的是老办法：亲手写，不把键盘交出去。在 DeepSeek Harness 里一键进入 VS Code 风格 IDE，左边是编辑器、文件树和终端，右边就是当前这个 DSH 会话；它改了什么、跑了什么、什么时候等你确认，都在眼前。
 
 <p align="center">
   <img src="docs/screenshot-ide.jpg" width="900" alt="古法编程 IDE 模式：左侧资源管理器与 Monaco 编辑器，右侧官方 DSH 会话">
