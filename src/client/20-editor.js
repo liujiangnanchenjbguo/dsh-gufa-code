@@ -669,8 +669,8 @@ const GUFA_LINT_ENABLED = true
       overviewRulerBorder: false,
       hideCursorInOverviewRuler: true,
       scrollBeyondLastLine: false,
-      smoothScrolling: false,
-      cursorBlinking: 'smooth',
+      smoothScrolling: true,
+      cursorBlinking: 'blink',
       /* 滚动相关的额外渲染关掉：sticky scroll / 常驻 overview ruler 已单独处理 */
       stickyScroll: { enabled: false },
       fontSize: 13,

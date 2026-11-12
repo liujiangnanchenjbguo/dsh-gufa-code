@@ -93,7 +93,11 @@ function gufaPlaceDockedConversation(root, host, options) {
   root.style.borderLeft = '1px solid var(--dsw-alias-border-l1)'
   root.style.boxSizing = 'border-box'
   /* 独立合成层：滚动编辑器时避免整页（含大块会话 DOM）反复重绘 */
-  try { root.style.contain = 'layout paint' } catch { /* ignore */ }
+  try {
+    root.style.contain = 'layout paint'
+    root.style.willChange = 'transform'
+    root.style.backfaceVisibility = 'hidden'
+  } catch { /* ignore */ }
   root.style.setProperty('--dsh-chat-user-width', 'calc(100% - 24px)')
   root.style.setProperty('--dsh-conversation-column-width', `${target.width}px`)
   root.setAttribute('data-gufa-dock', '1')
