@@ -258,6 +258,7 @@ G.MiniEditorView = function MiniEditorView(props) {
 }
 
 G.GufaApp = function GufaApp(props) {
+  try { G.__gufaRenderCount = (G.__gufaRenderCount ?? 0) + 1 } catch { /* ignore */ }
   const t = G.useT()
   const theme = G.useTheme()
   const problems = G.useProblems()
