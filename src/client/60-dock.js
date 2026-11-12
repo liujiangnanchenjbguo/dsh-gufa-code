@@ -52,6 +52,8 @@ function gufaRestoreDockTarget(node, saved) {
   }
 }
 
+G.findConversationRoot = gufaFindConversationRoot
+
 /**
  * 把会话根浮到停靠区的位置与尺寸；返回是否成功。
  *
@@ -63,6 +65,7 @@ function gufaRestoreDockTarget(node, saved) {
  * 用「测实际位置 → 补偿差值」迭代 2 次把会话对齐到停靠区。
  */
 function gufaPlaceDockedConversation(root, host, options) {
+  try { root.removeAttribute('data-gufa-hide') } catch { /* ignore */ }
   const rect = host.getBoundingClientRect()
   if (!(rect.width >= 80 && rect.height >= 80)) return false
   const target = { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }

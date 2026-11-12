@@ -1305,6 +1305,10 @@ html[data-gufa-float] #root .gufa-overlay-root *,
 html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483050!important}
+/* 聊天栏收起时，把覆盖层下面的官方会话（可能几千个 DOM 节点）真正隐藏，
+   避免编辑器滚动时整页 layout/paint 把它一起算进去。 */
+[data-gufa-hide="1"]{display:none!important}
+
 /* 古法/摸鱼模式下皮肤自身的粒子 canvas 不参与绘制（防止 WebGL/rAF 在覆盖层下面持续跑） */
 html[data-gufa-ide] .liang-ambient,
 html[data-gufa-float] .liang-ambient{display:none!important}

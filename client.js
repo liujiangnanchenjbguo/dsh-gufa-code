@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.153'
+G.BUILD = '1.3.154'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1313,6 +1313,10 @@ html[data-gufa-float] #root .gufa-overlay-root *,
 html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483050!important}
+/* 聊天栏收起时，把覆盖层下面的官方会话（可能几千个 DOM 节点）真正隐藏，
+   避免编辑器滚动时整页 layout/paint 把它一起算进去。 */
+[data-gufa-hide="1"]{display:none!important}
+
 /* 古法/摸鱼模式下皮肤自身的粒子 canvas 不参与绘制（防止 WebGL/rAF 在覆盖层下面持续跑） */
 html[data-gufa-ide] .liang-ambient,
 html[data-gufa-float] .liang-ambient{display:none!important}
@@ -11057,6 +11061,8 @@ function gufaRestoreDockTarget(node, saved) {
   }
 }
 
+G.findConversationRoot = gufaFindConversationRoot
+
 /**
  * 把会话根浮到停靠区的位置与尺寸；返回是否成功。
  *
@@ -11068,6 +11074,7 @@ function gufaRestoreDockTarget(node, saved) {
  * 用「测实际位置 → 补偿差值」迭代 2 次把会话对齐到停靠区。
  */
 function gufaPlaceDockedConversation(root, host, options) {
+  try { root.removeAttribute('data-gufa-hide') } catch { /* ignore */ }
   const rect = host.getBoundingClientRect()
   if (!(rect.width >= 80 && rect.height >= 80)) return false
   const target = { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
@@ -13009,6 +13016,27 @@ G.GufaApp = function GufaApp(props) {
       return next
     })
   }, [])
+
+  /* 聊天栏收起：隐藏覆盖层下的大块官方会话 DOM，减少滚动时的 layout/paint 开销 */
+  useEffect(() => {
+    if (ui.chatOpen === true) {
+      const root = typeof G.findConversationRoot === 'function' ? G.findConversationRoot() : null
+      try { root?.removeAttribute('data-gufa-hide') } catch { /* ignore */ }
+      return undefined
+    }
+    const apply = () => {
+      const root = typeof G.findConversationRoot === 'function' ? G.findConversationRoot() : null
+      if (root === null || root === undefined) return
+      try { root.setAttribute('data-gufa-hide', '1') } catch { /* ignore */ }
+    }
+    apply()
+    const timer = window.setInterval(apply, 1500)
+    return () => {
+      window.clearInterval(timer)
+      const root = typeof G.findConversationRoot === 'function' ? G.findConversationRoot() : null
+      try { root?.removeAttribute('data-gufa-hide') } catch { /* ignore */ }
+    }
+  }, [ui.chatOpen])
 
   /* ── 项目打开 ──────────────────────────────────────────────────────── */
   const applyProject = useCallback((value) => {
