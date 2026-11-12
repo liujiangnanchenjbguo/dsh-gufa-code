@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.144'
+G.BUILD = '1.3.145'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1163,7 +1163,6 @@ G.CSS = `
 .gufa-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
 /* 滚动性能：把背景层/编辑器/会话层各自提升为合成层，避免整页重绘 */
 .gufa-backdrop{will-change:transform;backface-visibility:hidden}
-.gufa-editor-area .monaco-editor{will-change:transform}
 .gufa-chatpane{will-change:transform;backface-visibility:hidden}
 /* 桌面悬浮层（摸鱼）模式：整窗半透明，透明度由 --gufa-float-alpha 控制（标题栏滑块） */
 html[data-gufa-float]{--gufa-float-alpha:0.55}
@@ -9825,7 +9824,8 @@ G.SkinBackdrop = function SkinBackdrop(props) {
       : null,
     h('div', { className: 'gufa-backdrop-fade' }),
     meta.mask === true ? h('div', { className: 'gufa-backdrop-scrim' }) : null,
-    h(G.BackdropParticles, { strength }),
+    /* 背景粒子层默认不渲染：1020 个粒子 30fps 的 canvas + mix-blend-mode:screen
+       会让整页持续合成，是编辑器滚动卡/空闲 CPU 高的主要来源。 */
   )
 }
 
