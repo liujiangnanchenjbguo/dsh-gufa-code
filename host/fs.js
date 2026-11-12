@@ -336,6 +336,17 @@ export function register(router, env) {
 
   /* 代码导航（Cmd+点击跳定义）：实现放在 code.js，但 Host 热重载只按 host/*.js 的 mtime
      触发，因此这里用带 mtime 的 query 动态 import，code.js 改动后下一次请求就能热生效。 */
+  router.method('code.resolvePath', async (body) => {
+    let stamp = '0'
+    try {
+      stamp = String(statSync(new URL('./code.js', import.meta.url)).mtimeMs)
+    } catch {
+      stamp = '0'
+    }
+    const module = await import(new URL(`./code.js?gufa-code-resolve=${stamp}`, import.meta.url).href)
+    return module.resolvePath(body, env)
+  })
+
   router.method('code.definition', async (body) => {
     let stamp = '0'
     try {

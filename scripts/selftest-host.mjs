@@ -133,6 +133,11 @@ try {
   const missingMtimes = await call(router, 'fs.mtimes', { root, paths: [] })
   check('fs.mtimes handles empty list', missingMtimes.files !== null && typeof missingMtimes.files === 'object' && Object.keys(missingMtimes.files).length === 0)
 
+  const resolvedPath = await call(router, 'code.resolvePath', { root, path: 'main.ts' })
+  check('code.resolvePath resolves basename', resolvedPath.path === 'src/main.ts', JSON.stringify(resolvedPath))
+  const resolvedMissing = await call(router, 'code.resolvePath', { root, path: 'not-exist-file.ts' })
+  check('code.resolvePath returns null for missing', resolvedMissing.path === null, JSON.stringify(resolvedMissing))
+
   console.log('lint.javascript')
   await call(router, 'fs.create', { root, path: 'src/lint-sample.js', kind: 'file' })
   const lintResult = await call(router, 'lint.javascript', {

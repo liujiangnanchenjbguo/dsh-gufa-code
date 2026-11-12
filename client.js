@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.138'
+G.BUILD = '1.3.139'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -11161,6 +11161,51 @@ G.__dock = {
   restore: gufaRestoreDockTarget,
 }
 
+/** 从 DSH 会话里的文件引用按钮提取路径/行号，然后在古法编辑器里打开。 */
+function gufaParseMentionButton(button) {
+  if (button === null || button === undefined || typeof button.closest !== 'function') return null
+  const className = typeof button.className === 'string' ? button.className : ''
+  const dataRef = typeof button.getAttribute === 'function' ? (button.getAttribute('data-ref-chip') ?? '') : ''
+  const isMention = className.includes('fileMention') || className.includes('fileLink') || dataRef !== ''
+  if (!isMention) return null
+  const title = typeof button.getAttribute === 'function' ? (button.getAttribute('title') ?? '').trim() : ''
+  const text = String(button.textContent ?? '').replace(/\s+/g, ' ').trim()
+  const parseRef = (value) => {
+    const source = String(value ?? '').trim()
+    if (source === '') return null
+    const match = /^(.*?)(?::(\d+)(?:\s*[-,]\s*\d+)*|#L(\d+)(?:-L?\d+)?)$/.exec(source)
+    if (match === null) return { path: source, line: 0 }
+    return { path: match[1].trim(), line: Number(match[2] ?? match[3]) || 0 }
+  }
+  const titleLooksPath = /[\\/]/.test(title) || /\.[A-Za-z0-9]{1,8}$/.test(title)
+  let parsed = titleLooksPath ? parseRef(title) : null
+  if (parsed === null) parsed = parseRef(text)
+  if (parsed === null || parsed.path === '') return null
+  if (dataRef !== '' && !titleLooksPath && !parsed.path.includes('/') && !parsed.path.includes('.')) {
+    const fromData = parseRef(dataRef)
+    if (fromData !== null) parsed = fromData
+  }
+  return { path: parsed.path.replace(/^\.\//, ''), line: parsed.line }
+}
+
+async function gufaOpenMention(mention) {
+  if (mention === null || mention === undefined || typeof mention.path !== 'string' || mention.path === '') return
+  const root = typeof G.projectRoot === 'string' ? G.projectRoot.replace(/\\/g, '/').replace(/\/+$/, '') : ''
+  if (root === '') return
+  let resolved = null
+  try {
+    resolved = await G.api('code.resolvePath', { root, path: mention.path })
+  } catch {
+    return
+  }
+  if (resolved === null || resolved === undefined || typeof resolved.path !== 'string' || resolved.path === '') return
+  try {
+    G.bus.emit('editor:open-at', { path: resolved.path, line: Math.max(1, Number(mention.line) || 1), column: 1 })
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * 停靠栏：官方会话本体（浮动） + 顶部工具条（新建会话 / 打开完整对话 / 收起）。
  * props = { project, activeFile, selection, theme, width, onInsertCode, backdrop, active, sessionTitle, sessions, onOpenSession }
@@ -11174,11 +11219,56 @@ G.ChatDock = function ChatDock(props) {
   if (followRef.current === null) followRef.current = gufaCreateChatFollowKeeper()
   const tickRef = useRef(null)
   const startedRef = useRef(0)
+  const mentionRootRef = useRef(null)
+  const mentionHandlerRef = useRef(null)
+  const detachMentionRef = useRef(null)
   const [phase, setPhase] = useState('searching')
   const [error, setError] = useState('')
   const active = props.active !== false && props.paused !== true
 
+  const detachMention = useCallback(() => {
+    const root = mentionRootRef.current
+    const handler = mentionHandlerRef.current
+    if (root !== null && handler !== null) {
+      try { root.removeEventListener('click', handler, true) } catch { /* ignore */ }
+    }
+    mentionRootRef.current = null
+    mentionHandlerRef.current = null
+  }, [])
+  detachMentionRef.current = detachMention
+
+  const ensureMentionHandler = useCallback((root) => {
+    if (root === null) {
+      detachMention()
+      return
+    }
+    if (mentionRootRef.current === root && mentionHandlerRef.current !== null) return
+    detachMention()
+    const handler = (event) => {
+      try {
+        if (event.button !== 0 || event.defaultPrevented === true) return
+        const target = event.target instanceof Element ? event.target.closest('button, [data-ref-chip]') : null
+        if (target === null) return
+        const mention = gufaParseMentionButton(target)
+        if (mention === null) return
+        event.preventDefault()
+        event.stopPropagation()
+        void gufaOpenMention(mention)
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      root.addEventListener('click', handler, true)
+      mentionRootRef.current = root
+      mentionHandlerRef.current = handler
+    } catch {
+      /* ignore */
+    }
+  }, [detachMention])
+
   const undock = useCallback(() => {
+    detachMentionRef.current?.()
     const current = dockRef.current
     if (current.root !== null) gufaRestoreDockTarget(current.root, current.saved)
     dockRef.current = { root: null, saved: null }
@@ -11204,6 +11294,7 @@ G.ChatDock = function ChatDock(props) {
       dockRef.current = { root, saved: gufaSnapshotDockTarget(root) }
     }
     if (gufaPlaceDockedConversation(root, host, { translucent: props.backdrop === true })) {
+      ensureMentionHandler(root)
       try {
         const scroller = root.querySelector(GUFA_CONVERSATION_SCROLL_SELECTOR)
         if (scroller !== null && scroller !== undefined) followRef.current?.attach(scroller)
@@ -11212,7 +11303,7 @@ G.ChatDock = function ChatDock(props) {
       }
       setPhase((previous) => (previous === 'docked' ? previous : 'docked'))
     }
-  }, [active, undock, props.backdrop])
+  }, [active, undock, props.backdrop, ensureMentionHandler])
 
   /* 拖拽分割条时的轻量重定位：只改宿主几何，不 getComputedStyle、不读自身 rect、不 setState。
      完整 tick 每次都会 getComputedStyle + 最多两次 getBoundingClientRect，按帧跑会把拖拽拖卡。 */

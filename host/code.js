@@ -371,6 +371,47 @@ export async function definition(body, env) {
     }
 }
 
+function insideProject(root, target) {
+  const rel = relative(root, target)
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+}
+
+/**
+ * 会话里的文件引用（`tasks.js:165`、`engine/x/service.js`）解析成项目内相对路径。
+ * 支持完整相对路径、以 / 结尾的部分路径、纯 basename；多个同名时优先当前文件同目录、层级更浅的。
+ */
+export async function resolvePath(body, env) {
+  const project = env.projects.ensure(typeof body.root === 'string' ? body.root : '')
+  const root = project.root
+  let hint = String(body.path ?? '').replace(/\\/g, '/').trim()
+  if (hint === '') return { path: null, matches: [] }
+  hint = hint.replace(/^file:\/\//, '').replace(/^\.\//, '')
+  if (isAbsolute(hint)) {
+    const absolute = resolve(hint)
+    if (!insideProject(root, absolute)) return { path: null, matches: [] }
+    hint = relative(root, absolute).split(sep).join('/')
+  }
+  hint = hint.replace(/^\/+/, '')
+  if (hint === '' || hint.includes('..')) return { path: null, matches: [] }
+  const candidates = await listCandidates(root, null)
+  const activePath = String(body.activePath ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
+  const activeDir = activePath.includes('/') ? activePath.slice(0, activePath.lastIndexOf('/')) : ''
+  let pool = candidates.filter((candidate) => candidate === hint)
+  if (pool.length === 0) pool = candidates.filter((candidate) => candidate.endsWith(`/${hint}`) || candidate.split('/').pop() === hint)
+  pool = [...new Set(pool)]
+  pool.sort((a, b) => {
+    const aNear = activeDir !== '' && a.startsWith(`${activeDir}/`) ? 0 : 1
+    const bNear = activeDir !== '' && b.startsWith(`${activeDir}/`) ? 0 : 1
+    if (aNear !== bNear) return aNear - bNear
+    const depthDiff = a.split('/').length - b.split('/').length
+    if (depthDiff !== 0) return depthDiff
+    return a.localeCompare(b)
+  })
+  if (pool.length === 0) return { path: null, matches: [] }
+  return { path: pool[0], matches: pool.slice(0, 10) }
+}
+
 export function register(router, env) {
   router.method('code.definition', (body) => definition(body, env))
+  router.method('code.resolvePath', (body) => resolvePath(body, env))
 }

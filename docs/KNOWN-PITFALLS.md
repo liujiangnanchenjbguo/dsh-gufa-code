@@ -156,6 +156,16 @@
     "rules": { "no-undef": "error" } }
   ```
 
+## 0.22 会话文件引用跳古法编辑器（1.3.139）
+
+- DSH 对话里的文件引用（MarkdownText 的 `fileMention`/`fileLink` 按钮、用户引用 chip）原生 onClick 调用的是 ChatView 的 `openFile`，它打开 `ctx.sidebarRight` 资源面板；在古法 IDE 覆盖层下这个面板被挡住，所以点了“没反应”。
+- 修复：ChatDock 停靠成功后，在**官方会话根节点**上挂 capture click 监听：
+  - 命中 `button.fileMention / .fileLink / [data-ref-chip]`；
+  - 从 `title`（完整路径）+ 文本（`xxx.js:165` / `#L165`）解析 path/line；
+  - 调 Host `code.resolvePath` 把 basename/相对路径解析成项目内路径（优先当前目录、层级更浅）；
+  - `editor:open-at` 打开古法编辑器并定位，同时 preventDefault/stopPropagation 阻止 DSH 侧边栏打开；
+  - `undock()`/根节点变化时移除监听。
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。
