@@ -229,7 +229,16 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
     const commands = registry.commands
     const makeResolve = (id, originalResolve) => function gufaIdeResolve(context) {
       try {
+        let overlayMounted = false
+        try { overlayMounted = typeof document !== 'undefined' && document.querySelector('.gufa-overlay-root') !== null } catch { overlayMounted = false }
         if (G.mode.get() === true) {
+          try {
+            if (window.__gufaMapLogs === undefined) window.__gufaMapLogs = 12
+            if (window.__gufaMapLogs > 0 && (id === 'shortcuts.open' || id === 'edrv.toggleComment')) {
+              window.__gufaMapLogs -= 1
+              void G.api('dev.log', { message: `shortcut-map id=${id} mode=${String(G.mode.get())} overlay=${String(overlayMounted)} handlers=${typeof window.__gufaIdeShortcutDispatch === 'function'}` }).catch(() => {})
+            }
+          } catch { /* ignore */ }
           const actions = service.__gufaCommandActions
           const mapped = actions === null || actions === undefined ? undefined : actions[id]
           if (typeof mapped === 'string') {

@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.173'
+G.BUILD = '1.3.174'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -12140,7 +12140,16 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
     const commands = registry.commands
     const makeResolve = (id, originalResolve) => function gufaIdeResolve(context) {
       try {
+        let overlayMounted = false
+        try { overlayMounted = typeof document !== 'undefined' && document.querySelector('.gufa-overlay-root') !== null } catch { overlayMounted = false }
         if (G.mode.get() === true) {
+          try {
+            if (window.__gufaMapLogs === undefined) window.__gufaMapLogs = 12
+            if (window.__gufaMapLogs > 0 && (id === 'shortcuts.open' || id === 'edrv.toggleComment')) {
+              window.__gufaMapLogs -= 1
+              void G.api('dev.log', { message: `shortcut-map id=${id} mode=${String(G.mode.get())} overlay=${String(overlayMounted)} handlers=${typeof window.__gufaIdeShortcutDispatch === 'function'}` }).catch(() => {})
+            }
+          } catch { /* ignore */ }
           const actions = service.__gufaCommandActions
           const mapped = actions === null || actions === undefined ? undefined : actions[id]
           if (typeof mapped === 'string') {
