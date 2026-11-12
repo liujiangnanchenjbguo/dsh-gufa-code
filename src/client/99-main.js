@@ -818,11 +818,4 @@ try {
   /* 忽略只读 window */
 }
 
-/* 临时调试：启动后自动进入古法 IDE，用于自动化探针（随后移除） */
-try {
-  window.setTimeout(() => {
-    try { if (typeof G.enterGufa === 'function') G.enterGufa() } catch { /* ignore */ }
-  }, 1200)
-} catch { /* ignore */ }
-
 return GUFA_PLUGIN

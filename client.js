@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.170'
+G.BUILD = '1.3.171'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -15137,27 +15137,6 @@ G.GufaApp = function GufaApp(props) {
     if (selectionTimerRef.current !== null) { window.clearTimeout(selectionTimerRef.current); selectionTimerRef.current = null }
   }, [])
 
-  useEffect(() => {
-    if (project === null) return undefined
-    const timer = window.setTimeout(() => {
-      try {
-        const pick = (sel) => {
-          const node = document.querySelector(sel)
-          if (node === null) return `${sel}=none`
-          const style = getComputedStyle(node)
-          return `${sel}=${style.backgroundColor}`
-        }
-        const root = document.querySelector('[data-gufa-dock]')
-        void G.api('dev.log', {
-          message: `opacity-probe backdrop=${String(backdropActive)} skinAvail=${String(skinBackdrop.available)} ${pick('.gufa-chatpane')} ${pick('.gufa-chatdock')} ${pick('.gufa-dock-host')} dock=${root !== null ? getComputedStyle(root).backgroundColor : 'none'} overlay=${pick('.gufa-overlay-root')}`,
-        }).catch(() => {})
-      } catch {
-        /* ignore */
-      }
-    }, 1500)
-    return () => window.clearTimeout(timer)
-  }, [project, backdropActive, skinBackdrop.available])
-
   const uiTheme = moyuMode ? 'dark' : theme
   const statusBranch = project?.isGit === true && gitStatus?.branch ? gitStatus.branch : null
   const lineCount = activeTab === null || activeTab.kind === 'graph' ? 0 : String(activeTab.content ?? '').split('\n').length
@@ -16953,13 +16932,6 @@ try {
 } catch {
   /* 忽略只读 window */
 }
-
-/* 临时调试：启动后自动进入古法 IDE，用于自动化探针（随后移除） */
-try {
-  window.setTimeout(() => {
-    try { if (typeof G.enterGufa === 'function') G.enterGufa() } catch { /* ignore */ }
-  }, 1200)
-} catch { /* ignore */ }
 
 return GUFA_PLUGIN
 
