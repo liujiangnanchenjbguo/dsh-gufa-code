@@ -1310,8 +1310,6 @@ html[data-gufa-float] [class*="rightbarCol"]{display:none!important}
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483050!important}
 /* 聊天栏收起时，把覆盖层下面的官方会话（可能几千个 DOM 节点）真正隐藏，
    避免编辑器滚动时整页 layout/paint 把它一起算进去。 */
-[data-gufa-hide="1"]{display:none!important}
-
 /* 古法/摸鱼模式下皮肤自身的粒子 canvas 不参与绘制（防止 WebGL/rAF 在覆盖层下面持续跑） */
 html[data-gufa-ide] .liang-ambient,
 html[data-gufa-float] .liang-ambient{display:none!important}

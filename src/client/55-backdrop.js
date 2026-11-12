@@ -315,8 +315,7 @@ G.SkinBackdrop = function SkinBackdrop(props) {
       : null,
     h('div', { className: 'gufa-backdrop-fade' }),
     meta.mask === true ? h('div', { className: 'gufa-backdrop-scrim' }) : null,
-    /* 背景粒子层默认不渲染：1020 个粒子 30fps 的 canvas + mix-blend-mode:screen
-       会让整页持续合成，是编辑器滚动卡/空闲 CPU 高的主要来源。 */
+    h(G.BackdropParticles, { strength }),
   )
 }
 

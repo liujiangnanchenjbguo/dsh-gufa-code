@@ -434,27 +434,6 @@ G.GufaApp = function GufaApp(props) {
     })
   }, [])
 
-  /* 聊天栏收起：隐藏覆盖层下的大块官方会话 DOM，减少滚动时的 layout/paint 开销 */
-  useEffect(() => {
-    if (ui.chatOpen === true) {
-      const root = typeof G.findConversationRoot === 'function' ? G.findConversationRoot() : null
-      try { root?.removeAttribute('data-gufa-hide') } catch { /* ignore */ }
-      return undefined
-    }
-    const apply = () => {
-      const root = typeof G.findConversationRoot === 'function' ? G.findConversationRoot() : null
-      if (root === null || root === undefined) return
-      try { root.setAttribute('data-gufa-hide', '1') } catch { /* ignore */ }
-    }
-    apply()
-    const timer = window.setInterval(apply, 1500)
-    return () => {
-      window.clearInterval(timer)
-      const root = typeof G.findConversationRoot === 'function' ? G.findConversationRoot() : null
-      try { root?.removeAttribute('data-gufa-hide') } catch { /* ignore */ }
-    }
-  }, [ui.chatOpen])
-
   /* ── 项目打开 ──────────────────────────────────────────────────────── */
   const applyProject = useCallback((value) => {
     G.projectRoot = typeof value?.root === 'string' ? value.root : null

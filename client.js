@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.164'
+G.BUILD = '1.3.165'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1318,8 +1318,6 @@ html[data-gufa-float] [class*="rightbarCol"]{display:none!important}
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483050!important}
 /* 聊天栏收起时，把覆盖层下面的官方会话（可能几千个 DOM 节点）真正隐藏，
    避免编辑器滚动时整页 layout/paint 把它一起算进去。 */
-[data-gufa-hide="1"]{display:none!important}
-
 /* 古法/摸鱼模式下皮肤自身的粒子 canvas 不参与绘制（防止 WebGL/rAF 在覆盖层下面持续跑） */
 html[data-gufa-ide] .liang-ambient,
 html[data-gufa-float] .liang-ambient{display:none!important}
@@ -3319,7 +3317,7 @@ const GUFA_LINT_ENABLED = true
       hideCursorInOverviewRuler: true,
       scrollBeyondLastLine: false,
       smoothScrolling: true,
-      cursorBlinking: 'blink',
+      cursorBlinking: 'smooth',
       /* 滚动相关的额外渲染关掉：sticky scroll / 常驻 overview ruler 已单独处理 */
       stickyScroll: { enabled: false },
       fontSize: 13,
@@ -9883,8 +9881,7 @@ G.SkinBackdrop = function SkinBackdrop(props) {
       : null,
     h('div', { className: 'gufa-backdrop-fade' }),
     meta.mask === true ? h('div', { className: 'gufa-backdrop-scrim' }) : null,
-    /* 背景粒子层默认不渲染：1020 个粒子 30fps 的 canvas + mix-blend-mode:screen
-       会让整页持续合成，是编辑器滚动卡/空闲 CPU 高的主要来源。 */
+    h(G.BackdropParticles, { strength }),
   )
 }
 
@@ -11907,10 +11904,7 @@ G.OverlayHost = function OverlayHost(props) {
       }
     }
     apply()
-    try { if (typeof G.suspendSkinEffects === 'function') G.suspendSkinEffects() } catch { /* ignore */ }
-    try { window.dispatchEvent(new Event('resize')) } catch { /* ignore */ }
-    /* 800ms 的 apply 会周期性 getComputedStyle/取色，和滚动叠加容易顿一下；放宽到 2s */
-    const timer = window.setInterval(apply, 2000)
+    const timer = window.setInterval(apply, 800)
     let observer = null
     if (typeof MutationObserver === 'function') {
       /* 只监听语义属性；绝对不能监听 body 的 style/class ——
@@ -11922,8 +11916,6 @@ G.OverlayHost = function OverlayHost(props) {
     return () => {
       window.clearInterval(timer)
       observer?.disconnect()
-      try { if (typeof G.resumeSkinEffects === 'function') G.resumeSkinEffects() } catch { /* ignore */ }
-      try { window.dispatchEvent(new Event('resize')) } catch { /* ignore */ }
       try {
         document.documentElement.removeAttribute('data-gufa-ide')
         document.documentElement.removeAttribute('data-gufa-skin-live')
@@ -12925,27 +12917,6 @@ G.GufaApp = function GufaApp(props) {
       return next
     })
   }, [])
-
-  /* 聊天栏收起：隐藏覆盖层下的大块官方会话 DOM，减少滚动时的 layout/paint 开销 */
-  useEffect(() => {
-    if (ui.chatOpen === true) {
-      const root = typeof G.findConversationRoot === 'function' ? G.findConversationRoot() : null
-      try { root?.removeAttribute('data-gufa-hide') } catch { /* ignore */ }
-      return undefined
-    }
-    const apply = () => {
-      const root = typeof G.findConversationRoot === 'function' ? G.findConversationRoot() : null
-      if (root === null || root === undefined) return
-      try { root.setAttribute('data-gufa-hide', '1') } catch { /* ignore */ }
-    }
-    apply()
-    const timer = window.setInterval(apply, 1500)
-    return () => {
-      window.clearInterval(timer)
-      const root = typeof G.findConversationRoot === 'function' ? G.findConversationRoot() : null
-      try { root?.removeAttribute('data-gufa-hide') } catch { /* ignore */ }
-    }
-  }, [ui.chatOpen])
 
   /* ── 项目打开 ──────────────────────────────────────────────────────── */
   const applyProject = useCallback((value) => {
