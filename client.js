@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.139'
+G.BUILD = '1.3.140'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -11178,14 +11178,31 @@ function gufaParseMentionButton(button) {
     return { path: match[1].trim(), line: Number(match[2] ?? match[3]) || 0 }
   }
   const titleLooksPath = /[\\/]/.test(title) || /\.[A-Za-z0-9]{1,8}$/.test(title)
-  let parsed = titleLooksPath ? parseRef(title) : null
-  if (parsed === null) parsed = parseRef(text)
-  if (parsed === null || parsed.path === '') return null
-  if (dataRef !== '' && !titleLooksPath && !parsed.path.includes('/') && !parsed.path.includes('.')) {
-    const fromData = parseRef(dataRef)
-    if (fromData !== null) parsed = fromData
+  const fromTitle = titleLooksPath ? parseRef(title) : null
+  const fromText = parseRef(text)
+  /* 关键：title 通常只有完整路径（无行号），行号在按钮文本 `xxx.js:165` 里；
+     两者要合并，不能 title 命中就忽略文本的行号。 */
+  let path = fromTitle !== null && fromTitle.path !== '' ? fromTitle.path : (fromText !== null ? fromText.path : '')
+  let line = (fromTitle !== null ? fromTitle.line : 0) || (fromText !== null ? fromText.line : 0)
+  if (path === '') return null
+  if (dataRef !== '') {
+    let dataPath = ''
+    let dataLine = 0
+    if (dataRef.trim().startsWith('{')) {
+      try {
+        const parsedData = JSON.parse(dataRef)
+        dataPath = typeof parsedData?.path === 'string' ? parsedData.path : ''
+        dataLine = Number(parsedData?.line) || 0
+      } catch {
+        /* ignore */
+      }
+    }
+    if (dataPath !== '') {
+      path = dataPath
+      if (dataLine > 0) line = dataLine
+    }
   }
-  return { path: parsed.path.replace(/^\.\//, ''), line: parsed.line }
+  return { path: path.replace(/^\.\//, ''), line }
 }
 
 async function gufaOpenMention(mention) {
