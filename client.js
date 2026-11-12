@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.162'
+G.BUILD = '1.3.163'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1310,6 +1310,11 @@ html[data-gufa-float] #root [data-gufa-dock],
 html[data-gufa-float] #root .gufa-overlay-root *,
 html[data-gufa-float] #root [data-gufa-dock] *{visibility:visible!important}
 /* 桌宠提到覆盖层之上：同时兼容 @linxin666/dsh-pet（data-dsh-pet-root）与官方 dsh-pet（.dsh-pet-root） */
+/* 古法覆盖层打开时，DSH 右侧栏被覆盖却仍参与 layout/paint；
+   myrta 这类会话会给右侧栏渲染 7000+ 节点，导致编辑器滚动每帧 style/layout 50ms。 */
+html[data-gufa-ide] [class*="rightbarCol"],
+html[data-gufa-float] [class*="rightbarCol"]{display:none!important}
+
 html[data-gufa-ide] .dsh-pet-root{z-index:2147483050!important}
 /* 聊天栏收起时，把覆盖层下面的官方会话（可能几千个 DOM 节点）真正隐藏，
    避免编辑器滚动时整页 layout/paint 把它一起算进去。 */
