@@ -217,36 +217,6 @@ const GUFA_PLUGIN = {
   inject: [],
   apply(ctx) {
     G.ctx = ctx
-    /* 临时探针：检查经典模式下窗口标题栏命中的元素，排查 drag region 被谁盖住 */
-    try {
-      window.setTimeout(() => {
-        try {
-          const points = [[40, 40], [400, 50], [855, 50], [1200, 50], [1600, 50], [855, 20]]
-          const hits = points.map(([x, y]) => {
-            const node = document.elementFromPoint(x, y)
-            if (node === null) return `${x},${y}=none`
-            const id = node.id ? `#${node.id}` : ''
-            const cls = typeof node.className === 'string' ? node.className : ''
-            return `${x},${y}=${node.tagName}${id}.${String(cls).slice(0, 40)}`
-          })
-          let portalRegion = 'n/a'
-          try {
-            const portalNode = document.getElementById('gufa-portal-root')
-            if (portalNode !== null) {
-              const computed = getComputedStyle(portalNode)
-              portalRegion = `${String(computed.getPropertyValue('-webkit-app-region') || computed.webkitAppRegion || 'empty')}/display=${String(computed.display)}/children=${String(portalNode.childElementCount)}`
-            }
-          } catch { portalRegion = 'err' }
-          void G.api('dev.log', {
-            message: `drag-probe mode=${String(typeof G.mode?.get === 'function' ? G.mode.get() : '?')} portal=${document.getElementById('gufa-portal-root') !== null ? 'yes' : 'no'} portalRegion=${portalRegion} overlay=${document.querySelector('.gufa-overlay-root') !== null ? 'yes' : 'no'} htmlAttrs=${Array.from(document.documentElement.attributes || []).map((a) => a.name).filter((n) => n.startsWith('data-gufa')).join(',')} hits=${hits.join(' | ')}`,
-          }).catch(() => {})
-        } catch {
-          /* ignore */
-        }
-      }, 2500)
-    } catch {
-      /* ignore */
-    }
 
     /* ── 悬浮层模式（?gufa-float=1 或 helper 注入的 localStorage 标记）──
      * 尽早打标记并隐藏经典 DSH 界面，避免先闪出一个「另一个 DSH」；

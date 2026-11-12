@@ -29,9 +29,6 @@ G.portal = (function createPortalHelper() {
     if (host === null) {
       host = document.createElement('div')
       host.id = 'gufa-portal-root'
-      /* DSH 的 macOS 全局样式会给 body>:not(#root) 加 -webkit-app-region:no-drag，
-         这个全屏 portal 容器一旦被标成 no-drag，会把整窗拖拽区域全部挖掉。 */
-      try { host.style.setProperty('-webkit-app-region', 'none') } catch { /* ignore */ }
       document.body.appendChild(host)
     }
     return host
