@@ -507,7 +507,6 @@ G.BackdropParticles = function BackdropParticles(props) {
 
 /** 进入古法 IDE 时临时关掉皮肤自身的粒子/动效（它们会在覆盖层下面持续跑 WebGL/rAF）；
  *  退出时恢复用户原设置，不改变用户偏好。 */
-const SKIN_SETTINGS_KEY = 'dsh-liang-intensity-skin.settings.v1'
 let gufaSkinEffectsSaved = null
 G.suspendSkinEffects = function suspendSkinEffects() {
   try {
