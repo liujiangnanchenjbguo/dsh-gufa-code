@@ -886,27 +886,13 @@ const GUFA_LINT_ENABLED = true
           } catch {
             /* ignore */
           }
-          /* 错误诊断恢复 Monaco 原生 TS worker：语法/语义/类型错误都正常画线。
-             Monaco 的 javascriptDefaults 默认关掉了 JS 语义诊断（noSemanticValidation=true），
-             这里显式打开并开 checkJs，否则 .js 里只有语法错误、没有未定义变量等诊断。 */
+          /* 诊断统一由 Host 提供：JS 用项目 ESLint（尊重 .eslintrc/globals/rules），
+             TS 回落 Host tsc；关掉 Monaco worker 诊断，避免同一个错误画两条线/问题计数翻倍。 */
           try {
             const typescriptLanguages = monaco.languages.typescript
-            if (typescriptLanguages !== null && typescriptLanguages !== undefined) {
-              const diagnosticsOn = { noSemanticValidation: false, noSyntaxValidation: false }
-              typescriptLanguages.typescriptDefaults?.setDiagnosticsOptions(diagnosticsOn)
-              typescriptLanguages.javascriptDefaults?.setDiagnosticsOptions(diagnosticsOn)
-              typescriptLanguages.javascriptDefaults?.setCompilerOptions({
-                allowNonTsExtensions: true,
-                allowJs: true,
-                checkJs: true,
-                target: 99,
-                moduleResolution: 2,
-                module: 99,
-                jsx: 1,
-                esModuleInterop: true,
-                allowSyntheticDefaultImports: true,
-              })
-            }
+            const diagnosticsOff = { noSemanticValidation: true, noSyntaxValidation: true }
+            typescriptLanguages?.typescriptDefaults?.setDiagnosticsOptions(diagnosticsOff)
+            typescriptLanguages?.javascriptDefaults?.setDiagnosticsOptions(diagnosticsOff)
           } catch (error) {
             /* ignore */
           }

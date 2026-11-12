@@ -140,6 +140,22 @@
   3. 同一个 `registerEditorOpener` 打开项目文件或只读 `~typescript/lib*.d.ts`。
 - 也就是说 Cmd+点击现在和 F12 **完全同一条代码路径**，不再有自己的解析/兜底。唯一的自定义只是「把鼠标事件翻译成这个 action」这一层。
 
+## 0.21 诊断改用 ESLint（1.3.138）
+
+- 之前 Host tsc 单文件 Program 不认识项目里自定义的全局变量，把业务里的 global 变量全报成未定义；Monaco 原生 worker 在桌面壳又不稳定。
+- 现在 JS/JSX/MJS/CJS 用 ESLint：
+  - 优先用项目自己的 ESLint（存在 `eslint.config.js` 时从项目 node_modules 加载）；
+  - 否则用插件内置 ESLint 8 + `useEslintrc`，自动读取 `.eslintrc.*` / package.json `eslintConfig`；没有配置时用内置 `no-undef` 规则 + node/browser globals；
+  - `.eslintrc` 里的 `globals` / `rules` / 插件会生效，自定义全局变量不再误报；
+  - TS/TSX 仍走 Host tsc（ESLint 默认 parser 不解析 TS 语法）。
+- Monaco 原生 worker 诊断关闭，避免同一错误双份 marker；Host lint 仍 debounce 650ms 更新。
+- 项目示例 `.eslintrc.json`：
+  ```json
+  { "env": { "node": true, "browser": true, "es2022": true },
+    "globals": { "myGlobal": "readonly" },
+    "rules": { "no-undef": "error" } }
+  ```
+
 ## 1. 弹窗/菜单层级：只有一个正确做法（反复踩过多次，最终定案）
 
 **现象**：弹窗被右侧「古法 AI」聊天栏压住、只显示一半、关闭按钮点不到；或者反过来把官方设置/会话弹窗盖住。

@@ -141,14 +141,14 @@ try {
     language: 'javascript',
     content: 'const lintValue = undefinedVariable\n',
   })
-  check('lint reports undefined variable', lintResult.diagnostics.some((item) => item.code === 2304 && item.line === 1), JSON.stringify(lintResult.diagnostics))
+  check('lint reports undefined variable', lintResult.diagnostics.some((item) => item.code === 'no-undef' && item.line === 1 && String(item.message).includes('not defined')), JSON.stringify(lintResult.diagnostics))
   const lintSyntax = await call(router, 'lint.javascript', {
     root,
     path: 'src/lint-sample.js',
     language: 'javascript',
     content: 'const = 1\n',
   })
-  check('lint reports syntax error', lintSyntax.diagnostics.some((item) => item.severity === 1 && item.code === 1134), JSON.stringify(lintSyntax.diagnostics))
+  check('lint reports syntax error', lintSyntax.diagnostics.some((item) => item.severity === 1 && item.code === 'parsing-error'), JSON.stringify(lintSyntax.diagnostics))
   const lintNoisy = await call(router, 'lint.javascript', {
     root,
     path: 'src/lint-sample.js',
@@ -156,6 +156,16 @@ try {
     content: 'const someObject = {}\nsomeObject.missingProperty\n',
   })
   check('lint suppresses dynamic property warnings', lintNoisy.diagnostics.length === 0, JSON.stringify(lintNoisy.diagnostics))
+  await call(router, 'fs.create', { root, path: '.eslintrc.json', kind: 'file' })
+  await call(router, 'fs.write', { root, path: '.eslintrc.json', content: JSON.stringify({ globals: { zzConfiguredGlobal: 'readonly' } }) })
+  const lintConfigured = await call(router, 'lint.javascript', {
+    root,
+    path: 'src/lint-sample.js',
+    language: 'javascript',
+    content: 'zzConfiguredGlobal\n',
+  })
+  check('lint respects project eslint globals', lintConfigured.diagnostics.length === 0, JSON.stringify(lintConfigured.diagnostics))
+  await call(router, 'fs.delete', { root, path: '.eslintrc.json' }).catch(() => {})
   await call(router, 'fs.delete', { root, path: 'src/lint-sample.js' }).catch(() => {})
 
   console.log('code.tsDefinition')
