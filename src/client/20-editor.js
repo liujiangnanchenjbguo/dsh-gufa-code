@@ -723,7 +723,7 @@ const GUFA_LINT_ENABLED = true
     let editor = null
     let model = null
     const opts = options !== null && options !== undefined ? options : {}
-    gufaMonacoPromise.then((monaco) => {
+    const mount = (monaco) => {
       if (disposed || container === null || container === undefined || container.isConnected !== true) return
       try {
         editor = monaco.editor.create(container, {
@@ -737,7 +737,17 @@ const GUFA_LINT_ENABLED = true
       } catch {
         /* ignore */
       }
-    }).catch(() => {})
+    }
+    try {
+      const ready = gufaReadyMonaco()
+      if (ready !== null) {
+        mount(ready)
+      } else {
+        gufaLoadMonaco().then(mount).catch(() => {})
+      }
+    } catch {
+      /* ignore */
+    }
     return () => {
       disposed = true
       try { editor?.dispose() } catch { /* ignore */ }
