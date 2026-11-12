@@ -1832,7 +1832,10 @@ const GUFA_LINT_ENABLED = false
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
           lineNumbers: 'on',
-          renderOverviewRuler: false,
+          /* diff 编辑器也显示右侧 overview ruler：新增/删除改动在滚动条旁有红绿标记 */
+          renderOverviewRuler: true,
+          overviewRulerLanes: 1,
+          overviewRulerBorder: false,
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
           fontSize: 12.5,
           lineHeight: 1.15,
