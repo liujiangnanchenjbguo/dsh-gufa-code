@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.177'
+G.BUILD = '1.3.178'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -16876,6 +16876,17 @@ try {
   if (typeof window !== 'undefined') window.__GUFA_CODE__ = { version: '1.0.0', G, plugin: GUFA_PLUGIN }
 } catch {
   /* 忽略只读 window */
+}
+
+/* 插件热重载/升级后，清掉上一代遗留在 window 上的快捷键桥，避免经典模式被旧监听器拦截 */
+try {
+  if (typeof window !== 'undefined' && window !== null && typeof window.__gufaShortcutBridgeDispose === 'function') {
+    window.__gufaShortcutBridgeDispose()
+    window.__gufaShortcutBridgeDispose = null
+    window.__gufaShortcutBridge = false
+  }
+} catch {
+  /* ignore */
 }
 
 return GUFA_PLUGIN

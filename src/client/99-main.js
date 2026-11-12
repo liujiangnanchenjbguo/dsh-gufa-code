@@ -813,4 +813,15 @@ try {
   /* 忽略只读 window */
 }
 
+/* 插件热重载/升级后，清掉上一代遗留在 window 上的快捷键桥，避免经典模式被旧监听器拦截 */
+try {
+  if (typeof window !== 'undefined' && window !== null && typeof window.__gufaShortcutBridgeDispose === 'function') {
+    window.__gufaShortcutBridgeDispose()
+    window.__gufaShortcutBridgeDispose = null
+    window.__gufaShortcutBridge = false
+  }
+} catch {
+  /* ignore */
+}
+
 return GUFA_PLUGIN
