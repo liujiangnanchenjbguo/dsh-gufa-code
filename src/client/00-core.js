@@ -1168,8 +1168,6 @@ html[data-gufa-float] .gufa-overlay-root{
 }
 html[data-gufa-float] .gufa-overlay-root,
 html[data-gufa-float] .gufa-root{
-
-.gufa-root{
   --gufa-solid-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;--gufa-bg:rgba(13,15,19,var(--gufa-float-alpha))!important;
   --gufa-solid-layer:rgba(20,22,27,var(--gufa-float-alpha))!important;--gufa-layer:rgba(20,22,27,var(--gufa-float-alpha))!important;
   --gufa-solid-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;--gufa-layer2:rgba(26,28,34,var(--gufa-float-alpha))!important;
