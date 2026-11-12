@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.181'
+G.BUILD = '1.3.182'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -16319,8 +16319,16 @@ const GUFA_PLUGIN = {
             const cls = typeof node.className === 'string' ? node.className : ''
             return `${x},${y}=${node.tagName}${id}.${String(cls).slice(0, 40)}`
           })
+          let portalRegion = 'n/a'
+          try {
+            const portalNode = document.getElementById('gufa-portal-root')
+            if (portalNode !== null) {
+              const computed = getComputedStyle(portalNode)
+              portalRegion = String(computed.getPropertyValue('-webkit-app-region') || computed.webkitAppRegion || 'empty')
+            }
+          } catch { portalRegion = 'err' }
           void G.api('dev.log', {
-            message: `drag-probe mode=${String(typeof G.mode?.get === 'function' ? G.mode.get() : '?')} portal=${document.getElementById('gufa-portal-root') !== null ? 'yes' : 'no'} overlay=${document.querySelector('.gufa-overlay-root') !== null ? 'yes' : 'no'} htmlAttrs=${Array.from(document.documentElement.attributes || []).map((a) => a.name).filter((n) => n.startsWith('data-gufa')).join(',')} hits=${hits.join(' | ')}`,
+            message: `drag-probe mode=${String(typeof G.mode?.get === 'function' ? G.mode.get() : '?')} portal=${document.getElementById('gufa-portal-root') !== null ? 'yes' : 'no'} portalRegion=${portalRegion} overlay=${document.querySelector('.gufa-overlay-root') !== null ? 'yes' : 'no'} htmlAttrs=${Array.from(document.documentElement.attributes || []).map((a) => a.name).filter((n) => n.startsWith('data-gufa')).join(',')} hits=${hits.join(' | ')}`,
           }).catch(() => {})
         } catch {
           /* ignore */

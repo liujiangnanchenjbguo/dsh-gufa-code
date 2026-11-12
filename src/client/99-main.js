@@ -229,8 +229,16 @@ const GUFA_PLUGIN = {
             const cls = typeof node.className === 'string' ? node.className : ''
             return `${x},${y}=${node.tagName}${id}.${String(cls).slice(0, 40)}`
           })
+          let portalRegion = 'n/a'
+          try {
+            const portalNode = document.getElementById('gufa-portal-root')
+            if (portalNode !== null) {
+              const computed = getComputedStyle(portalNode)
+              portalRegion = String(computed.getPropertyValue('-webkit-app-region') || computed.webkitAppRegion || 'empty')
+            }
+          } catch { portalRegion = 'err' }
           void G.api('dev.log', {
-            message: `drag-probe mode=${String(typeof G.mode?.get === 'function' ? G.mode.get() : '?')} portal=${document.getElementById('gufa-portal-root') !== null ? 'yes' : 'no'} overlay=${document.querySelector('.gufa-overlay-root') !== null ? 'yes' : 'no'} htmlAttrs=${Array.from(document.documentElement.attributes || []).map((a) => a.name).filter((n) => n.startsWith('data-gufa')).join(',')} hits=${hits.join(' | ')}`,
+            message: `drag-probe mode=${String(typeof G.mode?.get === 'function' ? G.mode.get() : '?')} portal=${document.getElementById('gufa-portal-root') !== null ? 'yes' : 'no'} portalRegion=${portalRegion} overlay=${document.querySelector('.gufa-overlay-root') !== null ? 'yes' : 'no'} htmlAttrs=${Array.from(document.documentElement.attributes || []).map((a) => a.name).filter((n) => n.startsWith('data-gufa')).join(',')} hits=${hits.join(' | ')}`,
           }).catch(() => {})
         } catch {
           /* ignore */
