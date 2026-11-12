@@ -7,8 +7,8 @@
   <key>CFBundleDisplayName</key><string>古法编程悬浮层</string>
   <key>CFBundleExecutable</key><string>gufa-float</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.3.154</string>
-  <key>CFBundleVersion</key><string>1.3.154</string>
+  <key>CFBundleShortVersionString</key><string>1.3.155</string>
+  <key>CFBundleVersion</key><string>1.3.155</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>

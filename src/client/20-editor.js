@@ -1650,6 +1650,20 @@ const GUFA_LINT_ENABLED = true
                 try {
                   const qsa = (selector) => profilerDom !== null ? profilerDom.querySelectorAll(selector).length : 0
                   const renderCount = typeof G.__gufaRenderCount === 'number' ? G.__gufaRenderCount : 0
+                  let findVisible = false
+                  let findMatches = 0
+                  let decorations = 0
+                  let overlayNodes = 0
+                  let overlayRoots = 0
+                  try {
+                    findVisible = profilerDom !== null && profilerDom.querySelector('.find-widget.visible') !== null
+                    findMatches = qsa('.findMatch')
+                    decorations = typeof instance.getModel()?.getAllDecorations === 'function' ? instance.getModel().getAllDecorations().length : -1
+                    overlayNodes = qsa('.gufa-overlay-root *')
+                    overlayRoots = qsa('.gufa-overlay-root')
+                  } catch {
+                    /* ignore */
+                  }
                   detail = ` renders=${renderCount - perf.renderStart}` +
                     ` treeRows=${qsa('.gufa-tree-row')}` +
                     ` editorNodes=${qsa('.gufa-editor-area *')}` +
@@ -1658,7 +1672,12 @@ const GUFA_LINT_ENABLED = true
                     ` conversation=${qsa('[data-conversation-scroll] *')}` +
                     ` streaming=${qsa('[data-streaming]')}` +
                     ` xterm=${qsa('.xterm *')}` +
-                    ` monaco=${qsa('.monaco-editor')}`
+                    ` monaco=${qsa('.monaco-editor')}` +
+                    ` findVisible=${findVisible}` +
+                    ` findMatches=${findMatches}` +
+                    ` decorations=${decorations}` +
+                    ` overlayRoots=${overlayRoots}` +
+                    ` overlayNodes=${overlayNodes}`
                 } catch {
                   detail = ''
                 }
