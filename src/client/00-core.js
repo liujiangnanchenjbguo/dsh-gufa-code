@@ -1153,9 +1153,7 @@ G.errorText = (error) => {
 G.CSS = `
 .gufa-overlay-root{position:fixed;inset:0;z-index:1;display:flex;box-sizing:border-box;background:var(--gufa-solid-bg, var(--dsw-alias-bg-base));pointer-events:auto;overflow:hidden}
 .gufa-backdrop{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
-/* 滚动性能：把背景层/编辑器/会话层各自提升为合成层，避免整页重绘 */
-.gufa-backdrop{will-change:transform;backface-visibility:hidden}
-.gufa-chatpane{will-change:transform;backface-visibility:hidden}
+
 /* 桌面悬浮层（摸鱼）模式：整窗半透明，透明度由 --gufa-float-alpha 控制（标题栏滑块） */
 html[data-gufa-float]{--gufa-float-alpha:0.55}
 html[data-gufa-float] body{background:transparent!important;color-scheme:dark;

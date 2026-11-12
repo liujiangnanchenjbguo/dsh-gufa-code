@@ -95,11 +95,9 @@ function gufaPlaceDockedConversation(root, host, options) {
   else root.style.background = dockBackground === '' ? 'var(--gufa-solid-bg, #1a1b1f)' : dockBackground
   root.style.borderLeft = '1px solid var(--dsw-alias-border-l1)'
   root.style.boxSizing = 'border-box'
-  /* 独立合成层：滚动编辑器时避免整页（含大块会话 DOM）反复重绘 */
+  /* 注意：不要给会话根加 will-change/contain——实测会增加每次滚动时的样式/布局成本 */
   try {
     root.style.contain = 'layout paint'
-    root.style.willChange = 'transform'
-    root.style.backfaceVisibility = 'hidden'
   } catch { /* ignore */ }
   root.style.setProperty('--dsh-chat-user-width', 'calc(100% - 24px)')
   root.style.setProperty('--dsh-conversation-column-width', `${target.width}px`)
