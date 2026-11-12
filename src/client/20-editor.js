@@ -544,7 +544,7 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
 }
 
 /* 诊断波浪线已关闭（用户要求）；Host lint 也不再在每次输入后跑 tsc，省 CPU */
-const GUFA_LINT_ENABLED = false
+const GUFA_LINT_ENABLED = true
 
 /* ── model / URI ────────────────────────────────────────────────────── */
 
