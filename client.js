@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.179'
+G.BUILD = '1.3.181'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -37,6 +37,9 @@ G.portal = (function createPortalHelper() {
     if (host === null) {
       host = document.createElement('div')
       host.id = 'gufa-portal-root'
+      /* DSH 的 macOS 全局样式会给 body>:not(#root) 加 -webkit-app-region:no-drag，
+         这个全屏 portal 容器一旦被标成 no-drag，会把整窗拖拽区域全部挖掉。 */
+      try { host.style.setProperty('-webkit-app-region', 'none') } catch { /* ignore */ }
       document.body.appendChild(host)
     }
     return host
@@ -1394,6 +1397,7 @@ html[data-gufa-ide] [role="dialog"] {
   --gufa-text:var(--gufa-solid-text, var(--dsw-alias-label-primary, #f4f1e8));--gufa-text-dim:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary, rgba(244,241,232,0.66)));
   --gufa-hover:color-mix(in srgb, var(--gufa-text) 7%, transparent);--gufa-active:color-mix(in srgb, var(--gufa-text) 11%, transparent);
   color:var(--gufa-text);font-size:13px;line-height:1.45}
+#gufa-portal-root{-webkit-app-region:none!important;app-region:none!important}
 #gufa-portal-root>*{pointer-events:auto}
 /* 摸鱼模式：App 窗口选择器 */
 .gufa-float-backdrop{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;
@@ -10116,7 +10120,7 @@ G.refToast = function refToast(text, kind) {
     if (host === null) {
       host = document.createElement('div')
       host.id = 'gufa-ref-toast'
-      host.style.cssText = 'position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:2147483000;max-width:70vw;padding:7px 14px;border-radius:999px;font:12px/1.5 system-ui,sans-serif;box-shadow:0 6px 20px rgba(16,24,40,.18);pointer-events:none;white-space:pre-wrap'
+      host.style.cssText = 'position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:2147483000;max-width:70vw;padding:7px 14px;border-radius:999px;font:12px/1.5 system-ui,sans-serif;box-shadow:0 6px 20px rgba(16,24,40,.18);pointer-events:none;white-space:pre-wrap;-webkit-app-region:none'
       document.body.appendChild(host)
     }
     host.textContent = String(text)

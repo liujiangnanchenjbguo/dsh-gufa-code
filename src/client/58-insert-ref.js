@@ -13,7 +13,7 @@ G.refToast = function refToast(text, kind) {
     if (host === null) {
       host = document.createElement('div')
       host.id = 'gufa-ref-toast'
-      host.style.cssText = 'position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:2147483000;max-width:70vw;padding:7px 14px;border-radius:999px;font:12px/1.5 system-ui,sans-serif;box-shadow:0 6px 20px rgba(16,24,40,.18);pointer-events:none;white-space:pre-wrap'
+      host.style.cssText = 'position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:2147483000;max-width:70vw;padding:7px 14px;border-radius:999px;font:12px/1.5 system-ui,sans-serif;box-shadow:0 6px 20px rgba(16,24,40,.18);pointer-events:none;white-space:pre-wrap;-webkit-app-region:none'
       document.body.appendChild(host)
     }
     host.textContent = String(text)

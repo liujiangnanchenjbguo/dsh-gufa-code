@@ -29,6 +29,9 @@ G.portal = (function createPortalHelper() {
     if (host === null) {
       host = document.createElement('div')
       host.id = 'gufa-portal-root'
+      /* DSH 的 macOS 全局样式会给 body>:not(#root) 加 -webkit-app-region:no-drag，
+         这个全屏 portal 容器一旦被标成 no-drag，会把整窗拖拽区域全部挖掉。 */
+      try { host.style.setProperty('-webkit-app-region', 'none') } catch { /* ignore */ }
       document.body.appendChild(host)
     }
     return host
@@ -1386,6 +1389,7 @@ html[data-gufa-ide] [role="dialog"] {
   --gufa-text:var(--gufa-solid-text, var(--dsw-alias-label-primary, #f4f1e8));--gufa-text-dim:var(--gufa-solid-text-dim, var(--dsw-alias-label-secondary, rgba(244,241,232,0.66)));
   --gufa-hover:color-mix(in srgb, var(--gufa-text) 7%, transparent);--gufa-active:color-mix(in srgb, var(--gufa-text) 11%, transparent);
   color:var(--gufa-text);font-size:13px;line-height:1.45}
+#gufa-portal-root{-webkit-app-region:none!important;app-region:none!important}
 #gufa-portal-root>*{pointer-events:auto}
 /* 摸鱼模式：App 窗口选择器 */
 .gufa-float-backdrop{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;
