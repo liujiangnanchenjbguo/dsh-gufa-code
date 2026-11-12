@@ -1618,6 +1618,74 @@ const GUFA_LINT_ENABLED = true
               /* ignore */
             }
 
+            /* ── 临时滚动性能采样：对比 dsh/myrta 两个工作区时定位长任务来源 ── */
+            try {
+              const perf = { active: false, start: 0, last: 0, frames: 0, maxGap: 0, longTasks: 0, logs: 0, timer: 0, observer: null }
+              const profilerDom = typeof document !== 'undefined' ? document : null
+              const flushPerf = () => {
+                perf.timer = 0
+                if (!perf.active || perf.logs >= 12) { perf.active = false; return }
+                perf.active = false
+                perf.logs += 1
+                let markers = 0
+                try {
+                  const model = instance.getModel()
+                  markers = model !== null && model !== undefined ? monaco.editor.getModelMarkers({ resource: model.uri }).length : 0
+                } catch {
+                  markers = -1
+                }
+                let domCount = 0
+                let canvasCount = 0
+                let dockCount = 0
+                try {
+                  domCount = profilerDom !== null ? profilerDom.getElementsByTagName('*').length : 0
+                  canvasCount = profilerDom !== null ? profilerDom.querySelectorAll('canvas').length : 0
+                  dockCount = profilerDom !== null ? profilerDom.querySelectorAll('[data-gufa-dock] *').length : 0
+                } catch {
+                  /* ignore */
+                }
+                const duration = Math.max(1, Math.round(perf.last - perf.start))
+                const fps = Math.round((perf.frames / duration) * 1000)
+                void G.api('dev.log', {
+                  message: `scroll-prof root=${String(G.projectRoot ?? '')} path=${String(modelPathRef.current ?? '')} frames=${perf.frames} duration=${duration}ms fps=${fps} maxGap=${Math.round(perf.maxGap)}ms longTasks=${perf.longTasks} markers=${markers} dom=${domCount} canvases=${canvasCount} dockChildren=${dockCount}`,
+                }).catch(() => {})
+              }
+              try {
+                if (typeof PerformanceObserver === 'function') {
+                  perf.observer = new PerformanceObserver((list) => {
+                    try { perf.longTasks += list.getEntries().length } catch { /* ignore */ }
+                  })
+                  perf.observer.observe({ type: 'longtask', buffered: false })
+                }
+              } catch {
+                perf.observer = null
+              }
+              subscriptions.push(instance.onDidScrollChange(() => {
+                const now = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()
+                if (!perf.active) {
+                  perf.active = true
+                  perf.start = now
+                  perf.last = now
+                  perf.frames = 0
+                  perf.maxGap = 0
+                  perf.longTasks = 0
+                }
+                perf.frames += 1
+                if (perf.last !== 0) perf.maxGap = Math.max(perf.maxGap, now - perf.last)
+                perf.last = now
+                if (perf.timer !== 0) window.clearTimeout(perf.timer)
+                perf.timer = window.setTimeout(flushPerf, 800)
+              }))
+              subscriptions.push({
+                dispose: () => {
+                  try { perf.observer?.disconnect() } catch { /* ignore */ }
+                  if (perf.timer !== 0) window.clearTimeout(perf.timer)
+                },
+              })
+            } catch {
+              /* ignore */
+            }
+
             /* 语言服务（JS/TS/JSON/CSS/HTML）诊断 → 资源管理器 / 标签页 / 状态栏 */
             const publishProblems = () => {
               if (typeof G.problemsStore?.set !== 'function') return
