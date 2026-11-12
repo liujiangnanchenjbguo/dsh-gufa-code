@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.133'
+G.BUILD = '1.3.134'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -2758,6 +2758,9 @@ G.registerTemplateLanguages = function registerTemplateLanguages(monaco) {
         'editorLink.activeForeground': gufaHex(accent),
         'editorInfo.foreground': gufaHex(accent),
         'editorOverviewRuler.border': '#00000000',
+        'editorOverviewRuler.findMatchForeground': dark ? '#d7ba7d' : '#b58900',
+        'editorOverviewRuler.errorForeground': '#f14c4c',
+        'editorOverviewRuler.warningForeground': '#cca700',
         'scrollbarSlider.background': gufaHexAlpha(fg, 0.16),
         'scrollbarSlider.hoverBackground': gufaHexAlpha(fg, 0.26),
         'scrollbarSlider.activeBackground': gufaHexAlpha(fg, 0.34),
@@ -3228,8 +3231,9 @@ const GUFA_LINT_ENABLED = false
       theme: gufaMonacoTheme(theme),
       automaticLayout: true,
       minimap: { enabled: false },
-      renderOverviewRuler: false,
-      overviewRulerLanes: 0,
+      /* 右侧 ruler 打开：Ctrl+F 查找匹配会在滚动条旁显示标记（用户要求） */
+      renderOverviewRuler: true,
+      overviewRulerLanes: 1,
       overviewRulerBorder: false,
       hideCursorInOverviewRuler: true,
       scrollBeyondLastLine: false,
