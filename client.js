@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.160'
+G.BUILD = '1.3.161'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -4321,6 +4321,28 @@ const GUFA_LINT_ENABLED = true
                     } catch {
                       /* ignore */
                     }
+                  } catch {
+                    /* ignore */
+                  }
+                  try {
+                    const listing = []
+                    const addNode = (node, depth) => {
+                      if (node === null || node === undefined || node.nodeType !== 1) return
+                      const count = node.getElementsByTagName('*').length + 1
+                      listing.push({
+                        d: depth,
+                        t: node.tagName,
+                        id: node.id || '',
+                        c: String(node.className || '').slice(0, 60),
+                        n: count,
+                      })
+                      if (depth < 2) {
+                        for (const child of node.children) addNode(child, depth + 1)
+                      }
+                    }
+                    for (const child of document.body.children) addNode(child, 0)
+                    listing.sort((a, b) => b.n - a.n)
+                    detail += ` bigDoms=${JSON.stringify(listing.slice(0, 10))}`
                   } catch {
                     /* ignore */
                   }

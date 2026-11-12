@@ -1680,6 +1680,28 @@ const GUFA_LINT_ENABLED = true
                   } catch {
                     /* ignore */
                   }
+                  try {
+                    const listing = []
+                    const addNode = (node, depth) => {
+                      if (node === null || node === undefined || node.nodeType !== 1) return
+                      const count = node.getElementsByTagName('*').length + 1
+                      listing.push({
+                        d: depth,
+                        t: node.tagName,
+                        id: node.id || '',
+                        c: String(node.className || '').slice(0, 60),
+                        n: count,
+                      })
+                      if (depth < 2) {
+                        for (const child of node.children) addNode(child, depth + 1)
+                      }
+                    }
+                    for (const child of document.body.children) addNode(child, 0)
+                    listing.sort((a, b) => b.n - a.n)
+                    detail += ` bigDoms=${JSON.stringify(listing.slice(0, 10))}`
+                  } catch {
+                    /* ignore */
+                  }
                   detail += ` renders=${renderCount - perf.renderStart}` +
                     ` treeRows=${qsa('.gufa-tree-row')}` +
                     ` editorNodes=${qsa('.gufa-editor-area *')}` +
