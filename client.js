@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.178'
+G.BUILD = '1.3.179'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -12114,7 +12114,28 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
       delete registry.__gufaOriginalDispatch
     }
 
-    // 2) 撤销上一轮命令包装：经典模式必须保持 DSH 原生行为，不能带着我们的
+    // 2) 全局清扫历史遗留的命令包装（插件热重载后 service 单例仍在，
+    //    旧模块的 __gufaPatchedCommands 记录可能已经丢失，只靠记录还原不干净）。
+    try {
+      const commandMap = registry.commands
+      if (commandMap !== null && commandMap !== undefined && typeof commandMap.values === 'function') {
+        for (const command of commandMap.values()) {
+          try {
+            if (command !== null && command !== undefined && command.__gufaWrapped === true && typeof command.__gufaOriginalResolve === 'function') {
+              command.resolve = command.__gufaOriginalResolve
+              try { delete command.__gufaWrapped } catch { /* ignore */ }
+              try { delete command.__gufaOriginalResolve } catch { /* ignore */ }
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // 3) 撤销上一轮命令包装：经典模式必须保持 DSH 原生行为，不能带着我们的
     //    resolve 包装运行（这是 Cmd+/ 呼不出快捷键面板的根因）。
     const restoreWrappedCommands = () => {
       const patched = Array.isArray(service.__gufaPatchedCommands) ? service.__gufaPatchedCommands : []
