@@ -268,12 +268,12 @@ test('主题映射 dark→vs-dark / light→vs', () => {
   assert.equal(monacoTheme(undefined), 'vs')
 })
 
-test('编辑器选项：automaticLayout 开、minimap/overview ruler 关', () => {
+test('编辑器选项：automaticLayout 开、minimap 关、overview ruler 开（查找标记）', () => {
   const options = G.EditorPane.internals.editorOptions('dark')
   assert.equal(options.automaticLayout, true)
   assert.equal(options.minimap.enabled, false)
-  assert.equal(options.overviewRulerLanes, 0)
-  assert.equal(options.renderOverviewRuler, false)
+  assert.equal(options.overviewRulerLanes, 1)
+  assert.equal(options.renderOverviewRuler, true)
   assert.equal(options.theme, 'vs-dark')
   assert.equal(G.EditorPane.internals.editorOptions('light').theme, 'vs')
 })
