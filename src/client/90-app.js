@@ -402,8 +402,6 @@ G.GufaApp = function GufaApp(props) {
   const [gitStatus, setGitStatus] = useState(null)
   const gitSignatureRef = useRef('')
   const gitInFlightRef = useRef(false)
-  const gitSlowRef = useRef(false)
-  const gitStatusRef = useRef(null)
   const [modal, setModal] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [definitionPicker, setDefinitionPicker] = useState(null)
@@ -534,34 +532,23 @@ G.GufaApp = function GufaApp(props) {
     }
     if (gitInFlightRef.current) return
     gitInFlightRef.current = true
-    const startedAt = Date.now()
     try {
       const value = await G.api('git.status', { root: project.root })
-      /* 大仓库 git.status 可能上百 ms：记下来，轮询间隔按耗时自适应 */
-      gitSlowRef.current = Date.now() - startedAt > 150
+      setGitStatus(value)
       /* 轮询时如果发现工作区状态变化（AI/外部修改了文件），顺带刷新资源管理器与 Git 面板 */
       const signature = JSON.stringify({
         branch: value?.branch ?? '',
-        ahead: value?.ahead ?? 0,
-        behind: value?.behind ?? 0,
-        upstream: value?.hasUpstream === true,
         changes: (Array.isArray(value?.changes) ? value.changes : [])
           .map((change) => `${String(change?.path ?? '')}:${String(change?.status ?? '')}`)
           .sort(),
       })
       const previous = gitSignatureRef.current
       gitSignatureRef.current = signature
-      /* 签名没变就不 setState，避免每 3.5s 让整棵 App 无意义重渲染（大仓库里会打断滚动） */
-      if (previous !== signature) {
-        gitStatusRef.current = value
-        setGitStatus(value)
-        if (previous !== '') {
-          setRefreshToken((token) => token + 1)
-          setGitRefreshToken((token) => token + 1)
-        }
+      if (previous !== '' && previous !== signature) {
+        setRefreshToken((token) => token + 1)
+        setGitRefreshToken((token) => token + 1)
       }
     } catch {
-      gitStatusRef.current = null
       setGitStatus(null)
     } finally {
       gitInFlightRef.current = false
@@ -577,44 +564,28 @@ G.GufaApp = function GufaApp(props) {
      - 非 Git 项目：6s 静默重读已加载目录，至少能看到外部新建/删除的文件 */
   useEffect(() => {
     if (project === null) return undefined
-    let stopped = false
-    let gitTimer = 0
-    const gitPollDelay = () => {
-      /* Git 面板当前可见时保持 3.5s；平时 7s；大仓库 git.status 慢时降到 12s */
-      if (ui.sidebarOpen === true && ui.view === 'git') return 3500
-      return gitSlowRef.current ? 12000 : 7000
-    }
-    const scheduleGit = () => {
-      if (stopped) return
-      if (gitTimer !== 0) window.clearTimeout(gitTimer)
-      gitTimer = window.setTimeout(() => {
-        gitTimer = 0
-        if (stopped) return
-        if (document.visibilityState === 'visible') void refreshGit()
-        scheduleGit()
-      }, gitPollDelay())
+    const tickGit = () => {
+      if (document.visibilityState !== 'visible') return
+      void refreshGit()
     }
     const tickTree = () => {
       if (document.visibilityState !== 'visible') return
       if (project.isGit !== true) setRefreshToken((token) => token + 1)
     }
     const onVisible = () => {
-      if (document.visibilityState !== 'visible') return
-      void refreshGit()
-      scheduleGit()
+      if (document.visibilityState === 'visible') void refreshGit()
     }
-    scheduleGit()
+    const gitTimer = window.setInterval(tickGit, 3500)
     const treeTimer = window.setInterval(tickTree, 6000)
     window.addEventListener('focus', onVisible)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
-      stopped = true
-      if (gitTimer !== 0) window.clearTimeout(gitTimer)
+      window.clearInterval(gitTimer)
       window.clearInterval(treeTimer)
       window.removeEventListener('focus', onVisible)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [project, refreshGit, ui.sidebarOpen, ui.view])
+  }, [project, refreshGit])
 
   const gitStatuses = useMemo(() => {
     const map = {}
