@@ -1,6 +1,6 @@
 {
   "name": "dsh-gufa-code",
-  "version": "1.3.169",
+  "version": "1.3.170",
   "description": "古法编程 · AI 辅助：一键把 DSH 主面板变成 VS Code 风格 IDE（Monaco 编辑器、文件树、Git、SSH、真实终端 + 右侧官方会话）；主张亲手写、每个改动心中有数，AI 是助理、你是第一责任人",
   "icon": "icon.svg",
   "keywords": [

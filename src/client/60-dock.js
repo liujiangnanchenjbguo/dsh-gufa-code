@@ -91,7 +91,13 @@ function gufaPlaceDockedConversation(root, host, options) {
   let floatMode = false
   try { floatMode = document.documentElement.hasAttribute('data-gufa-float') } catch { floatMode = false }
   if (floatMode) root.style.background = dockBackground === '' ? 'rgba(13, 15, 19, 0.55)' : `color-mix(in srgb, ${dockBackground} 45%, transparent)`
-  else if (backdropMode && dockBackground !== '') root.style.background = `color-mix(in srgb, ${dockBackground} 34%, transparent)`
+  else if (backdropMode) {
+    /* 背景模式下必须半透明：解析不到实色时也用 color-mix + 变量兜底，
+       不能掉进不透明实色分支（之前右侧对话背景变实色就是这个原因）。 */
+    root.style.background = dockBackground === ''
+      ? 'color-mix(in srgb, var(--gufa-solid-bg, #1a1b1f) 34%, transparent)'
+      : `color-mix(in srgb, ${dockBackground} 34%, transparent)`
+  }
   else root.style.background = dockBackground === '' ? 'var(--gufa-solid-bg, #1a1b1f)' : dockBackground
   root.style.borderLeft = '1px solid var(--dsw-alias-border-l1)'
   root.style.boxSizing = 'border-box'
