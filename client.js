@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.149'
+G.BUILD = '1.3.150'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -12700,37 +12700,44 @@ G.useSplitter = function useSplitter(options) {
 }
 
 /** 主界面组件。props 由 slot 框架注入（useSessions 等标准 hook）。 */
-/** 纯净单文件编辑器：只挂 Monaco，用来隔离测试滚动卡顿来源。 */
+/** 纯净单文件编辑器：复用正式 EditorPane（加载/降级/主题都走成熟路径），只去掉 IDE 外壳。 */
 G.MiniEditorView = function MiniEditorView(props) {
-  const hostRef = useRef(null)
+  const [doc, setDoc] = useState(null)
   const [error, setError] = useState('')
   useEffect(() => {
     let cancelled = false
-    let dispose = null
+    setError('')
     void (async () => {
       try {
-        const doc = await G.api('fs.read', { root: props.root, path: props.path })
-        if (cancelled) return
-        dispose = G.mountMiniEditor(hostRef.current, {
-          content: doc !== null && doc !== undefined ? doc.content : '',
-          language: doc !== null && doc !== undefined ? doc.language : 'javascript',
-          theme: props.theme,
-        })
+        const value = await G.api('fs.read', { root: props.root, path: props.path })
+        if (!cancelled) setDoc(value)
       } catch (failure) {
         if (!cancelled) setError(G.errorText(failure))
       }
     })()
-    return () => {
-      cancelled = true
-      try { dispose?.() } catch { /* ignore */ }
-    }
+    return () => { cancelled = true }
   }, [props.root, props.path])
+  const tab = doc !== null && doc !== undefined ? { ...doc, savedContent: doc.content, savedRevision: doc.revision, dirty: false } : null
   return h('div', { className: 'gufa-mini-editor' },
     h('div', { className: 'gufa-mini-bar' },
       h('span', { className: 'gufa-mini-title' }, `纯净编辑器（滚动测试） · ${props.path}`),
       h(G.Button, { icon: 'arrow-left', onClick: props.onExit }, '退出纯净编辑'),
     ),
-    error !== '' ? h('div', { className: 'gufa-hint', style: { padding: '8px 12px' } }, error) : h('div', { ref: hostRef, className: 'gufa-mini-host' }),
+    error !== ''
+      ? h('div', { className: 'gufa-hint', style: { padding: '8px 12px' } }, error)
+      : tab !== null
+        ? h('div', { className: 'gufa-mini-host' }, h(G.EditorPane, {
+            tabs: [tab],
+            activePath: tab.path,
+            root: props.root,
+            theme: props.theme,
+            palette: null,
+            backdropMode: false,
+            onChange: () => {},
+            onSave: () => {},
+            onCursor: () => {},
+          }))
+        : h('div', { className: 'gufa-hint', style: { padding: '8px 12px' } }, '加载中…'),
   )
 }
 
