@@ -274,6 +274,9 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
       'sidebar.left.toggle': 'toggleSidebar',
       'edrv.save': 'save',
       'edrv.closeTab': 'closeTab',
+      /* DSH 桌面端把 Ctrl+W/Cmd+W 默认绑给右侧页面关闭（page.close），
+         它在 main 进程就被截走，浏览器里的 keydown 收不到；IDE 里要改派成关标签页。 */
+      'page.close': 'closeTab',
       'edrv.reloadWindow': 'refresh',
       'edrv.toggleSidebar': 'toggleSidebar',
       'shortcuts.open': 'shortcuts',
