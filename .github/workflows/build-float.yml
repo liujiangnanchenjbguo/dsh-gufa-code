@@ -604,7 +604,7 @@ jobs:
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
           '@
-          Set-Content -Path $targetScript -Value $targetCode -Encoding UTF8
+          Set-Content -Path $targetScript -Value $targetCode -Encoding utf8BOM
           $targetOut = Join-Path $env:TEMP 'gufa-list-target.out.txt'
           $targetErr = Join-Path $env:TEMP 'gufa-list-target.err.txt'
           $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',$targetScript) -PassThru -RedirectStandardOutput $targetOut -RedirectStandardError $targetErr
@@ -651,7 +651,7 @@ jobs:
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
           '@
-          Set-Content -Path $targetScript -Value $targetCode -Encoding UTF8
+          Set-Content -Path $targetScript -Value $targetCode -Encoding utf8BOM
           $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',$targetScript) -PassThru
           Start-Sleep -Seconds 3
           $control = Join-Path $env:TEMP 'gufa-win-click-control.txt'
