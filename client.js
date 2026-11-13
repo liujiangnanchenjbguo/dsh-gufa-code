@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.192'
+G.BUILD = '1.3.193'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3368,6 +3368,22 @@ const GUFA_LINT_ENABLED = true
 
   /* ── 组件 ───────────────────────────────────────────────────────────── */
 
+  /** 显式绑定 Cmd/Ctrl+Shift+L = 选中当前词在文件里的所有匹配项（VS Code/Cursor 习惯）。 */
+  function gufaBindSelectAllOccurrences(monacoInstance, editor) {
+    try {
+      editor.addAction({
+        id: 'gufa.selectAllOccurrences',
+        label: '选中所有匹配项',
+        keybindings: [monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyL],
+        run: (target) => {
+          try { target.trigger('gufa-select-occurrences', 'editor.action.selectHighlights', null) } catch { /* ignore */ }
+        },
+      })
+    } catch {
+      /* ignore */
+    }
+  }
+
   function GufaEditorPaneComponent(props) {
     const tabs = useMemo(() => (Array.isArray(props.tabs) ? props.tabs : []), [props.tabs])
     const activePath = typeof props.activePath === 'string' ? props.activePath : null
@@ -3616,6 +3632,7 @@ const GUFA_LINT_ENABLED = true
             const instance = monaco.editor.create(host, gufaEditorOptions(propsRef.current.theme))
             editor = instance
             editorRef.current = instance
+            gufaBindSelectAllOccurrences(monaco, instance)
             try {
               try {
               G.__gufaEditorController = {
@@ -4544,6 +4561,7 @@ const GUFA_LINT_ENABLED = true
           scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
         })
         instance.setModel({ original: originalModel, modified: modifiedModel })
+        try { gufaBindSelectAllOccurrences(monaco, instance.getModifiedEditor()) } catch { /* ignore */ }
       } catch (error) {
         try {
           originalModel.dispose()
