@@ -1682,6 +1682,9 @@ bool FloatApp::OnCompositionMouseMessage(UINT message, WPARAM wparam, LPARAM lpa
 }
 
 LRESULT FloatApp::HandleNcHitTest(HWND hwnd, LPARAM lparam) {
+  /* 鼠标穿透：双击/拖动都不要再命中本窗口，让点击落到下层 App。
+     WS_EX_TRANSPARENT 在部分 WebView2/Composition 窗口上不生效，这里加 HTTRANSPARENT 兜底。 */
+  if (clickThrough_) return HTTRANSPARENT;
   POINT point;
   point.x = GET_X_LPARAM(lparam);
   point.y = GET_Y_LPARAM(lparam);
@@ -2630,6 +2633,9 @@ LRESULT FloatApp::OnMainMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
         SetCursor(webViewCursor_ != nullptr ? webViewCursor_ : LoadCursorW(nullptr, IDC_ARROW));
         return TRUE;
       }
+      return DefWindowProcW(hwnd, message, wparam, lparam);
+    case WM_MOUSEACTIVATE:
+      if (clickThrough_) return MA_NOACTIVATE;
       return DefWindowProcW(hwnd, message, wparam, lparam);
     case WM_ACTIVATE:
       if (hostingMode_ == HostingMode::Composition && LOWORD(wparam) != WA_INACTIVE &&

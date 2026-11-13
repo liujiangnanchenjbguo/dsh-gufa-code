@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.186'
+G.BUILD = '1.3.187'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -11357,7 +11357,10 @@ function gufaParseMentionButton(button) {
 
 async function gufaOpenMention(mention) {
   if (mention === null || mention === undefined || typeof mention.path !== 'string' || mention.path === '') return
-  const root = typeof G.projectRoot === 'string' ? G.projectRoot.replace(/\\/g, '/').replace(/\/+$/, '') : ''
+  /* 必须原样传 Host 登记的 project.root：Windows 上 Host 用反斜杠规范化过，
+     ProjectRegistry.ensure 是精确字符串匹配；改成 / 会被拒绝（project-not-open），
+     表现就是 Windows 上引用点不开。 */
+  const root = typeof G.projectRoot === 'string' ? G.projectRoot.replace(/[\\/]+$/, '') : ''
   if (root === '') return
   /* Windows 的会话引用可能带 file:///C:/ 前缀、%20 编码或反斜杠；先归一化再让 Host 解析 */
   let rawPath = String(mention.path ?? '').trim()

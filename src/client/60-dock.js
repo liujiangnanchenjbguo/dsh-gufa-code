@@ -475,7 +475,10 @@ function gufaParseMentionButton(button) {
 
 async function gufaOpenMention(mention) {
   if (mention === null || mention === undefined || typeof mention.path !== 'string' || mention.path === '') return
-  const root = typeof G.projectRoot === 'string' ? G.projectRoot.replace(/\\/g, '/').replace(/\/+$/, '') : ''
+  /* 必须原样传 Host 登记的 project.root：Windows 上 Host 用反斜杠规范化过，
+     ProjectRegistry.ensure 是精确字符串匹配；改成 / 会被拒绝（project-not-open），
+     表现就是 Windows 上引用点不开。 */
+  const root = typeof G.projectRoot === 'string' ? G.projectRoot.replace(/[\\/]+$/, '') : ''
   if (root === '') return
   /* Windows 的会话引用可能带 file:///C:/ 前缀、%20 编码或反斜杠；先归一化再让 Host 解析 */
   let rawPath = String(mention.path ?? '').trim()
