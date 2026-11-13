@@ -593,7 +593,7 @@ jobs:
         shell: pwsh
         run: |
           $targetScript = Join-Path $env:TEMP 'gufa-list-target.ps1'
-          @'
+          $targetCode = @'
           Add-Type -AssemblyName System.Windows.Forms
           $form = New-Object System.Windows.Forms.Form
           $form.Text = '腾讯视频 CI 测试'
@@ -603,7 +603,8 @@ jobs:
           $form.Height = 360
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
-          '@ | Set-Content -Path $targetScript -Encoding UTF8
+          '@
+          Set-Content -Path $targetScript -Value $targetCode -Encoding UTF8
           $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',$targetScript) -PassThru
           Start-Sleep -Seconds 5
           $target.Refresh()
@@ -631,7 +632,7 @@ jobs:
           Remove-Item $clickOut -ErrorAction SilentlyContinue
           $env:GUFA_CLICK_OUT = $clickOut
           $targetScript = Join-Path $env:TEMP 'gufa-click-target.ps1'
-          @'
+          $targetCode = @'
           Add-Type -AssemblyName System.Windows.Forms
           $form = New-Object System.Windows.Forms.Form
           $form.Text = 'Gufa Click Target'
@@ -643,7 +644,8 @@ jobs:
           $form.Add_MouseClick({ param($sender, $event) Add-Content -Path $out -Value ("click {0},{1}" -f $event.X, $event.Y) })
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
-          '@ | Set-Content -Path $targetScript -Encoding UTF8
+          '@
+          Set-Content -Path $targetScript -Value $targetCode -Encoding UTF8
           $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',$targetScript) -PassThru
           Start-Sleep -Seconds 3
           $control = Join-Path $env:TEMP 'gufa-win-click-control.txt'
