@@ -1049,12 +1049,20 @@ class FloatApp {
 };
 
 namespace {
+BOOL CALLBACK CountChildWindow(HWND, LPARAM lparam) {
+  if (lparam != 0) *reinterpret_cast<int*>(lparam) += 1;
+  return TRUE;
+}
+
 BOOL CALLBACK SetChildClickThrough(HWND child, LPARAM lparam) {
   const bool enable = lparam != 0;
   LONG_PTR exStyle = GetWindowLongPtrW(child, GWL_EXSTYLE);
   LONG_PTR next = enable ? (exStyle | WS_EX_TRANSPARENT)
                          : (exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
   if (next != exStyle) SetWindowLongPtrW(child, GWL_EXSTYLE, next);
+  /* windowed 模式的 WebView2 是子 HWND，不会继承父窗口的 ex-style；
+     只设置 WS_EX_TRANSPARENT 仍可能被它吃掉点击。穿透期间直接禁用输入。 */
+  EnableWindow(child, enable ? FALSE : TRUE);
   return TRUE;
 }
 }  // namespace
@@ -2546,8 +2554,12 @@ void FloatApp::ApplyClickThrough() {
     SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
   }
+  int childCount = 0;
+  EnumChildWindows(hwnd_, CountChildWindow, reinterpret_cast<LPARAM>(&childCount));
   EnumChildWindows(hwnd_, SetChildClickThrough, clickThrough_ ? 1 : 0);
-  LogFmt(L"click-through=%d", clickThrough_ ? 1 : 0);
+  LogFmt(L"click-through=%d mode=%s layered=%d children=%d", clickThrough_ ? 1 : 0,
+         hostingMode_ == HostingMode::Composition ? L"composition" : L"windowed",
+         clickThroughLayered_ ? 1 : 0, childCount);
 }
 
 void FloatApp::StopFollowing() {
