@@ -589,6 +589,131 @@ jobs:
           Write-Host 'keyboard input reached the webview (composition hosting)'
           Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
 
+      - name: Smoke test (window list app enumeration - Chinese title + EnumWindows)
+        shell: pwsh
+        run: |
+          $targetScript = Join-Path $env:TEMP 'gufa-list-target.ps1'
+          @'
+          Add-Type -AssemblyName System.Windows.Forms
+          $form = New-Object System.Windows.Forms.Form
+          $form.Text = '腾讯视频 CI 测试'
+          $form.Left = 140
+          $form.Top = 140
+          $form.Width = 520
+          $form.Height = 360
+          $form.Add_Shown({ $form.Activate() })
+          [System.Windows.Forms.Application]::Run($form)
+          '@ | Set-Content -Path $targetScript -Encoding UTF8
+          $target = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile','-File',$targetScript) -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          $listScript = Join-Path $env:TEMP 'gufa-window-list.ps1'
+          node --input-type=module -e "import { windowsWindowListScript } from './host/dev.js'; process.stdout.write(windowsWindowListScript())" | Set-Content -Path $listScript -Encoding UTF8
+          $json = & pwsh -NoProfile -File $listScript
+          Write-Host $json
+          if ($json -notmatch '腾讯视频 CI 测试') { throw 'window list missing Chinese title (UTF-8 or EnumWindows failure)' }
+          $parsed = $json | ConvertFrom-Json
+          if (-not ($parsed.apps | Where-Object { $_.title -eq '腾讯视频 CI 测试' })) { throw 'window list target app missing' }
+          Stop-Process -Id $target.Id -Force -ErrorAction SilentlyContinue
+          Write-Host 'window list includes Chinese-titled top-level window (UTF-8 ok)'
+
+      - name: Smoke test (mouse click-through reaches underlying process)
+        shell: pwsh
+        run: |
+          $site = Join-Path $env:TEMP 'gufa-click-site'
+          New-Item -ItemType Directory -Force $site | Out-Null
+          '<html><body>gufa-click-probe</body></html>' | Set-Content (Join-Path $site 'index.html') -Encoding UTF8
+          $http = Start-Process -FilePath 'python' -ArgumentList @('-m','http.server','8792','--bind','127.0.0.1') -WorkingDirectory $site -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $clickOut = Join-Path $env:TEMP 'gufa-click-hit.txt'
+          Remove-Item $clickOut -ErrorAction SilentlyContinue
+          $env:GUFA_CLICK_OUT = $clickOut
+          $targetScript = Join-Path $env:TEMP 'gufa-click-target.ps1'
+          @'
+          Add-Type -AssemblyName System.Windows.Forms
+          $form = New-Object System.Windows.Forms.Form
+          $form.Text = 'Gufa Click Target'
+          $form.Left = 220
+          $form.Top = 220
+          $form.Width = 560
+          $form.Height = 400
+          $out = $env:GUFA_CLICK_OUT
+          $form.Add_MouseClick({ param($sender, $event) Add-Content -Path $out -Value ("click {0},{1}" -f $event.X, $event.Y) })
+          $form.Add_Shown({ $form.Activate() })
+          [System.Windows.Forms.Application]::Run($form)
+          '@ | Set-Content -Path $targetScript -Encoding UTF8
+          $target = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile','-File',$targetScript) -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          $control = Join-Path $env:TEMP 'gufa-win-click-control.txt'
+          Remove-Item $control -ErrorAction SilentlyContinue
+          $log = Join-Path $env:TEMP 'gufa-float-debug.log'
+          Remove-Item $log -ErrorAction SilentlyContinue
+          $payload = (@{ appUrl='http://127.0.0.1:8792/'; authUrl='http://127.0.0.1:8792/'; controlPath=$control; build='ci'; follow=@{ pid=$target.Id; title='' } } | ConvertTo-Json -Compress)
+          $env:GUFA_FLOAT_PAYLOAD = $payload
+          $helper = Start-Process -FilePath 'desktop\float\bin\win-x64\gufa-float-win.exe' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 8
+          if ($helper.HasExited) { throw "click helper exited early (code $($helper.ExitCode))" }
+          $sig = @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class GufaClickProbe {
+            public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+            [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+            public static IntPtr FindTop(uint pid) {
+              IntPtr found = IntPtr.Zero;
+              EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid && IsWindowVisible(h)) { found = h; return false; } return true; }, IntPtr.Zero);
+              return found;
+            }
+          }
+          "@
+          Add-Type -TypeDefinition $sig -Language CSharp
+          $hwnd = [GufaClickProbe]::FindTop([uint32]$helper.Id)
+          if ($hwnd -eq [IntPtr]::Zero) { throw 'helper window not found' }
+          $targetHwnd = [GufaClickProbe]::FindTop([uint32]$target.Id)
+          if ($targetHwnd -eq [IntPtr]::Zero) { throw 'target window not found' }
+          $rect = New-Object GufaClickProbe+RECT
+          [void][GufaClickProbe]::GetWindowRect($targetHwnd, [ref]$rect)
+          $cx = [int](($rect.Left + $rect.Right) / 2)
+          $cy = [int](($rect.Top + $rect.Bottom) / 2)
+          [void][GufaClickProbe]::PostMessage($hwnd, 0x0312, [IntPtr]0x4755, [IntPtr]::Zero)
+          $line = $null
+          for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep -Milliseconds 500
+            if (Test-Path $log) { $line = Get-Content $log | Select-String 'click-through=1' | Select-Object -Last 1 }
+            if ($line -ne $null) { break }
+          }
+          if ($line -eq $null) { if (Test-Path $log) { Get-Content $log -Tail 60 }; throw 'helper did not toggle click-through' }
+          Write-Host "click-through log: $line"
+          if ($line -notmatch 'styleTransparent=1') { throw "click-through style not applied: $line" }
+          [void][GufaClickProbe]::SetForegroundWindow($targetHwnd)
+          Start-Sleep -Milliseconds 600
+          [void][GufaClickProbe]::SetCursorPos($cx, $cy)
+          Start-Sleep -Milliseconds 200
+          [GufaClickProbe]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+          Start-Sleep -Milliseconds 80
+          [GufaClickProbe]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+          $clicked = $false
+          for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep -Milliseconds 500
+            if (Test-Path $clickOut) { $clicked = $true; break }
+          }
+          if (-not $clicked) { if (Test-Path $log) { Get-Content $log -Tail 60 }; throw 'click did not reach underlying window' }
+          Write-Host "click hit underlying window: $(Get-Content $clickOut -Raw)"
+          [void][GufaClickProbe]::PostMessage($hwnd, 0x0312, [IntPtr]0x4755, [IntPtr]::Zero)
+          Start-Sleep -Milliseconds 800
+          Set-Content -Path $control -Value 'exit' -NoNewline
+          if (-not $helper.WaitForExit(15000)) { throw 'click helper did not exit after controlPath' }
+          Stop-Process -Id $target.Id -Force -ErrorAction SilentlyContinue
+          Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
+          Write-Host 'mouse click-through verified cross-process'
+
       - uses: actions/upload-artifact@v4
         with:
           name: gufa-float-win-x64
