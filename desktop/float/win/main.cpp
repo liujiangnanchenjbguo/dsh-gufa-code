@@ -2533,11 +2533,16 @@ void FloatApp::ToggleClickThrough() {
 void FloatApp::ApplyClickThrough() {
   if (hwnd_ == nullptr) return;
   LONG_PTR exStyle = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
-  LONG_PTR next = clickThrough_ ? (exStyle | WS_EX_TRANSPARENT)
-                                : (exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
-  /* windowed 模式需要 layered 才能让点击稳定穿透到下层窗口；composition 模式
-     使用 WS_EX_NOREDIRECTIONBITMAP，不能叠加 layered。 */
-  if (hostingMode_ == HostingMode::Windowed) {
+  LONG_PTR next = exStyle;
+  if (hostingMode_ == HostingMode::Composition) {
+    /* DComp 顶层窗口：WS_EX_NOREDIRECTIONBITMAP 本身不提供鼠标穿透，
+       也不能叠加 WS_EX_TRANSPARENT/WS_EX_LAYERED（会与 NORD 冲突/把点击丢给桌面）。
+       正确做法是只改 WM_NCHITTEST 返回 HTTRANSPARENT（见 HandleNcHitTest）。 */
+    next = exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_LAYERED);
+  } else {
+    /* windowed 模式：WebView2 是子 HWND，用 layered + transparent 兜底。 */
+    next = clickThrough_ ? (exStyle | WS_EX_TRANSPARENT)
+                         : (exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
     if (clickThrough_) {
       if ((next & WS_EX_LAYERED) == 0) {
         next |= WS_EX_LAYERED;
@@ -2557,9 +2562,10 @@ void FloatApp::ApplyClickThrough() {
   int childCount = 0;
   EnumChildWindows(hwnd_, CountChildWindow, reinterpret_cast<LPARAM>(&childCount));
   EnumChildWindows(hwnd_, SetChildClickThrough, clickThrough_ ? 1 : 0);
-  LogFmt(L"click-through=%d mode=%s layered=%d children=%d", clickThrough_ ? 1 : 0,
+  LogFmt(L"click-through=%d mode=%s layered=%d styleTransparent=%d children=%d", clickThrough_ ? 1 : 0,
          hostingMode_ == HostingMode::Composition ? L"composition" : L"windowed",
-         clickThroughLayered_ ? 1 : 0, childCount);
+         clickThroughLayered_ ? 1 : 0,
+         (GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0 ? 1 : 0, childCount);
 }
 
 void FloatApp::StopFollowing() {
