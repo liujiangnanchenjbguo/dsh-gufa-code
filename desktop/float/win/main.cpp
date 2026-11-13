@@ -2647,24 +2647,26 @@ LRESULT CALLBACK FloatApp::LowLevelMouseProc(int code, WPARAM wparam, LPARAM lpa
   RECT rect = {};
   if (!GetWindowRect(app->hwnd_, &rect)) return CallNextHookEx(nullptr, code, wparam, lparam);
   const bool inside = info->pt.x >= rect.left && info->pt.x < rect.right && info->pt.y >= rect.top && info->pt.y < rect.bottom;
-  /* 穿透只处理左键按下/松开：按下时把悬浮层隐藏，然后放行原始鼠标事件，
-     让系统把后续 move/up 直接送给下面真正的窗口（真实输入，任何程序都认）。
-     松开后延时恢复悬浮层。钩子回调里不做任何阻塞操作，避免鼠标卡死。 */
+  if (!inside) return CallNextHookEx(nullptr, code, wparam, lparam);
+  /* 关键：WM_MOUSEMOVE 绝对不能返回 1（吞掉移动事件会让系统鼠标“卡死”）。
+     穿透实现为把按钮/滚轮消息转发给下层窗口；移动事件只在左键按住拖动时转发，但仍放行。 */
   switch (wparam) {
+    case WM_MOUSEMOVE:
+      if (app->forwardedLeftDown_) app->ForwardMouseToUnderlying(WM_MOUSEMOVE, info);
+      return CallNextHookEx(nullptr, code, wparam, lparam);
     case WM_LBUTTONDOWN:
-      if (inside && !app->forwardedLeftDown_) {
-        app->forwardedLeftDown_ = true;
-        ShowWindow(app->hwnd_, SW_HIDE);
-        Log(L"click-through-forward down");
-      }
-      return CallNextHookEx(nullptr, code, wparam, lparam);
+      app->ForwardMouseToUnderlying(WM_LBUTTONDOWN, info);
+      return 1;
     case WM_LBUTTONUP:
-      if (app->forwardedLeftDown_) {
-        app->forwardedLeftDown_ = false;
-        SetTimer(app->hwnd_, kTimerForwardShow, 60, nullptr);
-        Log(L"click-through-forward up");
-      }
-      return CallNextHookEx(nullptr, code, wparam, lparam);
+      app->ForwardMouseToUnderlying(WM_LBUTTONUP, info);
+      return 1;
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MOUSEWHEEL:
+      app->ForwardMouseToUnderlying(static_cast<UINT>(wparam), info);
+      return 1;
     default:
       return CallNextHookEx(nullptr, code, wparam, lparam);
   }
