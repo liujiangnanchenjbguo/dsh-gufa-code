@@ -604,7 +604,7 @@ jobs:
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
           '@ | Set-Content -Path $targetScript -Encoding UTF8
-          $target = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile','-File',$targetScript) -PassThru -WindowStyle Hidden
+          $target = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile','-Sta','-File',$targetScript) -PassThru -WindowStyle Hidden
           Start-Sleep -Seconds 3
           $listScript = Join-Path $env:TEMP 'gufa-window-list.ps1'
           node --input-type=module -e "import { windowsWindowListScript } from './host/window-list-script.js'; process.stdout.write(windowsWindowListScript())" | Set-Content -Path $listScript -Encoding UTF8
@@ -641,7 +641,7 @@ jobs:
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
           '@ | Set-Content -Path $targetScript -Encoding UTF8
-          $target = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile','-File',$targetScript) -PassThru -WindowStyle Hidden
+          $target = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile','-Sta','-File',$targetScript) -PassThru -WindowStyle Hidden
           Start-Sleep -Seconds 3
           $control = Join-Path $env:TEMP 'gufa-win-click-control.txt'
           Remove-Item $control -ErrorAction SilentlyContinue
