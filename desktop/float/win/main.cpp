@@ -75,6 +75,7 @@ constexpr UINT_PTR kTimerSelftest = 6;
 constexpr UINT_PTR kTimerPageProbe = 7;
 constexpr UINT_PTR kTimerRetry = 8;
 constexpr UINT_PTR kTimerControllerWatchdog = 9;
+constexpr UINT_PTR kTimerForwardShow = 10;
 
 constexpr int kMenuExit = 1;
 constexpr int kMenuResetFrame = 2;
@@ -1823,6 +1824,12 @@ void FloatApp::OnTimer(UINT_PTR timerId) {
       hideDshDone_ = true;
       OnHideDshTimer();
       break;
+    case kTimerForwardShow:
+      KillTimer(hwnd_, kTimerForwardShow);
+      if (!exiting_ && !payload_.ciProbe && hwnd_ != nullptr && IsWindowVisible(hwnd_) == FALSE) {
+        ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+      }
+      break;
     case kTimerControllerWatchdog:
       KillTimer(hwnd_, kTimerControllerWatchdog);
       if (!exiting_ && !controllerReady_) {
@@ -2637,24 +2644,27 @@ LRESULT CALLBACK FloatApp::LowLevelMouseProc(int code, WPARAM wparam, LPARAM lpa
   if (app == nullptr || app->hwnd_ == nullptr || !app->clickThrough_) return CallNextHookEx(nullptr, code, wparam, lparam);
   const MSLLHOOKSTRUCT* info = reinterpret_cast<const MSLLHOOKSTRUCT*>(lparam);
   if (info == nullptr) return CallNextHookEx(nullptr, code, wparam, lparam);
-  /* 只拦截落在悬浮层范围内的鼠标 */
   RECT rect = {};
   if (!GetWindowRect(app->hwnd_, &rect)) return CallNextHookEx(nullptr, code, wparam, lparam);
-  if (info->pt.x < rect.left || info->pt.x >= rect.right || info->pt.y < rect.top || info->pt.y >= rect.bottom) {
-    return CallNextHookEx(nullptr, code, wparam, lparam);
-  }
+  const bool inside = info->pt.x >= rect.left && info->pt.x < rect.right && info->pt.y >= rect.top && info->pt.y < rect.bottom;
+  /* 穿透只处理左键按下/松开：按下时把悬浮层隐藏，然后放行原始鼠标事件，
+     让系统把后续 move/up 直接送给下面真正的窗口（真实输入，任何程序都认）。
+     松开后延时恢复悬浮层。钩子回调里不做任何阻塞操作，避免鼠标卡死。 */
   switch (wparam) {
     case WM_LBUTTONDOWN:
+      if (inside && !app->forwardedLeftDown_) {
+        app->forwardedLeftDown_ = true;
+        ShowWindow(app->hwnd_, SW_HIDE);
+        Log(L"click-through-forward down");
+      }
+      return CallNextHookEx(nullptr, code, wparam, lparam);
     case WM_LBUTTONUP:
-    case WM_MOUSEMOVE:
-    case WM_RBUTTONDOWN:
-    case WM_RBUTTONUP:
-    case WM_MBUTTONDOWN:
-    case WM_MBUTTONUP:
-    case WM_MOUSEWHEEL:
-    case WM_MOUSEHWHEEL:
-      app->ForwardMouseToUnderlying(static_cast<UINT>(wparam), info);
-      return 1;
+      if (app->forwardedLeftDown_) {
+        app->forwardedLeftDown_ = false;
+        SetTimer(app->hwnd_, kTimerForwardShow, 60, nullptr);
+        Log(L"click-through-forward up");
+      }
+      return CallNextHookEx(nullptr, code, wparam, lparam);
     default:
       return CallNextHookEx(nullptr, code, wparam, lparam);
   }
