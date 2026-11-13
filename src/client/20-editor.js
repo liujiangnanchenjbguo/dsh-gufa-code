@@ -717,14 +717,13 @@ const GUFA_LINT_ENABLED = true
   /** 显式绑定 Cmd/Ctrl+Shift+L = 选中当前词在文件里的所有匹配项（VS Code/Cursor 习惯）。 */
   function gufaBindSelectAllOccurrences(monacoInstance, editor) {
     try {
-      editor.addAction({
-        id: 'gufa.selectAllOccurrences',
-        label: '选中所有匹配项',
-        keybindings: [monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyL],
-        run: (target) => {
-          try { target.trigger('gufa-select-occurrences', 'editor.action.selectHighlights', null) } catch { /* ignore */ }
+      /* addCommand 是底层键位绑定，比 addAction 更可靠（addAction 可能被同名内置 action 覆盖）。 */
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyL,
+        () => {
+          try { editor.trigger('gufa-select-occurrences', 'editor.action.selectHighlights', null) } catch { /* ignore */ }
         },
-      })
+      )
     } catch {
       /* ignore */
     }
@@ -2027,6 +2026,12 @@ const GUFA_LINT_ENABLED = true
           }
           const editor = editorRef.current
           const monaco = monacoRef.current
+          if ((editor === null || editor === undefined) && diffEditorRef.current !== null && diffEditorRef.current !== undefined) {
+            try {
+              diffEditorRef.current.getModifiedEditor().trigger('gufa-shortcut', commandId, null)
+              return
+            } catch { /* ignore */ }
+          }
           if (editor !== null && monaco !== null) {
             editor.trigger('gufa-shortcut', commandId, null)
             if (commandId.includes('moveLines')) {

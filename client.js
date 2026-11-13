@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.193'
+G.BUILD = '1.3.194'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3371,14 +3371,13 @@ const GUFA_LINT_ENABLED = true
   /** 显式绑定 Cmd/Ctrl+Shift+L = 选中当前词在文件里的所有匹配项（VS Code/Cursor 习惯）。 */
   function gufaBindSelectAllOccurrences(monacoInstance, editor) {
     try {
-      editor.addAction({
-        id: 'gufa.selectAllOccurrences',
-        label: '选中所有匹配项',
-        keybindings: [monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyL],
-        run: (target) => {
-          try { target.trigger('gufa-select-occurrences', 'editor.action.selectHighlights', null) } catch { /* ignore */ }
+      /* addCommand 是底层键位绑定，比 addAction 更可靠（addAction 可能被同名内置 action 覆盖）。 */
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyL,
+        () => {
+          try { editor.trigger('gufa-select-occurrences', 'editor.action.selectHighlights', null) } catch { /* ignore */ }
         },
-      })
+      )
     } catch {
       /* ignore */
     }
@@ -4681,6 +4680,12 @@ const GUFA_LINT_ENABLED = true
           }
           const editor = editorRef.current
           const monaco = monacoRef.current
+          if ((editor === null || editor === undefined) && diffEditorRef.current !== null && diffEditorRef.current !== undefined) {
+            try {
+              diffEditorRef.current.getModifiedEditor().trigger('gufa-shortcut', commandId, null)
+              return
+            } catch { /* ignore */ }
+          }
           if (editor !== null && monaco !== null) {
             editor.trigger('gufa-shortcut', commandId, null)
             if (commandId.includes('moveLines')) {
@@ -12060,6 +12065,7 @@ G.shortcutAction = function shortcutAction(event) {
     if (key === 'b') return 'toggleSidebar'
     if (key === 'w') return 'closeTab'
     if (key === 'n') return 'newWindow'
+    if (key === 'l') return 'selectAllOccurrences'
     if (isBackquote) return 'newTerminal'
     if (key === '/' || key === '?') return 'shortcuts'
     if (key === 'enter' || code === 'Enter' || code === 'NumpadEnter') return 'commit'
@@ -15036,6 +15042,9 @@ G.GufaApp = function GufaApp(props) {
         return
       }
       G.bus.emit('terminal:clear')
+    },
+    selectAllOccurrences: () => {
+      if (G.bus !== null && G.bus !== undefined && typeof G.bus.emit === 'function') G.bus.emit('editor:command', 'editor.action.selectHighlights')
     },
     toggleTerminal: () => patchUi({ terminalOpen: ui.terminalOpen !== true }),
     toggleSidebar: () => patchUi({ sidebarOpen: ui.sidebarOpen === false }),

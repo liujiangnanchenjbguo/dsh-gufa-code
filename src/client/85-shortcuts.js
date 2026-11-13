@@ -52,6 +52,7 @@ G.shortcutAction = function shortcutAction(event) {
     if (key === 'b') return 'toggleSidebar'
     if (key === 'w') return 'closeTab'
     if (key === 'n') return 'newWindow'
+    if (key === 'l') return 'selectAllOccurrences'
     if (isBackquote) return 'newTerminal'
     if (key === '/' || key === '?') return 'shortcuts'
     if (key === 'enter' || code === 'Enter' || code === 'NumpadEnter') return 'commit'

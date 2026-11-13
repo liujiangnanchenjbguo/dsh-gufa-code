@@ -2414,6 +2414,9 @@ G.GufaApp = function GufaApp(props) {
       }
       G.bus.emit('terminal:clear')
     },
+    selectAllOccurrences: () => {
+      if (G.bus !== null && G.bus !== undefined && typeof G.bus.emit === 'function') G.bus.emit('editor:command', 'editor.action.selectHighlights')
+    },
     toggleTerminal: () => patchUi({ terminalOpen: ui.terminalOpen !== true }),
     toggleSidebar: () => patchUi({ sidebarOpen: ui.sidebarOpen === false }),
     closeTab: () => {
