@@ -366,6 +366,7 @@ G.GufaApp = function GufaApp(props) {
   const [gitStatus, setGitStatus] = useState(null)
   const gitSignatureRef = useRef('')
   const gitInFlightRef = useRef(false)
+  const gitFetchRef = useRef({ root: '', at: 0 })
   const [modal, setModal] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [definitionPicker, setDefinitionPicker] = useState(null)
@@ -550,6 +551,24 @@ G.GufaApp = function GufaApp(props) {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [project, refreshGit])
+
+  /* 进入 Git 面板时主动 fetch 一次（限流 15s）：否则 behind 只看本地 remote-tracking ref，
+     远端新提交在 fetch 之前永远显示 0。 */
+  useEffect(() => {
+    if (project === null || project.isGit !== true) return undefined
+    if (ui.sidebarOpen !== true || ui.view !== 'git') return undefined
+    const now = Date.now()
+    const last = gitFetchRef.current
+    if (last.root === project.root && now - last.at < 15000) return undefined
+    gitFetchRef.current = { root: project.root, at: now }
+    let cancelled = false
+    void G.api('git.fetch', { root: project.root }).then((value) => {
+      if (cancelled || value?.ok !== true) return
+      setGitRefreshToken((token) => token + 1)
+      setRefreshToken((token) => token + 1)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [project, ui.sidebarOpen, ui.view])
 
   const gitStatuses = useMemo(() => {
     const map = {}

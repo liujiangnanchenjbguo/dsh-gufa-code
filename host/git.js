@@ -148,6 +148,22 @@ export function register(router, env) {
     return { isGit: true, ...parseStatus(await git(project.root, ['status', '--porcelain=v1', '--branch', '--untracked-files=all'])) }
   })
 
+  /* 主动 fetch：git.status 的 behind 只反映本地已知的 remote-tracking ref，
+     远端有新提交但没 fetch 时箭头永远是 0。进 Git 面板/点刷新时先 fetch。 */
+  router.method('git.fetch', async (body) => {
+    const project = await ensureRepo(env, body)
+    if (project.isGit !== true) return { ok: false, reason: 'not-git' }
+    try {
+      const remotes = (await git(project.root, ['remote']).catch(() => '')).trim()
+        .split('\n').map((line) => line.trim()).filter(Boolean)
+      const args = remotes.length > 0 ? ['fetch', '--prune', '--quiet', remotes[0]] : ['fetch', '--prune', '--quiet']
+      await git(project.root, args, 60_000)
+      return { ok: true, remote: remotes[0] ?? '' }
+    } catch (error) {
+      return { ok: false, reason: String(error?.message ?? error).slice(0, 800) }
+    }
+  })
+
   router.method('git.stage', async (body) => {
     const project = await projectOf(env, body)
     const paths = Array.isArray(body.paths) ? body.paths.filter((item) => typeof item === 'string' && item !== '') : []

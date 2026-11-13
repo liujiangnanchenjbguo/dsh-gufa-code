@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.187'
+G.BUILD = '1.3.188'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -9037,6 +9037,15 @@ G.GitPanel = function GitPanel(props) {
     }
   }, [])
 
+  /* 手动刷新：先 fetch 远端，再读 status（否则 behind 可能是 0） */
+  const refreshRemote = useCallback(async () => {
+    const target = rootRef.current
+    if (target) {
+      try { await G.api('git.fetch', { root: target }) } catch { /* 离线等失败不打扰 */ }
+    }
+    await refresh()
+  }, [refresh])
+
   /* 项目变化：清空并重新拉取 */
   useEffect(() => {
     setStatus(null)
@@ -9226,7 +9235,7 @@ G.GitPanel = function GitPanel(props) {
           )
         : null,
       h(G.IconButton, { title: t('graph.open'), onClick: () => props.onOpenGraph?.() }, h(G.Icon, { name: 'graph', size: 13 })),
-      h(G.IconButton, { title: t('git.refresh'), disabled: pending, onClick: () => void refresh() }, h(G.Icon, { name: 'refresh', size: 13 })),
+      h(G.IconButton, { title: t('git.refresh'), disabled: pending, onClick: () => void refreshRemote() }, h(G.Icon, { name: 'refresh', size: 13 })),
       h(G.IconButton, {
         title: t('git.more'),
         onClick: (event) => {
@@ -12920,6 +12929,7 @@ G.GufaApp = function GufaApp(props) {
   const [gitStatus, setGitStatus] = useState(null)
   const gitSignatureRef = useRef('')
   const gitInFlightRef = useRef(false)
+  const gitFetchRef = useRef({ root: '', at: 0 })
   const [modal, setModal] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [definitionPicker, setDefinitionPicker] = useState(null)
@@ -13104,6 +13114,24 @@ G.GufaApp = function GufaApp(props) {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [project, refreshGit])
+
+  /* 进入 Git 面板时主动 fetch 一次（限流 15s）：否则 behind 只看本地 remote-tracking ref，
+     远端新提交在 fetch 之前永远显示 0。 */
+  useEffect(() => {
+    if (project === null || project.isGit !== true) return undefined
+    if (ui.sidebarOpen !== true || ui.view !== 'git') return undefined
+    const now = Date.now()
+    const last = gitFetchRef.current
+    if (last.root === project.root && now - last.at < 15000) return undefined
+    gitFetchRef.current = { root: project.root, at: now }
+    let cancelled = false
+    void G.api('git.fetch', { root: project.root }).then((value) => {
+      if (cancelled || value?.ok !== true) return
+      setGitRefreshToken((token) => token + 1)
+      setRefreshToken((token) => token + 1)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [project, ui.sidebarOpen, ui.view])
 
   const gitStatuses = useMemo(() => {
     const map = {}

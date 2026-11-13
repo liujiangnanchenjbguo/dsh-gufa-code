@@ -1083,6 +1083,15 @@ G.GitPanel = function GitPanel(props) {
     }
   }, [])
 
+  /* 手动刷新：先 fetch 远端，再读 status（否则 behind 可能是 0） */
+  const refreshRemote = useCallback(async () => {
+    const target = rootRef.current
+    if (target) {
+      try { await G.api('git.fetch', { root: target }) } catch { /* 离线等失败不打扰 */ }
+    }
+    await refresh()
+  }, [refresh])
+
   /* 项目变化：清空并重新拉取 */
   useEffect(() => {
     setStatus(null)
@@ -1272,7 +1281,7 @@ G.GitPanel = function GitPanel(props) {
           )
         : null,
       h(G.IconButton, { title: t('graph.open'), onClick: () => props.onOpenGraph?.() }, h(G.Icon, { name: 'graph', size: 13 })),
-      h(G.IconButton, { title: t('git.refresh'), disabled: pending, onClick: () => void refresh() }, h(G.Icon, { name: 'refresh', size: 13 })),
+      h(G.IconButton, { title: t('git.refresh'), disabled: pending, onClick: () => void refreshRemote() }, h(G.Icon, { name: 'refresh', size: 13 })),
       h(G.IconButton, {
         title: t('git.more'),
         onClick: (event) => {
