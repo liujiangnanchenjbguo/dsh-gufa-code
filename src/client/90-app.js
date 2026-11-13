@@ -217,6 +217,11 @@ G.useSplitter = function useSplitter(options) {
 
 
 
+/** 项目相对路径统一成 POSIX 风格：Windows Host/会话引用可能带反斜杠或前导 ./ */
+function gufaNormalizeProjectPath(value) {
+  return String(value ?? '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
+}
+
 G.GufaApp = function GufaApp(props) {
   const t = G.useT()
   const theme = G.useTheme()
@@ -572,10 +577,12 @@ G.GufaApp = function GufaApp(props) {
   }, [gitStatus, project])
 
   /* ── 文件打开 / 保存 / 关闭 ─────────────────────────────────────────── */
-  const openFile = useCallback(async (path) => {
+  const openFile = useCallback(async (rawPath) => {
     if (project === null) return
+    const path = gufaNormalizeProjectPath(rawPath)
+    if (path === '') return
     flushBuffersRef.current?.()
-    const existing = tabs.find((tab) => tab.path === path)
+    const existing = tabs.find((tab) => gufaNormalizeProjectPath(tab.path) === path)
     if (existing !== undefined) {
       /* 已经打开的文件再次点击：先对齐磁盘最新版本（AI/外部修改后不用关掉重开） */
       try {
@@ -590,7 +597,7 @@ G.GufaApp = function GufaApp(props) {
       const doc = await G.api('fs.read', { root: project.root, path })
       /* 用函数式更新去重：并发/恢复场景下闭包里的 tabs 可能还没刷新，直接追加会产生重复标签 */
       setTabs((current) => (
-        current.some((tab) => tab.path === path)
+        current.some((tab) => gufaNormalizeProjectPath(tab.path) === gufaNormalizeProjectPath(doc.path ?? path))
           ? current
           : [...current, { ...doc, savedContent: doc.content, dirty: false, savedRevision: doc.revision }]
       ))
@@ -601,8 +608,9 @@ G.GufaApp = function GufaApp(props) {
   }, [project, tabs])
 
   /* 从搜索/定位结果打开文件并跳到指定行列（等 tab 切换完成后再触发编辑器 reveal） */
-  const openFileAt = useCallback(async (path, line, column) => {
-    if (typeof path !== 'string' || path === '') return
+  const openFileAt = useCallback(async (rawPath, line, column) => {
+    if (typeof rawPath !== 'string' || rawPath === '') return
+    const path = gufaNormalizeProjectPath(rawPath)
     await openFile(path)
     const targetLine = Number.isFinite(Number(line)) ? Math.max(1, Math.trunc(Number(line))) : 1
     const targetColumn = Number.isFinite(Number(column)) ? Math.max(1, Math.trunc(Number(column))) : 1

@@ -78,6 +78,9 @@ constexpr UINT_PTR kTimerControllerWatchdog = 9;
 
 constexpr int kMenuExit = 1;
 constexpr int kMenuResetFrame = 2;
+constexpr int kMenuToggleClickThrough = 3;
+constexpr int kMenuStopFollow = 4;
+constexpr UINT kHotkeyClickThrough = 0x4755;  // 全局热键 id：Ctrl+Alt+Shift+G 切换鼠标穿透
 
 constexpr int kResizeBorderDip = 8;  // 左右/底部可缩放边缘宽度（DIP）
 constexpr int kDragStripDip = 22;    // 顶部拖动条高度（DIP，与网页 CSS 的 22px 对齐）
@@ -906,22 +909,10 @@ HWND FindFollowWindowForProcess(DWORD processId, const std::wstring& title) {
 }
 
 /* 悬浮层右键菜单：windowed 模式由拖动条子窗口触发；composition 模式由主窗口
- * 顶部 22px 拖动区的 WM_NCRBUTTONUP 触发。命令统一 PostMessage 给主窗口处理。 */
-void ShowFloatContextMenu(HWND owner) {
-  if (owner == nullptr) return;
-  HMENU menu = CreatePopupMenu();
-  if (menu == nullptr) return;
-  AppendMenuW(menu, MF_STRING, kMenuExit, L"退出摸鱼（恢复主窗口）");
-  AppendMenuW(menu, MF_STRING, kMenuResetFrame, L"重置窗口位置和大小");
-  POINT cursor;
-  GetCursorPos(&cursor);
-  const int command = static_cast<int>(TrackPopupMenu(
-      menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, cursor.x, cursor.y, 0, owner, nullptr));
-  DestroyMenu(menu);
-  if (command != 0) {
-    PostMessageW(owner, kMsgStripMenu, static_cast<WPARAM>(command), 0);
-  }
-}
+ * 顶部 22px 拖动区的 WM_NCRBUTTONUP 触发。命令统一 PostMessage 给主窗口处理。
+ * 实现在 FloatApp 类之后（需要读取穿透/跟随状态）。 */
+class FloatApp;
+static void ShowFloatContextMenu(HWND owner, FloatApp* app);
 
 /* ────────────────────────────── 悬浮层窗口 ────────────────────────────── */
 
@@ -939,6 +930,10 @@ class FloatApp {
   void RequestExit(int exitCode);
   bool IsCiProbe() const { return payload_.ciProbe; }
   std::wstring CiProbeOutputPath() const { return payload_.ciProbeOut; }
+  bool clickThroughEnabled() const { return clickThrough_; }
+  bool followActive() const { return followActivated_ && followWindow_ != nullptr; }
+  void ToggleClickThrough();
+  void StopFollowing();
   /* 兜底：ciProbe 进程即将结束但还没写结果时，补写一个 ok:false 的探针文件。 */
   void EnsureCiProbeResultWritten(const std::wstring& reason);
 
@@ -977,6 +972,7 @@ class FloatApp {
 
   void OnFollowTimer();
   void ApplyFollowFrame();
+  void ApplyClickThrough();
   void OnHideDshTimer();
   void HideDshWindows();
   void RestoreDshWindows();
@@ -1047,7 +1043,44 @@ class FloatApp {
   bool mouseCaptured_ = false;
   bool suppressWindowDestroy_ = false;
   bool hideDshDone_ = false;
+  bool clickThrough_ = false;
+  bool clickThroughLayered_ = false;
+  bool clickThroughHotkey_ = false;
 };
+
+namespace {
+BOOL CALLBACK SetChildClickThrough(HWND child, LPARAM lparam) {
+  const bool enable = lparam != 0;
+  LONG_PTR exStyle = GetWindowLongPtrW(child, GWL_EXSTYLE);
+  LONG_PTR next = enable ? (exStyle | WS_EX_TRANSPARENT)
+                         : (exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
+  if (next != exStyle) SetWindowLongPtrW(child, GWL_EXSTYLE, next);
+  return TRUE;
+}
+}  // namespace
+
+static void ShowFloatContextMenu(HWND owner, FloatApp* app) {
+  if (owner == nullptr) return;
+  HMENU menu = CreatePopupMenu();
+  if (menu == nullptr) return;
+  if (app != nullptr && app->followActive()) {
+    AppendMenuW(menu, MF_STRING, kMenuStopFollow, L"停止跟随 App 窗口");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  }
+  AppendMenuW(menu, static_cast<UINT>(MF_STRING) | ((app != nullptr && app->clickThroughEnabled()) ? static_cast<UINT>(MF_CHECKED) : 0U),
+              kMenuToggleClickThrough, L"切换鼠标穿透（Ctrl+Alt+Shift+G）");
+  AppendMenuW(menu, MF_STRING, kMenuResetFrame, L"重置窗口位置和大小");
+  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(menu, MF_STRING, kMenuExit, L"退出摸鱼（恢复主窗口）");
+  POINT cursor;
+  GetCursorPos(&cursor);
+  const int command = static_cast<int>(TrackPopupMenu(
+      menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, cursor.x, cursor.y, 0, owner, nullptr));
+  DestroyMenu(menu);
+  if (command != 0) {
+    PostMessageW(owner, kMsgStripMenu, static_cast<WPARAM>(command), 0);
+  }
+}
 
 FloatApp::~FloatApp() {
   if (hostProcess_ != nullptr) {
@@ -1142,7 +1175,7 @@ LRESULT CALLBACK FloatApp::StripWndProc(HWND hwnd, UINT message, WPARAM wparam, 
       return 0;
     }
     case WM_RBUTTONUP:
-      ShowFloatContextMenu(GetParent(hwnd));
+      ShowFloatContextMenu(GetParent(hwnd), app);
       return 0;
     case WM_SETCURSOR:
       SetCursor(LoadCursorW(nullptr, IDC_ARROW));
@@ -1334,6 +1367,12 @@ bool FloatApp::CreateHostWindow(const RECT& rect, bool composition) {
   LogFmt(L"main-window-created composition=%d rect=(%ld,%ld)-(%ld,%ld) dpi=%u",
          composition ? 1 : 0, static_cast<long>(rect.left), static_cast<long>(rect.top),
          static_cast<long>(rect.right), static_cast<long>(rect.bottom), WindowDpi(hwnd_));
+  if (RegisterHotKey(hwnd_, kHotkeyClickThrough, MOD_CONTROL | MOD_ALT | MOD_SHIFT, 'G')) {
+    clickThroughHotkey_ = true;
+    Log(L"click-through-hotkey=registered Ctrl+Alt+Shift+G");
+  } else {
+    LogFmt(L"click-through-hotkey=register-failed err=%lu", static_cast<unsigned long>(GetLastError()));
+  }
   if (composition) return true;
   return CreateStripChildWindow();
 }
@@ -2126,6 +2165,9 @@ void FloatApp::FinishControllerSetup() {
   }
   controllerReady_ = true;
   Log(L"webview2-controller-ready");
+  if (clickThrough_) {
+    ApplyClickThrough();
+  }
   ConfigureWebView();
   LayoutChildren();
   StartScriptInjection();
@@ -2472,12 +2514,59 @@ void FloatApp::CleanupWebView() {
   environment_.Reset();
 }
 
+void FloatApp::ToggleClickThrough() {
+  clickThrough_ = !clickThrough_;
+  ApplyClickThrough();
+}
+
+void FloatApp::ApplyClickThrough() {
+  if (hwnd_ == nullptr) return;
+  LONG_PTR exStyle = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+  LONG_PTR next = clickThrough_ ? (exStyle | WS_EX_TRANSPARENT)
+                                : (exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
+  /* windowed 模式需要 layered 才能让点击稳定穿透到下层窗口；composition 模式
+     使用 WS_EX_NOREDIRECTIONBITMAP，不能叠加 layered。 */
+  if (hostingMode_ == HostingMode::Windowed) {
+    if (clickThrough_) {
+      if ((next & WS_EX_LAYERED) == 0) {
+        next |= WS_EX_LAYERED;
+        clickThroughLayered_ = true;
+        SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
+      }
+    } else if (clickThroughLayered_) {
+      next &= ~static_cast<LONG_PTR>(WS_EX_LAYERED);
+      clickThroughLayered_ = false;
+    }
+  }
+  if (next != exStyle) {
+    SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, next);
+    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+  }
+  EnumChildWindows(hwnd_, SetChildClickThrough, clickThrough_ ? 1 : 0);
+  LogFmt(L"click-through=%d", clickThrough_ ? 1 : 0);
+}
+
+void FloatApp::StopFollowing() {
+  if (!followActivated_ && followWindow_ == nullptr && !payload_.hasFollow) return;
+  payload_.hasFollow = false;
+  followActivated_ = false;
+  followWindow_ = nullptr;
+  followMissCount_ = 0;
+  if (hwnd_ != nullptr) KillTimer(hwnd_, kTimerFollow);
+  Log(L"follow-stopped-by-menu");
+}
+
 void FloatApp::DoGracefulExit() {
   if (hwnd_ == nullptr) {
     PostQuitMessage(exitCode_);
     return;
   }
   Log(L"graceful-exit-start");
+  if (clickThroughHotkey_ && hwnd_ != nullptr) {
+    UnregisterHotKey(hwnd_, kHotkeyClickThrough);
+    clickThroughHotkey_ = false;
+  }
   KillAllTimers();
   RestoreDshWindows();
   DeleteControlFile();
@@ -2494,6 +2583,10 @@ void FloatApp::DoGracefulExit() {
 }
 
 void FloatApp::OnWindowDestroyed() {
+  if (clickThroughHotkey_ && hwnd_ != nullptr) {
+    UnregisterHotKey(hwnd_, kHotkeyClickThrough);
+    clickThroughHotkey_ = false;
+  }
   KillAllTimers();
   if (mouseCaptured_) {
     mouseCaptured_ = false;
@@ -2528,7 +2621,7 @@ LRESULT FloatApp::OnMainMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
       return DefWindowProcW(hwnd, message, wparam, lparam);
     case WM_NCRBUTTONUP:
       if (hostingMode_ == HostingMode::Composition) {
-        ShowFloatContextMenu(hwnd);
+        ShowFloatContextMenu(hwnd, this);
         return 0;
       }
       return DefWindowProcW(hwnd, message, wparam, lparam);
@@ -2600,8 +2693,18 @@ LRESULT FloatApp::OnMainMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
         RequestExit(0);
       } else if (wparam == static_cast<WPARAM>(kMenuResetFrame)) {
         ResetWindowFrame();
+      } else if (wparam == static_cast<WPARAM>(kMenuToggleClickThrough)) {
+        ToggleClickThrough();
+      } else if (wparam == static_cast<WPARAM>(kMenuStopFollow)) {
+        StopFollowing();
       }
       return 0;
+    case WM_HOTKEY:
+      if (wparam == kHotkeyClickThrough) {
+        ToggleClickThrough();
+        return 0;
+      }
+      return DefWindowProcW(hwnd, message, wparam, lparam);
     case WM_SYSKEYDOWN:
       if (wparam == VK_F4) {
         RequestExit(0);

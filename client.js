@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.183'
+G.BUILD = '1.3.185'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1236,6 +1236,16 @@ html[data-gufa-float] .gufa-tabs,
 html[data-gufa-float] .gufa-statusbar,
 html[data-gufa-float] [data-gufa-dock],
 html[data-gufa-float] [data-gufa-dock] > *{background:transparent!important}
+/* 摸鱼模式：Monaco 自己画实色背景，必须显式透明，否则编辑区在透明悬浮窗里是一块实色
+   （Windows helper 尤其明显；mac 之前靠 backdrop=on 的分支碰巧覆盖了） */
+html[data-gufa-float] .gufa-editor-host{background:transparent!important}
+html[data-gufa-float] .gufa-editor-host .monaco-editor,
+html[data-gufa-float] .gufa-editor-host .monaco-editor .margin,
+html[data-gufa-float] .gufa-editor-host .monaco-editor-background,
+html[data-gufa-float] .gufa-editor-host .monaco-diff-editor .editor.original,
+html[data-gufa-float] .gufa-editor-host .monaco-diff-editor .editor.modified,
+html[data-gufa-float] .gufa-editor-host .gufa-empty,
+html[data-gufa-float] .gufa-editor-host .gufa-editor-fallback{background:transparent!important}
 /* 官方会话停靠层（toolbar/host）自带底色，摸鱼里一并透明，避免会话框叠两层 */
 html[data-gufa-float] .gufa-dock-toolbar,
 html[data-gufa-float] .gufa-dock-host,
@@ -11349,9 +11359,21 @@ async function gufaOpenMention(mention) {
   if (mention === null || mention === undefined || typeof mention.path !== 'string' || mention.path === '') return
   const root = typeof G.projectRoot === 'string' ? G.projectRoot.replace(/\\/g, '/').replace(/\/+$/, '') : ''
   if (root === '') return
+  /* Windows 的会话引用可能带 file:///C:/ 前缀、%20 编码或反斜杠；先归一化再让 Host 解析 */
+  let rawPath = String(mention.path ?? '').trim()
+  if (/^file:\/\//i.test(rawPath)) {
+    rawPath = rawPath.replace(/^file:\/\//i, '')
+    try { rawPath = decodeURIComponent(rawPath) } catch { /* ignore */ }
+  }
+  rawPath = rawPath.replace(/\\/g, '/').replace(/^\/[A-Za-z]:\//, (m) => m.slice(1))
   let resolved = null
   try {
-    resolved = await G.api('code.resolvePath', { root, path: mention.path })
+    resolved = await G.api('code.resolvePath', { root, path: rawPath })
+    /* 完整路径解析不到时，退一步只按 basename 找（Windows 盘符/大小写差异常见） */
+    if (resolved === null || resolved === undefined || typeof resolved.path !== 'string' || resolved.path === '') {
+      const base = rawPath.split('/').filter((part) => part !== '').pop() ?? ''
+      if (base !== '' && base !== rawPath) resolved = await G.api('code.resolvePath', { root, path: base })
+    }
   } catch {
     return
   }
@@ -12743,6 +12765,11 @@ G.useSplitter = function useSplitter(options) {
 
 
 
+/** 项目相对路径统一成 POSIX 风格：Windows Host/会话引用可能带反斜杠或前导 ./ */
+function gufaNormalizeProjectPath(value) {
+  return String(value ?? '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
+}
+
 G.GufaApp = function GufaApp(props) {
   const t = G.useT()
   const theme = G.useTheme()
@@ -13098,10 +13125,12 @@ G.GufaApp = function GufaApp(props) {
   }, [gitStatus, project])
 
   /* ── 文件打开 / 保存 / 关闭 ─────────────────────────────────────────── */
-  const openFile = useCallback(async (path) => {
+  const openFile = useCallback(async (rawPath) => {
     if (project === null) return
+    const path = gufaNormalizeProjectPath(rawPath)
+    if (path === '') return
     flushBuffersRef.current?.()
-    const existing = tabs.find((tab) => tab.path === path)
+    const existing = tabs.find((tab) => gufaNormalizeProjectPath(tab.path) === path)
     if (existing !== undefined) {
       /* 已经打开的文件再次点击：先对齐磁盘最新版本（AI/外部修改后不用关掉重开） */
       try {
@@ -13116,7 +13145,7 @@ G.GufaApp = function GufaApp(props) {
       const doc = await G.api('fs.read', { root: project.root, path })
       /* 用函数式更新去重：并发/恢复场景下闭包里的 tabs 可能还没刷新，直接追加会产生重复标签 */
       setTabs((current) => (
-        current.some((tab) => tab.path === path)
+        current.some((tab) => gufaNormalizeProjectPath(tab.path) === gufaNormalizeProjectPath(doc.path ?? path))
           ? current
           : [...current, { ...doc, savedContent: doc.content, dirty: false, savedRevision: doc.revision }]
       ))
@@ -13127,8 +13156,9 @@ G.GufaApp = function GufaApp(props) {
   }, [project, tabs])
 
   /* 从搜索/定位结果打开文件并跳到指定行列（等 tab 切换完成后再触发编辑器 reveal） */
-  const openFileAt = useCallback(async (path, line, column) => {
-    if (typeof path !== 'string' || path === '') return
+  const openFileAt = useCallback(async (rawPath, line, column) => {
+    if (typeof rawPath !== 'string' || rawPath === '') return
+    const path = gufaNormalizeProjectPath(rawPath)
     await openFile(path)
     const targetLine = Number.isFinite(Number(line)) ? Math.max(1, Math.trunc(Number(line))) : 1
     const targetColumn = Number.isFinite(Number(column)) ? Math.max(1, Math.trunc(Number(column))) : 1

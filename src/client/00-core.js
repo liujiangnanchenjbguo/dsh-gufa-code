@@ -1228,6 +1228,16 @@ html[data-gufa-float] .gufa-tabs,
 html[data-gufa-float] .gufa-statusbar,
 html[data-gufa-float] [data-gufa-dock],
 html[data-gufa-float] [data-gufa-dock] > *{background:transparent!important}
+/* 摸鱼模式：Monaco 自己画实色背景，必须显式透明，否则编辑区在透明悬浮窗里是一块实色
+   （Windows helper 尤其明显；mac 之前靠 backdrop=on 的分支碰巧覆盖了） */
+html[data-gufa-float] .gufa-editor-host{background:transparent!important}
+html[data-gufa-float] .gufa-editor-host .monaco-editor,
+html[data-gufa-float] .gufa-editor-host .monaco-editor .margin,
+html[data-gufa-float] .gufa-editor-host .monaco-editor-background,
+html[data-gufa-float] .gufa-editor-host .monaco-diff-editor .editor.original,
+html[data-gufa-float] .gufa-editor-host .monaco-diff-editor .editor.modified,
+html[data-gufa-float] .gufa-editor-host .gufa-empty,
+html[data-gufa-float] .gufa-editor-host .gufa-editor-fallback{background:transparent!important}
 /* 官方会话停靠层（toolbar/host）自带底色，摸鱼里一并透明，避免会话框叠两层 */
 html[data-gufa-float] .gufa-dock-toolbar,
 html[data-gufa-float] .gufa-dock-host,

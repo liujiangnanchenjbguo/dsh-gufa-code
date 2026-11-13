@@ -477,9 +477,21 @@ async function gufaOpenMention(mention) {
   if (mention === null || mention === undefined || typeof mention.path !== 'string' || mention.path === '') return
   const root = typeof G.projectRoot === 'string' ? G.projectRoot.replace(/\\/g, '/').replace(/\/+$/, '') : ''
   if (root === '') return
+  /* Windows 的会话引用可能带 file:///C:/ 前缀、%20 编码或反斜杠；先归一化再让 Host 解析 */
+  let rawPath = String(mention.path ?? '').trim()
+  if (/^file:\/\//i.test(rawPath)) {
+    rawPath = rawPath.replace(/^file:\/\//i, '')
+    try { rawPath = decodeURIComponent(rawPath) } catch { /* ignore */ }
+  }
+  rawPath = rawPath.replace(/\\/g, '/').replace(/^\/[A-Za-z]:\//, (m) => m.slice(1))
   let resolved = null
   try {
-    resolved = await G.api('code.resolvePath', { root, path: mention.path })
+    resolved = await G.api('code.resolvePath', { root, path: rawPath })
+    /* 完整路径解析不到时，退一步只按 basename 找（Windows 盘符/大小写差异常见） */
+    if (resolved === null || resolved === undefined || typeof resolved.path !== 'string' || resolved.path === '') {
+      const base = rawPath.split('/').filter((part) => part !== '').pop() ?? ''
+      if (base !== '' && base !== rawPath) resolved = await G.api('code.resolvePath', { root, path: base })
+    }
   } catch {
     return
   }

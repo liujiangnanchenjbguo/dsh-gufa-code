@@ -383,9 +383,18 @@ function insideProject(root, target) {
 export async function resolvePath(body, env) {
   const project = env.projects.ensure(typeof body.root === 'string' ? body.root : '')
   const root = project.root
-  let hint = String(body.path ?? '').replace(/\\/g, '/').trim()
+  let hint = String(body.path ?? '').trim()
   if (hint === '') return { path: null, matches: [] }
-  hint = hint.replace(/^file:\/\//, '').replace(/^\.\//, '')
+  /* 会话里的文件引用在 Windows 上可能是 file:///C:/... 或反斜杠绝对路径；
+     统一转成 node 能识别的路径，并去掉 file:// 前导和驱动器前的多余斜杠。 */
+  if (/^file:\/\//i.test(hint)) {
+    hint = hint.replace(/^file:\/\//i, '')
+    try { hint = decodeURIComponent(hint) } catch { /* ignore */ }
+  }
+  hint = hint.replace(/\\/g, '/').trim()
+  if (/^\/[A-Za-z]:\//.test(hint)) hint = hint.slice(1)
+  if (hint.startsWith('./')) hint = hint.slice(2)
+  if (hint === '') return { path: null, matches: [] }
   if (isAbsolute(hint)) {
     const absolute = resolve(hint)
     if (!insideProject(root, absolute)) return { path: null, matches: [] }
