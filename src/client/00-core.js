@@ -1699,6 +1699,8 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-tab:hover{background:var(--gufa-hover)}
 .gufa-tab[data-active]{background:var(--gufa-bg);color:var(--gufa-text);box-shadow:inset 0 2px 0 var(--gufa-accent)}
 .gufa-tab-name{overflow:hidden;text-overflow:ellipsis}
+/* VS Code 式「临时打开/预览」标签：斜体；双击/编辑后转正体 */
+.gufa-tab[data-preview] .gufa-tab-name{font-style:italic}
 .gufa-tab-dot{width:7px;height:7px;border-radius:50%;background:var(--gufa-accent);flex:0 0 auto}
 .gufa-tab-close{width:18px;height:18px;border:0;border-radius:4px;background:transparent;color:inherit;cursor:pointer;
   display:flex;align-items:center;justify-content:center;opacity:.65;flex:0 0 auto}

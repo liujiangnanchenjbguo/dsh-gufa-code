@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.189'
+G.BUILD = '1.3.192'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1707,6 +1707,8 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
 .gufa-tab:hover{background:var(--gufa-hover)}
 .gufa-tab[data-active]{background:var(--gufa-bg);color:var(--gufa-text);box-shadow:inset 0 2px 0 var(--gufa-accent)}
 .gufa-tab-name{overflow:hidden;text-overflow:ellipsis}
+/* VS Code 式「临时打开/预览」标签：斜体；双击/编辑后转正体 */
+.gufa-tab[data-preview] .gufa-tab-name{font-style:italic}
 .gufa-tab-dot{width:7px;height:7px;border-radius:50%;background:var(--gufa-accent);flex:0 0 auto}
 .gufa-tab-close{width:18px;height:18px;border:0;border-radius:4px;background:transparent;color:inherit;cursor:pointer;
   display:flex;align-items:center;justify-content:center;opacity:.65;flex:0 0 auto}
@@ -8277,7 +8279,10 @@ G.Explorer = function Explorer(props) {
               setMulti([])
               setSelected({ path: entry.path, kind: entry.kind })
               if (isDir) toggleDir(entry.path)
-              else props.onOpenFile?.(entry.path)
+              else props.onOpenFile?.(entry.path, { preview: true })
+            },
+            onDoubleClick: () => {
+              if (!isDir) props.onOpenFile?.(entry.path, { preview: false })
             },
             onContextMenu: (event) => openContextMenu(event, entry),
           },
@@ -8376,7 +8381,22 @@ G.Explorer = function Explorer(props) {
       : null,
     h(
       'div',
-      { className: 'gufa-panel-body gufa-scroll' },
+      {
+        className: 'gufa-panel-body gufa-scroll',
+        onContextMenu: (event) => {
+          try {
+            if (event.target !== null && event.target !== undefined && typeof event.target.closest === 'function' && event.target.closest('.gufa-tree-row') !== null) return
+          } catch {
+            /* ignore */
+          }
+          if (!root) return
+          event.preventDefault()
+          event.stopPropagation()
+          setMulti([])
+          setSelected(null)
+          setMenu({ x: event.clientX, y: event.clientY, path: '', kind: 'dir', entries: [], blank: true })
+        },
+      },
       menuError !== ''
         ? h('div', { className: 'gufa-error-banner' }, h(G.Icon, { name: 'warn', size: 13 }), h('span', { style: { flex: '1 1 auto' } }, menuError), h(G.IconButton, { title: t('common.close'), onClick: () => setMenuError('') }, h(G.Icon, { name: 'close', size: 11 })))
         : null,
@@ -8385,6 +8405,28 @@ G.Explorer = function Explorer(props) {
     menu === null
       ? null
       : (() => {
+          if (menu.blank === true) {
+            const closeBlank = (fn) => () => {
+              setMenu(null)
+              fn()
+            }
+            return G.portal(h(
+              'div',
+              {
+                className: 'gufa-menu',
+                style: { left: menu.x, top: menu.y, position: 'fixed', minWidth: 180 },
+                onMouseDown: (event) => event.stopPropagation(),
+              },
+              h(G.MenuItem, { icon: 'plus', label: t('explorer.newFile'), onClick: closeBlank(() => props.onNewFile?.('')) }),
+              h(G.MenuItem, { icon: 'folder', label: t('explorer.newFolder'), onClick: closeBlank(() => props.onNewFolder?.('')) }),
+              clipboard !== null
+                ? h(G.MenuItem, { icon: 'folder-open', label: t('explorer.paste'), onClick: closeBlank(() => void pasteInto('')) })
+                : null,
+              h(G.MenuItem, { icon: 'refresh', label: t('explorer.refresh'), onClick: closeBlank(() => refreshAll()) }),
+              h(G.MenuItem, { icon: 'files', label: '全部折叠', onClick: closeBlank(() => setExpanded({})) }),
+              h(G.MenuItem, { icon: 'folder-open', label: t('explorer.revealInFinder'), onClick: closeBlank(() => revealPath('')) }),
+            ))
+          }
           const entries = Array.isArray(menu.entries) && menu.entries.length > 0 ? menu.entries : [{ path: menu.path, kind: menu.kind }]
           const files = entries.filter((item) => item.kind === 'file')
           const single = entries.length === 1
@@ -12931,6 +12973,7 @@ G.GufaApp = function GufaApp(props) {
   const gitInFlightRef = useRef(false)
   const gitFetchRef = useRef({ root: '', at: 0 })
   const [modal, setModal] = useState(null)
+  const [tabMenu, setTabMenu] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [definitionPicker, setDefinitionPicker] = useState(null)
   const [trashUndo, setTrashUndo] = useState([])
@@ -13159,35 +13202,70 @@ G.GufaApp = function GufaApp(props) {
   }, [gitStatus, project])
 
   /* ── 文件打开 / 保存 / 关闭 ─────────────────────────────────────────── */
-  const openFile = useCallback(async (rawPath) => {
+  /**
+   * 打开文件。preview=true 为「临时打开」（VS Code 预览标签，斜体）：
+   * 单点文件树只产生一个预览标签，再点其他文件会原地替换它；
+   * 双击文件/标签或编辑内容后由调用方/changeFile 固定成普通标签。
+   */
+  const openFile = useCallback(async (rawPath, options) => {
     if (project === null) return
     const path = gufaNormalizeProjectPath(rawPath)
     if (path === '') return
+    const preview = options !== null && options !== undefined && options.preview === true
     flushBuffersRef.current?.()
     const existing = tabs.find((tab) => gufaNormalizeProjectPath(tab.path) === path)
     if (existing !== undefined) {
+      if (preview !== true && existing.preview === true) {
+        setTabs((current) => current.map((tab) => (tab.path === existing.path ? { ...tab, preview: false } : tab)))
+      }
       /* 已经打开的文件再次点击：先对齐磁盘最新版本（AI/外部修改后不用关掉重开） */
       try {
-        await reloadTabFromDiskRef.current?.(path)
+        await reloadTabFromDiskRef.current?.(existing.path)
       } catch {
         /* ignore */
       }
-      setActivePath(path)
+      setActivePath(existing.path)
       return
     }
     try {
       const doc = await G.api('fs.read', { root: project.root, path })
-      /* 用函数式更新去重：并发/恢复场景下闭包里的 tabs 可能还没刷新，直接追加会产生重复标签 */
-      setTabs((current) => (
-        current.some((tab) => gufaNormalizeProjectPath(tab.path) === gufaNormalizeProjectPath(doc.path ?? path))
-          ? current
-          : [...current, { ...doc, savedContent: doc.content, dirty: false, savedRevision: doc.revision }]
-      ))
-      setActivePath(path)
+      const nextTab = { ...doc, savedContent: doc.content, dirty: false, savedRevision: doc.revision }
+      if (preview === true) {
+        /* 预览标签全局只有一个：找到干净的那个原地替换，不新增标签 */
+        const previewTab = tabs.find((tab) => tab.preview === true && tab.dirty !== true && tab.kind !== 'diff')
+        if (previewTab !== undefined) {
+          editorBuffersRef.current.delete(previewTab.path)
+          const replacedPath = gufaNormalizeProjectPath(doc.path ?? path)
+          setTabs((current) => current.map((tab) => (
+            tab.path === previewTab.path ? { ...nextTab, preview: true } : tab
+          )))
+          setActivePath(replacedPath)
+          return
+        }
+        setTabs((current) => (
+          current.some((tab) => gufaNormalizeProjectPath(tab.path) === gufaNormalizeProjectPath(doc.path ?? path))
+            ? current
+            : [...current, { ...nextTab, preview: true }]
+        ))
+      } else {
+        /* 用函数式更新去重：并发/恢复场景下闭包里的 tabs 可能还没刷新，直接追加会产生重复标签 */
+        setTabs((current) => (
+          current.some((tab) => gufaNormalizeProjectPath(tab.path) === gufaNormalizeProjectPath(doc.path ?? path))
+            ? current
+            : [...current, nextTab]
+        ))
+      }
+      setActivePath(gufaNormalizeProjectPath(doc.path ?? path))
     } catch (error) {
       setBanner(G.errorText(error))
     }
   }, [project, tabs])
+
+  /** 双击标签/文件：把预览标签固定成普通标签。 */
+  const pinTab = useCallback((rawPath) => {
+    const path = gufaNormalizeProjectPath(rawPath)
+    setTabs((current) => current.map((tab) => (tab.path === path && tab.preview === true ? { ...tab, preview: false } : tab)))
+  }, [])
 
   /* 从搜索/定位结果打开文件并跳到指定行列（等 tab 切换完成后再触发编辑器 reveal） */
   const openFileAt = useCallback(async (rawPath, line, column) => {
@@ -13347,9 +13425,10 @@ G.GufaApp = function GufaApp(props) {
         if (tab === null || !buffers.has(tab.path)) return tab
         const content = buffers.get(tab.path)
         const dirty = content !== tab.savedContent
-        if (tab.content === content && tab.dirty === dirty) return tab
+        const preview = dirty ? false : tab.preview
+        if (tab.content === content && tab.dirty === dirty && tab.preview === preview) return tab
         changed = true
-        return { ...tab, content, dirty }
+        return { ...tab, content, dirty, preview }
       })
       if (!changed) return current
       tabsRef.current = next
@@ -13379,9 +13458,10 @@ G.GufaApp = function GufaApp(props) {
           /* 用缓冲里的最新内容而不是本次按键的内容：避免 React 批处理时把「第一次按键」的旧内容回灌给编辑器。 */
           const latest = editorBuffersRef.current.has(path) ? editorBuffersRef.current.get(path) : content
           const dirty = latest !== item.savedContent
-          if (item.dirty === dirty) return item
+          const preview = dirty ? false : item.preview
+          if (item.dirty === dirty && item.preview === preview) return item
           changed = true
-          return { ...item, content: latest, dirty }
+          return { ...item, content: latest, dirty, preview }
         })
         if (!changed) return current
         tabsRef.current = next
@@ -13493,6 +13573,37 @@ G.GufaApp = function GufaApp(props) {
     }
     closeTab(path)
   }, [tabs, closeTab])
+
+  /** 关闭当前标签外的其他标签；有未保存改动时先确认。 */
+  const closeOtherTabs = useCallback((path) => {
+    const others = tabs.filter((tab) => tab.path !== path)
+    if (others.length === 0) return
+    if (others.some((tab) => tab.dirty === true) && window.confirm('有未保存的改动，仍要关闭其他标签页吗？') !== true) return
+    for (const tab of others) editorBuffersRef.current.delete(tab.path)
+    setTabs((current) => current.filter((tab) => tab.path === path))
+    setActivePath(path)
+  }, [tabs])
+
+  /** 关闭全部标签；有未保存改动时先确认。 */
+  const closeAllTabs = useCallback(() => {
+    if (tabs.length === 0) return
+    if (tabs.some((tab) => tab.dirty === true) && window.confirm('有未保存的改动，仍要关闭全部标签页吗？') !== true) return
+    editorBuffersRef.current.clear()
+    setTabs([])
+    setActivePath(null)
+  }, [tabs])
+
+  /** 标签右键菜单用：绝对路径 / 相对路径复制。 */
+  const tabAbsolutePath = useCallback((path) => {
+    const root = project !== null && typeof project.root === 'string' ? project.root.replace(/[\\/]+$/, '') : ''
+    if (root === '') return path
+    const sep = root.includes('\\') ? '\\' : '/'
+    return `${root}${sep}${String(path).split('/').join(sep)}`
+  }, [project])
+
+  const copyText = useCallback((text) => {
+    try { void navigator.clipboard?.writeText(String(text)) } catch { /* ignore */ }
+  }, [])
 
   /* ── Git Graph（提交图标签页） ─────────────────────────────────────── */
   const openGitGraph = useCallback(() => {
@@ -15043,6 +15154,17 @@ G.GufaApp = function GufaApp(props) {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [shortcutsOpen])
 
+  useEffect(() => {
+    if (tabMenu === null) return undefined
+    const close = () => setTabMenu(null)
+    window.addEventListener('mousedown', close)
+    window.addEventListener('blur', close)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('blur', close)
+    }
+  }, [tabMenu])
+
   /* ── 渲染 ─────────────────────────────────────────────────────────── */
   const activityItems = [
     { id: 'explorer', icon: 'files', label: t('activity.explorer'), onClick: () => patchUi({ view: 'explorer', sidebarOpen: true }) },
@@ -15061,7 +15183,7 @@ G.GufaApp = function GufaApp(props) {
         activePath,
         refreshToken,
         gitStatuses,
-        onOpenFile: (path) => void openFile(path),
+        onOpenFile: (path, options) => void openFile(path, options),
         onChanged: () => {
           setRefreshToken((token) => token + 1)
           setGitRefreshToken((token) => token + 1)
@@ -15112,7 +15234,14 @@ G.GufaApp = function GufaApp(props) {
                 role: 'tab',
                 tabIndex: 0,
                 title: tab.title !== undefined && tab.title !== null ? tab.title : tab.path,
+                'data-preview': tab.preview === true ? '' : undefined,
                 onClick: () => handleSelectTab(tab.path),
+                onDoubleClick: () => pinTab(tab.path),
+                onContextMenu: (event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setTabMenu({ x: event.clientX, y: event.clientY, path: tab.path })
+                },
                 onAuxClick: (event) => { if (event.button === 1) closeTabWithConfirm(tab.path) },
               },
               h(G.Icon, { name: 'file', size: 13 }),
@@ -15657,6 +15786,25 @@ G.GufaApp = function GufaApp(props) {
           ),
         ),
     ),
+    /* 标签页右键菜单 */
+    tabMenu === null
+      ? null
+      : G.portal(h(
+          'div',
+          {
+            className: 'gufa-menu',
+            style: { left: tabMenu.x, top: tabMenu.y, position: 'fixed', minWidth: 190, zIndex: 2147483050 },
+            onMouseDown: (event) => event.stopPropagation(),
+          },
+          h(G.MenuItem, { icon: 'close', label: t('editor.close'), onClick: () => { setTabMenu(null); closeTabWithConfirm(tabMenu.path) } }),
+          h(G.MenuItem, { icon: 'files', label: '关闭其他', onClick: () => { setTabMenu(null); closeOtherTabs(tabMenu.path) } }),
+          h(G.MenuItem, { icon: 'trash', label: '关闭全部', onClick: () => { setTabMenu(null); closeAllTabs() } }),
+          h(G.MenuItem, { icon: 'file', label: '复制路径', onClick: () => { setTabMenu(null); copyText(tabAbsolutePath(tabMenu.path)) } }),
+          h(G.MenuItem, { icon: 'code', label: '复制相对路径', onClick: () => { setTabMenu(null); copyText(tabMenu.path) } }),
+          tabMenu.path === activePath && activeTab !== null && activeTab.preview === true
+            ? h(G.MenuItem, { icon: 'check', label: '固定为常驻标签', onClick: () => { setTabMenu(null); pinTab(tabMenu.path) } })
+            : null,
+        )),
     /* 弹窗 */
     G.portal(modal === null ? null : renderModal()),
     G.portal(floatPicker !== null

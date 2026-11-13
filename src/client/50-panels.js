@@ -323,7 +323,10 @@ G.Explorer = function Explorer(props) {
               setMulti([])
               setSelected({ path: entry.path, kind: entry.kind })
               if (isDir) toggleDir(entry.path)
-              else props.onOpenFile?.(entry.path)
+              else props.onOpenFile?.(entry.path, { preview: true })
+            },
+            onDoubleClick: () => {
+              if (!isDir) props.onOpenFile?.(entry.path, { preview: false })
             },
             onContextMenu: (event) => openContextMenu(event, entry),
           },
@@ -422,7 +425,22 @@ G.Explorer = function Explorer(props) {
       : null,
     h(
       'div',
-      { className: 'gufa-panel-body gufa-scroll' },
+      {
+        className: 'gufa-panel-body gufa-scroll',
+        onContextMenu: (event) => {
+          try {
+            if (event.target !== null && event.target !== undefined && typeof event.target.closest === 'function' && event.target.closest('.gufa-tree-row') !== null) return
+          } catch {
+            /* ignore */
+          }
+          if (!root) return
+          event.preventDefault()
+          event.stopPropagation()
+          setMulti([])
+          setSelected(null)
+          setMenu({ x: event.clientX, y: event.clientY, path: '', kind: 'dir', entries: [], blank: true })
+        },
+      },
       menuError !== ''
         ? h('div', { className: 'gufa-error-banner' }, h(G.Icon, { name: 'warn', size: 13 }), h('span', { style: { flex: '1 1 auto' } }, menuError), h(G.IconButton, { title: t('common.close'), onClick: () => setMenuError('') }, h(G.Icon, { name: 'close', size: 11 })))
         : null,
@@ -431,6 +449,28 @@ G.Explorer = function Explorer(props) {
     menu === null
       ? null
       : (() => {
+          if (menu.blank === true) {
+            const closeBlank = (fn) => () => {
+              setMenu(null)
+              fn()
+            }
+            return G.portal(h(
+              'div',
+              {
+                className: 'gufa-menu',
+                style: { left: menu.x, top: menu.y, position: 'fixed', minWidth: 180 },
+                onMouseDown: (event) => event.stopPropagation(),
+              },
+              h(G.MenuItem, { icon: 'plus', label: t('explorer.newFile'), onClick: closeBlank(() => props.onNewFile?.('')) }),
+              h(G.MenuItem, { icon: 'folder', label: t('explorer.newFolder'), onClick: closeBlank(() => props.onNewFolder?.('')) }),
+              clipboard !== null
+                ? h(G.MenuItem, { icon: 'folder-open', label: t('explorer.paste'), onClick: closeBlank(() => void pasteInto('')) })
+                : null,
+              h(G.MenuItem, { icon: 'refresh', label: t('explorer.refresh'), onClick: closeBlank(() => refreshAll()) }),
+              h(G.MenuItem, { icon: 'files', label: '全部折叠', onClick: closeBlank(() => setExpanded({})) }),
+              h(G.MenuItem, { icon: 'folder-open', label: t('explorer.revealInFinder'), onClick: closeBlank(() => revealPath('')) }),
+            ))
+          }
           const entries = Array.isArray(menu.entries) && menu.entries.length > 0 ? menu.entries : [{ path: menu.path, kind: menu.kind }]
           const files = entries.filter((item) => item.kind === 'file')
           const single = entries.length === 1
