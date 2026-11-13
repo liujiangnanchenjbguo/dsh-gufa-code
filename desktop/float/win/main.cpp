@@ -94,6 +94,8 @@ constexpr int kControllerWatchdogMs = 12000;
 const COLORREF kBackgroundColor = RGB(13, 15, 19);
 
 HINSTANCE g_instance = nullptr;
+class FloatApp;
+FloatApp* g_activeFloatApp = nullptr;
 std::wstring g_logPath;
 /* 崩溃兜底：记录被隐藏的 DSH 窗口，异常退出前尽量恢复（全局变量便于崩溃过滤器访问） */
 std::vector<HWND> g_crashRestoreWindows;
@@ -973,6 +975,8 @@ class FloatApp {
   void OnFollowTimer();
   void ApplyFollowFrame();
   void ApplyClickThrough();
+  void ForwardMouseToUnderlying(UINT message, const MSLLHOOKSTRUCT* info);
+  static LRESULT CALLBACK LowLevelMouseProc(int code, WPARAM wparam, LPARAM lparam);
   void OnHideDshTimer();
   void HideDshWindows();
   void RestoreDshWindows();
@@ -1044,8 +1048,11 @@ class FloatApp {
   bool suppressWindowDestroy_ = false;
   bool hideDshDone_ = false;
   bool clickThrough_ = false;
-  bool clickThroughLayered_ = false;
   bool clickThroughHotkey_ = false;
+  HHOOK mouseHook_ = nullptr;
+  bool mouseHookInstalled_ = false;
+  HWND forwardedTarget_ = nullptr;
+  bool forwardedLeftDown_ = false;
 };
 
 namespace {
@@ -1091,6 +1098,7 @@ static void ShowFloatContextMenu(HWND owner, FloatApp* app) {
 }
 
 FloatApp::~FloatApp() {
+  if (g_activeFloatApp == this) g_activeFloatApp = nullptr;
   if (hostProcess_ != nullptr) {
     CloseHandle(hostProcess_);
     hostProcess_ = nullptr;
@@ -1362,10 +1370,9 @@ bool FloatApp::CreateMainWindow() {
 bool FloatApp::CreateHostWindow(const RECT& rect, bool composition) {
   hostingMode_ = composition ? HostingMode::Composition : HostingMode::Windowed;
   DWORD extendedStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
-  /* 透明 + 鼠标穿透的正确组合：WS_EX_LAYERED 与 DirectComposition 可以共存；
-     WS_EX_NOREDIRECTIONBITMAP 与 LAYERED 语义冲突会出白色矩形，而且 NORD 本身
-     不实现穿透（HTTRANSPARENT 又只在同线程生效）。 */
-  if (composition) extendedStyle |= WS_EX_LAYERED;
+  /* 透明视觉继续用 NORD + DComp（per-pixel alpha 正确）；穿透改为鼠标钩子转发，
+     不再用 LAYERED 改变窗口合成路径（否则透明白底/黑底，摸鱼透明度会乱）。 */
+  if (composition) extendedStyle |= WS_EX_NOREDIRECTIONBITMAP;
   const DWORD style = WS_POPUP | WS_THICKFRAME | WS_CLIPCHILDREN;
   hwnd_ = CreateWindowExW(extendedStyle, kMainWindowClass, kWindowTitle, style, rect.left,
                           rect.top, rect.right - rect.left, rect.bottom - rect.top, nullptr,
@@ -1375,12 +1382,10 @@ bool FloatApp::CreateHostWindow(const RECT& rect, bool composition) {
            static_cast<unsigned long>(GetLastError()));
     return false;
   }
+  g_activeFloatApp = this;
   LogFmt(L"main-window-created composition=%d rect=(%ld,%ld)-(%ld,%ld) dpi=%u",
          composition ? 1 : 0, static_cast<long>(rect.left), static_cast<long>(rect.top),
          static_cast<long>(rect.right), static_cast<long>(rect.bottom), WindowDpi(hwnd_));
-  if (composition) {
-    SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
-  }
   if (RegisterHotKey(hwnd_, kHotkeyClickThrough, MOD_CONTROL | MOD_ALT | MOD_SHIFT, 'G')) {
     clickThroughHotkey_ = true;
     Log(L"click-through-hotkey=registered Ctrl+Alt+Shift+G");
@@ -2537,29 +2542,122 @@ void FloatApp::ToggleClickThrough() {
 
 void FloatApp::ApplyClickThrough() {
   if (hwnd_ == nullptr) return;
-  LONG_PTR exStyle = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
-  /* 跨进程穿透只有 WS_EX_LAYERED | WS_EX_TRANSPARENT 有效：
-     - NORD 窗口不受 WS_EX_TRANSPARENT 影响；
-     - WM_NCHITTEST→HTTRANSPARENT 只在同线程窗口间下传，跨进程会吞掉点击。
-     所以 composition 窗口改成 LAYERED + DComp，穿透只翻转 TRANSPARENT 位。 */
-  LONG_PTR next = clickThrough_ ? (exStyle | WS_EX_TRANSPARENT | WS_EX_LAYERED)
-                                : (exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
-  if ((next & WS_EX_LAYERED) != 0 && (exStyle & WS_EX_LAYERED) == 0) {
-    SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
+  /* 保持 NORD+DComp 的 per-pixel 透明，不切 LAYERED。
+     穿透通过 WH_MOUSE_LL 钩子把鼠标消息转发给下层窗口实现（跨进程唯一不破坏透明的方式）：
+     - 点击/滚轮：临时隐藏自身 → WindowFromPoint 找下层窗口 → 显示自身 → SendMessage 转发；
+     - 左键按住拖动期间保持隐藏，松开后恢复，drag 直接作用在下层 App。 */
+  if (clickThrough_ && !mouseHookInstalled_) {
+    mouseHook_ = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, g_instance, 0);
+    mouseHookInstalled_ = mouseHook_ != nullptr;
+    if (!mouseHookInstalled_) {
+      LogFmt(L"click-through-hook=register-failed err=%lu", static_cast<unsigned long>(GetLastError()));
+      clickThrough_ = false;
+    }
+  } else if (!clickThrough_ && mouseHookInstalled_) {
+    if (mouseHook_ != nullptr) UnhookWindowsHookEx(mouseHook_);
+    mouseHook_ = nullptr;
+    mouseHookInstalled_ = false;
+    forwardedTarget_ = nullptr;
+    forwardedLeftDown_ = false;
+    if (IsWindowVisible(hwnd_) == FALSE) ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
   }
-  clickThroughLayered_ = (next & WS_EX_LAYERED) != 0;
-  if (next != exStyle) {
-    SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, next);
-    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-  }
-  int childCount = 0;
-  EnumChildWindows(hwnd_, CountChildWindow, reinterpret_cast<LPARAM>(&childCount));
-  EnumChildWindows(hwnd_, SetChildClickThrough, clickThrough_ ? 1 : 0);
-  LogFmt(L"click-through=%d mode=%s layered=%d styleTransparent=%d children=%d", clickThrough_ ? 1 : 0,
+  LogFmt(L"click-through=%d mode=%s hook=%d", clickThrough_ ? 1 : 0,
          hostingMode_ == HostingMode::Composition ? L"composition" : L"windowed",
-         clickThroughLayered_ ? 1 : 0,
-         (GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0 ? 1 : 0, childCount);
+         mouseHookInstalled_ ? 1 : 0);
+}
+
+void FloatApp::ForwardMouseToUnderlying(UINT message, const MSLLHOOKSTRUCT* info) {
+  if (hwnd_ == nullptr || info == nullptr) return;
+  const POINT screenPoint = info->pt;
+  auto sendToTarget = [&](HWND target, UINT msg, WPARAM wparam, LPARAM lparam) {
+    if (target == nullptr) return;
+    DWORD_PTR result = 0;
+    SendMessageTimeoutW(target, msg, wparam, lparam, SMTO_ABORTIFHUNG, 200, &result);
+  };
+  auto findTarget = [&]() -> HWND {
+    const bool wasVisible = IsWindowVisible(hwnd_) != FALSE;
+    if (wasVisible) ShowWindow(hwnd_, SW_HIDE);
+    HWND target = WindowFromPoint(screenPoint);
+    if (wasVisible) ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+    if (target == hwnd_ || (target != nullptr && IsChild(hwnd_, target))) return nullptr;
+    return target;
+  };
+  auto clientLParam = [&](HWND target) -> LPARAM {
+    POINT clientPoint = screenPoint;
+    ScreenToClient(target, &clientPoint);
+    return MAKELPARAM(static_cast<short>(clientPoint.x), static_cast<short>(clientPoint.y));
+  };
+  switch (message) {
+    case WM_LBUTTONDOWN:
+      forwardedTarget_ = findTarget();
+      if (forwardedTarget_ == nullptr) return;
+      forwardedLeftDown_ = true;
+      if (IsWindowVisible(hwnd_) != FALSE) ShowWindow(hwnd_, SW_HIDE);
+      sendToTarget(forwardedTarget_, WM_LBUTTONDOWN, MK_LBUTTON, clientLParam(forwardedTarget_));
+      return;
+    case WM_MOUSEMOVE:
+      if (!forwardedLeftDown_ || forwardedTarget_ == nullptr) return;
+      sendToTarget(forwardedTarget_, WM_MOUSEMOVE, MK_LBUTTON, clientLParam(forwardedTarget_));
+      return;
+    case WM_LBUTTONUP:
+      if (!forwardedLeftDown_ || forwardedTarget_ == nullptr) return;
+      sendToTarget(forwardedTarget_, WM_LBUTTONUP, 0, clientLParam(forwardedTarget_));
+      forwardedTarget_ = nullptr;
+      forwardedLeftDown_ = false;
+      if (IsWindowVisible(hwnd_) == FALSE) ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+      return;
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL: {
+      HWND target = findTarget();
+      if (target == nullptr) return;
+      const LPARAM clientPos = clientLParam(target);
+      WPARAM wparam = 0;
+      if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) {
+        wparam = static_cast<WPARAM>(static_cast<short>(HIWORD(info->mouseData)));
+        sendToTarget(target, message, wparam, MAKELPARAM(screenPoint.x, screenPoint.y));
+        return;
+      }
+      if (message == WM_RBUTTONDOWN) wparam = MK_RBUTTON;
+      if (message == WM_MBUTTONDOWN) wparam = MK_MBUTTON;
+      sendToTarget(target, message, wparam, clientPos);
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+LRESULT CALLBACK FloatApp::LowLevelMouseProc(int code, WPARAM wparam, LPARAM lparam) {
+  if (code < 0) return CallNextHookEx(nullptr, code, wparam, lparam);
+  FloatApp* app = g_activeFloatApp;
+  if (app == nullptr || app->hwnd_ == nullptr || !app->clickThrough_) return CallNextHookEx(nullptr, code, wparam, lparam);
+  const MSLLHOOKSTRUCT* info = reinterpret_cast<const MSLLHOOKSTRUCT*>(lparam);
+  if (info == nullptr) return CallNextHookEx(nullptr, code, wparam, lparam);
+  /* 只拦截落在悬浮层范围内的鼠标 */
+  RECT rect = {};
+  if (!GetWindowRect(app->hwnd_, &rect)) return CallNextHookEx(nullptr, code, wparam, lparam);
+  if (info->pt.x < rect.left || info->pt.x >= rect.right || info->pt.y < rect.top || info->pt.y >= rect.bottom) {
+    return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
+  switch (wparam) {
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_MOUSEMOVE:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+      app->ForwardMouseToUnderlying(static_cast<UINT>(wparam), info);
+      return 1;
+    default:
+      return CallNextHookEx(nullptr, code, wparam, lparam);
+  }
 }
 
 void FloatApp::StopFollowing() {
@@ -2578,6 +2676,11 @@ void FloatApp::DoGracefulExit() {
     return;
   }
   Log(L"graceful-exit-start");
+  if (mouseHookInstalled_) {
+    if (mouseHook_ != nullptr) UnhookWindowsHookEx(mouseHook_);
+    mouseHook_ = nullptr;
+    mouseHookInstalled_ = false;
+  }
   if (clickThroughHotkey_ && hwnd_ != nullptr) {
     UnregisterHotKey(hwnd_, kHotkeyClickThrough);
     clickThroughHotkey_ = false;
@@ -2598,6 +2701,11 @@ void FloatApp::DoGracefulExit() {
 }
 
 void FloatApp::OnWindowDestroyed() {
+  if (mouseHookInstalled_) {
+    if (mouseHook_ != nullptr) UnhookWindowsHookEx(mouseHook_);
+    mouseHook_ = nullptr;
+    mouseHookInstalled_ = false;
+  }
   if (clickThroughHotkey_ && hwnd_ != nullptr) {
     UnregisterHotKey(hwnd_, kHotkeyClickThrough);
     clickThroughHotkey_ = false;

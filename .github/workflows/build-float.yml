@@ -395,10 +395,10 @@ jobs:
           if ($hwnd -eq [IntPtr]::Zero) { throw 'helper top-level window not found' }
           $ex = [GufaExStyleProbe]::ExStyle($hwnd)
           Write-Host ("helper GWL_EXSTYLE=0x{0:X}" -f $ex)
-          if (($ex -band 0x00080000) -eq 0) { throw 'WS_EX_LAYERED missing on helper window (DComp transparency path)' }
+          if (($ex -band 0x00200000) -eq 0) { throw 'WS_EX_NOREDIRECTIONBITMAP missing on helper window (composition transparency)' }
           Set-Content -Path $control -Value 'exit' -NoNewline
           if (-not $helper.WaitForExit(15000)) { throw 'transparent helper did not exit after controlPath' }
-          Write-Host 'composition (transparent) window verified: WS_EX_LAYERED + transparent-mode=composition'
+          Write-Host 'composition (transparent) window verified: WS_EX_NOREDIRECTIONBITMAP + transparent-mode=composition'
           Stop-Process -Id $http.Id -ErrorAction SilentlyContinue
 
       - name: Smoke test (opaque mode / windowed fallback)
@@ -702,7 +702,7 @@ jobs:
           }
           if ($line -eq $null) { if (Test-Path $log) { Get-Content $log -Tail 60 }; throw 'helper did not toggle click-through' }
           Write-Host "click-through log: $line"
-          if ($line -notmatch 'styleTransparent=1') { throw "click-through style not applied: $line" }
+          if ($line -notmatch 'hook=1') { throw "click-through hook not installed: $line" }
           [void][GufaClickProbe]::SetForegroundWindow($targetHwnd)
           Start-Sleep -Milliseconds 600
           [void][GufaClickProbe]::SetCursorPos($cx, $cy)
