@@ -605,11 +605,17 @@ jobs:
           [System.Windows.Forms.Application]::Run($form)
           '@
           Set-Content -Path $targetScript -Value $targetCode -Encoding UTF8
-          $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',$targetScript) -PassThru
+          $targetOut = Join-Path $env:TEMP 'gufa-list-target.out.txt'
+          $targetErr = Join-Path $env:TEMP 'gufa-list-target.err.txt'
+          $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',$targetScript) -PassThru -RedirectStandardOutput $targetOut -RedirectStandardError $targetErr
           Start-Sleep -Seconds 5
           $target.Refresh()
           Write-Host ("target exited={0} hwnd={1} title={2}" -f $target.HasExited, $target.MainWindowHandle, $target.MainWindowTitle)
-          if ($target.HasExited) { throw 'window-list target process exited early' }
+          if ($target.HasExited) {
+            if (Test-Path $targetErr) { Write-Host '--- target stderr ---'; Get-Content $targetErr }
+            if (Test-Path $targetOut) { Write-Host '--- target stdout ---'; Get-Content $targetOut }
+            throw 'window-list target process exited early'
+          }
           $listScript = Join-Path $env:TEMP 'gufa-window-list.ps1'
           node --input-type=module -e "import { windowsWindowListScript } from './host/window-list-script.js'; process.stdout.write(windowsWindowListScript())" | Set-Content -Path $listScript -Encoding UTF8
           $json = & pwsh -NoProfile -File $listScript
