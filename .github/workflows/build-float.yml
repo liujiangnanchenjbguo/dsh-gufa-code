@@ -604,7 +604,7 @@ jobs:
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
           '@ | Set-Content -Path $targetScript -Encoding UTF8
-          $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-File',$targetScript) -PassThru
+          $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',$targetScript) -PassThru
           Start-Sleep -Seconds 5
           $target.Refresh()
           Write-Host ("target exited={0} hwnd={1} title={2}" -f $target.HasExited, $target.MainWindowHandle, $target.MainWindowTitle)
@@ -644,7 +644,7 @@ jobs:
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
           '@ | Set-Content -Path $targetScript -Encoding UTF8
-          $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-File',$targetScript) -PassThru
+          $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',$targetScript) -PassThru
           Start-Sleep -Seconds 3
           $control = Join-Path $env:TEMP 'gufa-win-click-control.txt'
           Remove-Item $control -ErrorAction SilentlyContinue
