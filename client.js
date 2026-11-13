@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.194'
+G.BUILD = '1.3.196'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -12288,6 +12288,9 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
       'sidebar.left.toggle': 'toggleSidebar',
       'edrv.save': 'save',
       'edrv.closeTab': 'closeTab',
+      /* pet-chat 插件占用了 Cmd/Ctrl+Shift+L（它用它切换宠物对话悬浮窗），
+         IDE 编辑器里必须抢回来做「选中所有匹配项」。 */
+      'pet-chat.float': 'selectAllOccurrences',
       /* DSH 桌面端把 Ctrl+W/Cmd+W 默认绑给右侧页面关闭（page.close），
          它在 main 进程就被截走，浏览器里的 keydown 收不到；IDE 里要改派成关标签页。 */
       'page.close': 'closeTab',

@@ -275,6 +275,9 @@ G.installShortcutIntegration = function installShortcutIntegration(service) {
       'sidebar.left.toggle': 'toggleSidebar',
       'edrv.save': 'save',
       'edrv.closeTab': 'closeTab',
+      /* pet-chat 插件占用了 Cmd/Ctrl+Shift+L（它用它切换宠物对话悬浮窗），
+         IDE 编辑器里必须抢回来做「选中所有匹配项」。 */
+      'pet-chat.float': 'selectAllOccurrences',
       /* DSH 桌面端把 Ctrl+W/Cmd+W 默认绑给右侧页面关闭（page.close），
          它在 main 进程就被截走，浏览器里的 keydown 收不到；IDE 里要改派成关标签页。 */
       'page.close': 'closeTab',
