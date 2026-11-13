@@ -1362,7 +1362,10 @@ bool FloatApp::CreateMainWindow() {
 bool FloatApp::CreateHostWindow(const RECT& rect, bool composition) {
   hostingMode_ = composition ? HostingMode::Composition : HostingMode::Windowed;
   DWORD extendedStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
-  if (composition) extendedStyle |= WS_EX_NOREDIRECTIONBITMAP;
+  /* 透明 + 鼠标穿透的正确组合：WS_EX_LAYERED 与 DirectComposition 可以共存；
+     WS_EX_NOREDIRECTIONBITMAP 与 LAYERED 语义冲突会出白色矩形，而且 NORD 本身
+     不实现穿透（HTTRANSPARENT 又只在同线程生效）。 */
+  if (composition) extendedStyle |= WS_EX_LAYERED;
   const DWORD style = WS_POPUP | WS_THICKFRAME | WS_CLIPCHILDREN;
   hwnd_ = CreateWindowExW(extendedStyle, kMainWindowClass, kWindowTitle, style, rect.left,
                           rect.top, rect.right - rect.left, rect.bottom - rect.top, nullptr,
@@ -1375,6 +1378,9 @@ bool FloatApp::CreateHostWindow(const RECT& rect, bool composition) {
   LogFmt(L"main-window-created composition=%d rect=(%ld,%ld)-(%ld,%ld) dpi=%u",
          composition ? 1 : 0, static_cast<long>(rect.left), static_cast<long>(rect.top),
          static_cast<long>(rect.right), static_cast<long>(rect.bottom), WindowDpi(hwnd_));
+  if (composition) {
+    SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
+  }
   if (RegisterHotKey(hwnd_, kHotkeyClickThrough, MOD_CONTROL | MOD_ALT | MOD_SHIFT, 'G')) {
     clickThroughHotkey_ = true;
     Log(L"click-through-hotkey=registered Ctrl+Alt+Shift+G");
@@ -1690,9 +1696,8 @@ bool FloatApp::OnCompositionMouseMessage(UINT message, WPARAM wparam, LPARAM lpa
 }
 
 LRESULT FloatApp::HandleNcHitTest(HWND hwnd, LPARAM lparam) {
-  /* 鼠标穿透：双击/拖动都不要再命中本窗口，让点击落到下层 App。
-     WS_EX_TRANSPARENT 在部分 WebView2/Composition 窗口上不生效，这里加 HTTRANSPARENT 兜底。 */
-  if (clickThrough_) return HTTRANSPARENT;
+  /* 注意：穿透不要在这里返回 HTTRANSPARENT —— 它只在同线程窗口间下传，
+     跨进程会直接吞掉点击；跨进程穿透由 WS_EX_LAYERED|WS_EX_TRANSPARENT 负责。 */
   POINT point;
   point.x = GET_X_LPARAM(lparam);
   point.y = GET_Y_LPARAM(lparam);
@@ -2533,27 +2538,16 @@ void FloatApp::ToggleClickThrough() {
 void FloatApp::ApplyClickThrough() {
   if (hwnd_ == nullptr) return;
   LONG_PTR exStyle = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
-  LONG_PTR next = exStyle;
-  if (hostingMode_ == HostingMode::Composition) {
-    /* DComp 顶层窗口：WS_EX_NOREDIRECTIONBITMAP 本身不提供鼠标穿透，
-       也不能叠加 WS_EX_TRANSPARENT/WS_EX_LAYERED（会与 NORD 冲突/把点击丢给桌面）。
-       正确做法是只改 WM_NCHITTEST 返回 HTTRANSPARENT（见 HandleNcHitTest）。 */
-    next = exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_LAYERED);
-  } else {
-    /* windowed 模式：WebView2 是子 HWND，用 layered + transparent 兜底。 */
-    next = clickThrough_ ? (exStyle | WS_EX_TRANSPARENT)
-                         : (exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
-    if (clickThrough_) {
-      if ((next & WS_EX_LAYERED) == 0) {
-        next |= WS_EX_LAYERED;
-        clickThroughLayered_ = true;
-        SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
-      }
-    } else if (clickThroughLayered_) {
-      next &= ~static_cast<LONG_PTR>(WS_EX_LAYERED);
-      clickThroughLayered_ = false;
-    }
+  /* 跨进程穿透只有 WS_EX_LAYERED | WS_EX_TRANSPARENT 有效：
+     - NORD 窗口不受 WS_EX_TRANSPARENT 影响；
+     - WM_NCHITTEST→HTTRANSPARENT 只在同线程窗口间下传，跨进程会吞掉点击。
+     所以 composition 窗口改成 LAYERED + DComp，穿透只翻转 TRANSPARENT 位。 */
+  LONG_PTR next = clickThrough_ ? (exStyle | WS_EX_TRANSPARENT | WS_EX_LAYERED)
+                                : (exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
+  if ((next & WS_EX_LAYERED) != 0 && (exStyle & WS_EX_LAYERED) == 0) {
+    SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
   }
+  clickThroughLayered_ = (next & WS_EX_LAYERED) != 0;
   if (next != exStyle) {
     SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, next);
     SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
