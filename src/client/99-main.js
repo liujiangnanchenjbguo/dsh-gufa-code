@@ -230,6 +230,7 @@ const GUFA_PLUGIN = {
       }
       if (floatMode) {
         document.documentElement.setAttribute('data-gufa-float', '1')
+        if (/Win/i.test(navigator.platform || '')) document.documentElement.setAttribute('data-gufa-float-win', '1')
         document.documentElement.setAttribute('data-gufa-booting', '1')
         /* 摸鱼窗口不需要皮肤：关掉皮肤插件的动画开关并移除其背景节点，
            否则它仍在 rAF 里持续写 body.style / 画 canvas（看不见但耗 CPU、占内存） */

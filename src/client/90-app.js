@@ -276,7 +276,8 @@ G.GufaApp = function GufaApp(props) {
   })
   useEffect(() => {
     try {
-      document.documentElement.style.setProperty('--gufa-float-alpha', String(floatAlpha / 100))
+      const winFloat = document.documentElement.hasAttribute('data-gufa-float-win')
+      document.documentElement.style.setProperty('--gufa-float-alpha', winFloat ? '1' : String(floatAlpha / 100))
       localStorage.setItem('gufa-code:float-alpha', String(floatAlpha))
     } catch {
       /* ignore */
@@ -1467,7 +1468,12 @@ G.GufaApp = function GufaApp(props) {
   })()
   useEffect(() => {
     if (floatRequested !== true) return undefined
-    try { document.documentElement.setAttribute('data-gufa-float', '1') } catch { /* ignore */ }
+    try {
+      document.documentElement.setAttribute('data-gufa-float', '1')
+      /* Windows：per-pixel alpha 与跨进程穿透不能兼得，改由 helper 控制整窗 alpha，
+         页面必须渲染成不透明，否则透明区域会显示成白底/黑底。 */
+      if (/Win/i.test(navigator.platform || '')) document.documentElement.setAttribute('data-gufa-float-win', '1')
+    } catch { /* ignore */ }
     const enter = (attempt) => {
       try {
         if (typeof G.mode?.get === 'function' && G.mode.get() !== true) G.mode.set(true)

@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.200'
+G.BUILD = '1.3.201'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -1164,6 +1164,11 @@ G.CSS = `
 
 /* 桌面悬浮层（摸鱼）模式：整窗半透明，透明度由 --gufa-float-alpha 控制（标题栏滑块） */
 html[data-gufa-float]{--gufa-float-alpha:0.55}
+/* Windows：窗口用 LAYERED 整窗 alpha 实现透明（才能跨进程穿透），页面必须完全不透明，
+   否则页面里的半透明像素会被合成成白底/黑底。滑块只改原生窗口 alpha（helper 轮询 prefs）。 */
+html[data-gufa-float][data-gufa-float-win]{--gufa-float-alpha:1}
+html[data-gufa-float][data-gufa-float-win] body{background:#0d0f13!important}
+html[data-gufa-float][data-gufa-float-win] .gufa-overlay-root{background:rgba(13,15,19,1)!important}
 html[data-gufa-float] body{background:transparent!important;color-scheme:dark;
   --dsw-alias-label-primary:#f4f1e8!important;--dsw-alias-label-secondary:rgba(244,241,232,0.72)!important;
   --dsw-alias-bg-base:#0d0f13!important;--dsw-alias-bg-layer-1:#14161b!important;--dsw-alias-bg-layer-2:#1a1e24!important;
@@ -12908,7 +12913,8 @@ G.GufaApp = function GufaApp(props) {
   })
   useEffect(() => {
     try {
-      document.documentElement.style.setProperty('--gufa-float-alpha', String(floatAlpha / 100))
+      const winFloat = document.documentElement.hasAttribute('data-gufa-float-win')
+      document.documentElement.style.setProperty('--gufa-float-alpha', winFloat ? '1' : String(floatAlpha / 100))
       localStorage.setItem('gufa-code:float-alpha', String(floatAlpha))
     } catch {
       /* ignore */
@@ -14099,7 +14105,12 @@ G.GufaApp = function GufaApp(props) {
   })()
   useEffect(() => {
     if (floatRequested !== true) return undefined
-    try { document.documentElement.setAttribute('data-gufa-float', '1') } catch { /* ignore */ }
+    try {
+      document.documentElement.setAttribute('data-gufa-float', '1')
+      /* Windows：per-pixel alpha 与跨进程穿透不能兼得，改由 helper 控制整窗 alpha，
+         页面必须渲染成不透明，否则透明区域会显示成白底/黑底。 */
+      if (/Win/i.test(navigator.platform || '')) document.documentElement.setAttribute('data-gufa-float-win', '1')
+    } catch { /* ignore */ }
     const enter = (attempt) => {
       try {
         if (typeof G.mode?.get === 'function' && G.mode.get() !== true) G.mode.set(true)
@@ -16561,6 +16572,7 @@ const GUFA_PLUGIN = {
       }
       if (floatMode) {
         document.documentElement.setAttribute('data-gufa-float', '1')
+        if (/Win/i.test(navigator.platform || '')) document.documentElement.setAttribute('data-gufa-float-win', '1')
         document.documentElement.setAttribute('data-gufa-booting', '1')
         /* 摸鱼窗口不需要皮肤：关掉皮肤插件的动画开关并移除其背景节点，
            否则它仍在 rAF 里持续写 body.style / 画 canvas（看不见但耗 CPU、占内存） */

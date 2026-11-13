@@ -1156,6 +1156,11 @@ G.CSS = `
 
 /* 桌面悬浮层（摸鱼）模式：整窗半透明，透明度由 --gufa-float-alpha 控制（标题栏滑块） */
 html[data-gufa-float]{--gufa-float-alpha:0.55}
+/* Windows：窗口用 LAYERED 整窗 alpha 实现透明（才能跨进程穿透），页面必须完全不透明，
+   否则页面里的半透明像素会被合成成白底/黑底。滑块只改原生窗口 alpha（helper 轮询 prefs）。 */
+html[data-gufa-float][data-gufa-float-win]{--gufa-float-alpha:1}
+html[data-gufa-float][data-gufa-float-win] body{background:#0d0f13!important}
+html[data-gufa-float][data-gufa-float-win] .gufa-overlay-root{background:rgba(13,15,19,1)!important}
 html[data-gufa-float] body{background:transparent!important;color-scheme:dark;
   --dsw-alias-label-primary:#f4f1e8!important;--dsw-alias-label-secondary:rgba(244,241,232,0.72)!important;
   --dsw-alias-bg-base:#0d0f13!important;--dsw-alias-bg-layer-1:#14161b!important;--dsw-alias-bg-layer-2:#1a1e24!important;

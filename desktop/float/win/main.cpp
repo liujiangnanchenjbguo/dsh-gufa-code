@@ -39,6 +39,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <cwctype>
 #include <exception>
@@ -976,6 +977,8 @@ class FloatApp {
   void OnFollowTimer();
   void ApplyFollowFrame();
   void ApplyClickThrough();
+  void ApplyWindowAlpha(int percent);
+  void PollWindowAlpha();
   void ForwardMouseToUnderlying(UINT message, const MSLLHOOKSTRUCT* info);
   static LRESULT CALLBACK LowLevelMouseProc(int code, WPARAM wparam, LPARAM lparam);
   void OnHideDshTimer();
@@ -1050,6 +1053,7 @@ class FloatApp {
   bool hideDshDone_ = false;
   bool clickThrough_ = false;
   bool clickThroughHotkey_ = false;
+  int windowAlphaPercent_ = 55;
   HHOOK mouseHook_ = nullptr;
   bool mouseHookInstalled_ = false;
   HWND forwardedTarget_ = nullptr;
@@ -1371,9 +1375,10 @@ bool FloatApp::CreateMainWindow() {
 bool FloatApp::CreateHostWindow(const RECT& rect, bool composition) {
   hostingMode_ = composition ? HostingMode::Composition : HostingMode::Windowed;
   DWORD extendedStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
-  /* 透明视觉继续用 NORD + DComp（per-pixel alpha 正确）；穿透改为鼠标钩子转发，
-     不再用 LAYERED 改变窗口合成路径（否则透明白底/黑底，摸鱼透明度会乱）。 */
-  if (composition) extendedStyle |= WS_EX_NOREDIRECTIONBITMAP;
+  /* Windows 上 WS_EX_NOREDIRECTIONBITMAP 让 per-pixel alpha 正常，但无法跨进程穿透。
+     这里改用 WS_EX_LAYERED + DComp：页面在 Windows 渲染为不透明，透明由整窗 alpha 控制，
+     穿透直接翻转 WS_EX_TRANSPARENT —— 点击/拖拽/右键/滚轮全部原生透传到下层窗口，无钩子无闪烁。 */
+  if (composition) extendedStyle |= WS_EX_LAYERED;
   const DWORD style = WS_POPUP | WS_THICKFRAME | WS_CLIPCHILDREN;
   hwnd_ = CreateWindowExW(extendedStyle, kMainWindowClass, kWindowTitle, style, rect.left,
                           rect.top, rect.right - rect.left, rect.bottom - rect.top, nullptr,
@@ -1387,6 +1392,10 @@ bool FloatApp::CreateHostWindow(const RECT& rect, bool composition) {
   LogFmt(L"main-window-created composition=%d rect=(%ld,%ld)-(%ld,%ld) dpi=%u",
          composition ? 1 : 0, static_cast<long>(rect.left), static_cast<long>(rect.top),
          static_cast<long>(rect.right), static_cast<long>(rect.bottom), WindowDpi(hwnd_));
+  if (composition) {
+    windowAlphaPercent_ = payload_.alpha >= 20 && payload_.alpha <= 100 ? payload_.alpha : 55;
+    ApplyWindowAlpha(windowAlphaPercent_);
+  }
   if (RegisterHotKey(hwnd_, kHotkeyClickThrough, MOD_CONTROL | MOD_ALT | MOD_SHIFT, 'G')) {
     clickThroughHotkey_ = true;
     Log(L"click-through-hotkey=registered Ctrl+Alt+Shift+G");
@@ -1973,6 +1982,7 @@ void FloatApp::DeleteControlFile() {
 
 void FloatApp::OnControlTimer() {
   if (exiting_) return;
+  PollWindowAlpha();
   RaiseStrip();
   if (!payload_.controlPath.empty()) {
     const DWORD attributes = GetFileAttributesW(payload_.controlPath.c_str());
@@ -2549,28 +2559,60 @@ void FloatApp::ToggleClickThrough() {
 
 void FloatApp::ApplyClickThrough() {
   if (hwnd_ == nullptr) return;
-  /* 保持 NORD+DComp 的 per-pixel 透明，不切 LAYERED。
-     穿透通过 WH_MOUSE_LL 钩子把鼠标消息转发给下层窗口实现（跨进程唯一不破坏透明的方式）：
-     - 点击/滚轮：临时隐藏自身 → WindowFromPoint 找下层窗口 → 显示自身 → SendMessage 转发；
-     - 左键按住拖动期间保持隐藏，松开后恢复，drag 直接作用在下层 App。 */
-  if (clickThrough_ && !mouseHookInstalled_) {
-    mouseHook_ = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, g_instance, 0);
-    mouseHookInstalled_ = mouseHook_ != nullptr;
-    if (!mouseHookInstalled_) {
-      LogFmt(L"click-through-hook=register-failed err=%lu", static_cast<unsigned long>(GetLastError()));
-      clickThrough_ = false;
-    }
-  } else if (!clickThrough_ && mouseHookInstalled_) {
-    if (mouseHook_ != nullptr) UnhookWindowsHookEx(mouseHook_);
-    mouseHook_ = nullptr;
-    mouseHookInstalled_ = false;
-    forwardedTarget_ = nullptr;
-    forwardedLeftDown_ = false;
-    if (IsWindowVisible(hwnd_) == FALSE) ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+  /* 原生穿透：WS_EX_LAYERED 常驻（从创建时就有），只翻转 WS_EX_TRANSPARENT。
+     这样鼠标的点击/拖动/右键/滚轮全部由系统直接送给下层窗口，不再需要鼠标钩子，
+     也不会出现隐藏悬浮层造成的闪烁。 */
+  LONG_PTR exStyle = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+  const LONG_PTR next = clickThrough_ ? (exStyle | WS_EX_TRANSPARENT)
+                                      : (exStyle & ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT));
+  if (next != exStyle) {
+    SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, next);
+    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
   }
-  LogFmt(L"click-through=%d mode=%s hook=%d", clickThrough_ ? 1 : 0,
+  LogFmt(L"click-through=%d mode=%s layered=%d styleTransparent=%d", clickThrough_ ? 1 : 0,
          hostingMode_ == HostingMode::Composition ? L"composition" : L"windowed",
-         mouseHookInstalled_ ? 1 : 0);
+         (GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & WS_EX_LAYERED) != 0 ? 1 : 0,
+         (GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0 ? 1 : 0);
+}
+
+void FloatApp::ApplyWindowAlpha(int percent) {
+  if (hostingMode_ != HostingMode::Composition || hwnd_ == nullptr) return;
+  const int clamped = percent < 20 ? 20 : (percent > 100 ? 100 : percent);
+  const BYTE alpha = static_cast<BYTE>((clamped * 255 + 50) / 100);
+  SetLayeredWindowAttributes(hwnd_, 0, alpha, LWA_ALPHA);
+  windowAlphaPercent_ = clamped;
+}
+
+void FloatApp::PollWindowAlpha() {
+  if (hostingMode_ != HostingMode::Composition || hwnd_ == nullptr) return;
+  wchar_t profile[32768];
+  profile[0] = L'\0';
+  const DWORD len = GetEnvironmentVariableW(L"USERPROFILE", profile, static_cast<DWORD>(_countof(profile)));
+  if (len == 0 || len >= _countof(profile)) return;
+  const std::wstring path = std::wstring(profile, len) + L"\\.dsh\\gufa-float-prefs.json";
+  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) return;
+  char buffer[4096];
+  DWORD read = 0;
+  const BOOL ok = ReadFile(file, buffer, static_cast<DWORD>(_countof(buffer) - 1), &read, nullptr);
+  CloseHandle(file);
+  if (ok == FALSE || read == 0) return;
+  buffer[read] = '\0';
+  const char* key = std::strstr(buffer, "\"alpha\"");
+  if (key == nullptr) return;
+  key += 7;
+  while (*key == ' ' || *key == ':' || *key == '\t') ++key;
+  int value = 0;
+  bool hasValue = false;
+  while (*key >= '0' && *key <= '9') {
+    value = value * 10 + (*key - '0');
+    hasValue = true;
+    ++key;
+  }
+  if (!hasValue) return;
+  if (value != windowAlphaPercent_) ApplyWindowAlpha(value);
 }
 
 void FloatApp::ForwardMouseToUnderlying(UINT message, const MSLLHOOKSTRUCT* info) {
