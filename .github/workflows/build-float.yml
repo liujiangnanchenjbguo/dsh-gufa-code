@@ -607,7 +607,7 @@ jobs:
           $target = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile','-File',$targetScript) -PassThru -WindowStyle Hidden
           Start-Sleep -Seconds 3
           $listScript = Join-Path $env:TEMP 'gufa-window-list.ps1'
-          node --input-type=module -e "import { windowsWindowListScript } from './host/dev.js'; process.stdout.write(windowsWindowListScript())" | Set-Content -Path $listScript -Encoding UTF8
+          node --input-type=module -e "import { windowsWindowListScript } from './host/window-list-script.js'; process.stdout.write(windowsWindowListScript())" | Set-Content -Path $listScript -Encoding UTF8
           $json = & pwsh -NoProfile -File $listScript
           Write-Host $json
           if ($json -notmatch '腾讯视频 CI 测试') { throw 'window list missing Chinese title (UTF-8 or EnumWindows failure)' }
