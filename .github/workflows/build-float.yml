@@ -604,8 +604,11 @@ jobs:
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
           '@ | Set-Content -Path $targetScript -Encoding UTF8
-          $target = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile','-Sta','-File',$targetScript) -PassThru -WindowStyle Hidden
-          Start-Sleep -Seconds 3
+          $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-File',$targetScript) -PassThru
+          Start-Sleep -Seconds 5
+          $target.Refresh()
+          Write-Host ("target exited={0} hwnd={1} title={2}" -f $target.HasExited, $target.MainWindowHandle, $target.MainWindowTitle)
+          if ($target.HasExited) { throw 'window-list target process exited early' }
           $listScript = Join-Path $env:TEMP 'gufa-window-list.ps1'
           node --input-type=module -e "import { windowsWindowListScript } from './host/window-list-script.js'; process.stdout.write(windowsWindowListScript())" | Set-Content -Path $listScript -Encoding UTF8
           $json = & pwsh -NoProfile -File $listScript
@@ -641,7 +644,7 @@ jobs:
           $form.Add_Shown({ $form.Activate() })
           [System.Windows.Forms.Application]::Run($form)
           '@ | Set-Content -Path $targetScript -Encoding UTF8
-          $target = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile','-Sta','-File',$targetScript) -PassThru -WindowStyle Hidden
+          $target = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-Sta','-File',$targetScript) -PassThru
           Start-Sleep -Seconds 3
           $control = Join-Path $env:TEMP 'gufa-win-click-control.txt'
           Remove-Item $control -ErrorAction SilentlyContinue
