@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.222'
+G.BUILD = '1.3.223'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -17887,13 +17887,13 @@ const GUFA_PLUGIN = {
       console.error('[gufa-code] 安装工作区菜单入口失败', error)
     }
 
-    // 经典模式聊天标题行：在「智能体团队」左侧加一个「古法编程」文本入口。
+    // 经典模式聊天右上角工具区：在头像菜单左侧的空位放「古法编程」文本入口。
     try {
       ctx.inject(['slots'], (scope) => {
-        scope.slots.inject('conversation.session.header.actions', () => scope.slots.register({
-          name: 'conversation.session.header.actions',
+        scope.slots.inject('conversation.session.header.utilities', () => scope.slots.register({
+          name: 'conversation.session.header.utilities',
           id: 'gufa-code-entry',
-          order: -40,
+          order: -100,
         }, G.GufaHeaderEntry))
       })
     } catch (error) {

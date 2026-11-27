@@ -819,13 +819,13 @@ const GUFA_PLUGIN = {
       console.error('[gufa-code] 安装工作区菜单入口失败', error)
     }
 
-    // 经典模式聊天标题行：在「智能体团队」左侧加一个「古法编程」文本入口。
+    // 经典模式聊天右上角工具区：在头像菜单左侧的空位放「古法编程」文本入口。
     try {
       ctx.inject(['slots'], (scope) => {
-        scope.slots.inject('conversation.session.header.actions', () => scope.slots.register({
-          name: 'conversation.session.header.actions',
+        scope.slots.inject('conversation.session.header.utilities', () => scope.slots.register({
+          name: 'conversation.session.header.utilities',
           id: 'gufa-code-entry',
-          order: -40,
+          order: -100,
         }, G.GufaHeaderEntry))
       })
     } catch (error) {
