@@ -191,58 +191,34 @@ G.installWorkspaceMenuEntry = function installWorkspaceMenuEntry(ctx) {
   }
 }
 
-/** 经典模式右上角悬浮「古法编程」入口：点击进入 IDE，并打开当前聊天所在的工作区。 */
-G.installClassicFloatingEntry = function installClassicFloatingEntry() {
-  if (typeof document === 'undefined' || document.body === null) return () => {}
-  try {
-    for (const old of Array.from(document.querySelectorAll('[data-gufa-floating-entry]'))) old.remove()
-  } catch {
-    /* ignore */
-  }
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.setAttribute('data-gufa-floating-entry', '')
-  button.className = 'gufa-floating-entry'
-  button.title = '进入古法编程（当前聊天的工作区）'
-  try {
-    button.innerHTML = '<span class="gufa-floating-entry-seal">古</span><span class="gufa-floating-entry-label"></span>'
-    const label = button.querySelector('.gufa-floating-entry-label')
-    if (label !== null) label.textContent = G.t('panel.label')
-  } catch {
-    button.textContent = '古法编程'
-  }
-  const sync = () => {
-    let visible = false
-    try {
-      visible = G.mode.get() !== true && (typeof G.isFloatMode !== 'function' || G.isFloatMode() !== true)
-    } catch {
-      visible = true
-    }
-    button.style.display = visible ? 'inline-flex' : 'none'
-  }
-  button.addEventListener('click', (event) => {
-    try {
-      event.preventDefault()
-      event.stopPropagation()
-    } catch {
-      /* ignore */
-    }
-    try {
-      if (G.mode.get() !== true) {
-        G.pendingSessionEntry = true
-        G.enterGufa()
-      }
-    } catch (error) {
-      console.error('[gufa-code] 悬浮入口进入失败', error)
-    }
-  }, true)
-  document.body.appendChild(button)
-  sync()
-  const off = G.mode.subscribe(sync)
-  return () => {
-    try { off?.() } catch { /* ignore */ }
-    try { button.remove() } catch { /* ignore */ }
-  }
+/** 经典模式聊天右上角工具区的小入口按钮（和原生工具按钮同款 28px 图标按钮）。 */
+G.GufaHeaderEntry = function GufaHeaderEntry() {
+  const ideVisible = G.useMode()
+  if (ideVisible === true) return null
+  return h(
+    'button',
+    {
+      type: 'button',
+      className: 'gufa-header-entry',
+      title: '古法编程（当前聊天的工作区）',
+      'aria-label': '古法编程',
+      onClick: (event) => {
+        try {
+          event.preventDefault()
+          event.stopPropagation()
+        } catch {
+          /* ignore */
+        }
+        try {
+          G.pendingSessionEntry = true
+          G.enterGufa()
+        } catch (error) {
+          console.error('[gufa-code] 进入古法编程失败', error)
+        }
+      },
+    },
+    h('span', { className: 'gufa-header-entry-seal' }, '古'),
+  )
 }
 
 /** 「更多」菜单里的入口行：点击进入古法编程（从当前工作区进入）。 */
@@ -835,20 +811,25 @@ const GUFA_PLUGIN = {
       }
     }, 2500)
 
-    // 入口：经典模式右上角悬浮按钮（明显、随时可进当前聊天的工作区）。
-    try {
-      const disposeFloatingEntry = G.installClassicFloatingEntry()
-      if (typeof disposeFloatingEntry === 'function') ctx.effect(() => disposeFloatingEntry, 'gufa-code: classic floating entry')
-    } catch (error) {
-      console.error('[gufa-code] 经典模式悬浮入口安装失败', error)
-    }
-
     // 入口：工作区行的「...」菜单里注入「古法编程」一行。
     try {
       const disposeMenuEntry = G.installWorkspaceMenuEntry(ctx)
       if (typeof disposeMenuEntry === 'function') ctx.effect(() => disposeMenuEntry, 'gufa-code: workspace menu entry')
     } catch (error) {
       console.error('[gufa-code] 安装工作区菜单入口失败', error)
+    }
+
+    // 经典模式聊天右上角工具区：在原生工具按钮旁加一个小「古法编程」入口。
+    try {
+      ctx.inject(['slots'], (scope) => {
+        scope.slots.inject('conversation.session.header.utilities', () => scope.slots.register({
+          name: 'conversation.session.header.utilities',
+          id: 'gufa-code-entry',
+          order: 40,
+        }, G.GufaHeaderEntry))
+      })
+    } catch (error) {
+      console.error('[gufa-code] 聊天头部入口注册失败', error)
     }
 
     // 面板注册：入口注入到工作区行的「...」菜单里（DSH 未提供该菜单的 slot）。

@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.219'
+G.BUILD = '1.3.220'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -2022,16 +2022,11 @@ html[data-gufa-ide] .liang-skin-backdrop{display:none!important}
   background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;text-align:left}
 .gufa-more-entry:hover{background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
 .gufa-more-entry-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 经典模式右上角悬浮入口：不占布局、始终可见，点击进入当前聊天工作区的古法 IDE */
-.gufa-floating-entry{position:fixed;top:10px;right:16px;z-index:2147482800;display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 15px 0 9px;border:1px solid rgba(255,255,255,.22);border-radius:999px;
-  background:linear-gradient(145deg,#b13a2b 0%,#7c1f16 100%);color:#fff;font:600 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-  cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-app-region:no-drag;
-  box-shadow:0 6px 20px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.18);transition:transform .15s ease,box-shadow .15s ease,filter .15s ease}
-.gufa-floating-entry:hover{transform:translateY(-1px);filter:brightness(1.06);box-shadow:0 9px 26px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.22)}
-.gufa-floating-entry:active{transform:translateY(0);filter:brightness(.96)}
-.gufa-floating-entry-seal{display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;border-radius:6px;background:#f4f1e8;color:#a02c1e;font-weight:800;font-size:13px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.25)}
-.gufa-floating-entry-label{white-space:nowrap;letter-spacing:.02em}
-@media (max-width: 720px){.gufa-floating-entry{top:8px;right:10px;height:34px;padding:0 12px 0 8px;font-size:12px}.gufa-floating-entry-seal{width:20px;height:20px;font-size:12px}}
+/* 经典模式聊天右上角工具区的小入口：28px 图标按钮，和原生工具按钮同款 hover */
+.gufa-header-entry{width:28px;height:28px;flex:none;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-tertiary, var(--gufa-text-dim));cursor:pointer;transition:background .15s ease,color .15s ease}
+.gufa-header-entry:hover{color:var(--dsw-alias-label-secondary, var(--gufa-text));background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
+.gufa-header-entry:focus-visible{outline:2px solid var(--dsw-focus-ring-color, var(--gufa-accent));outline-offset:-2px}
+.gufa-header-entry-seal{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;border-radius:5px;background:linear-gradient(145deg,#b13a2b,#7c1f16);color:#f4f1e8;font-weight:800;font-size:12px;line-height:1;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
 .gufa-menu{position:absolute;z-index:2147483000;min-width:150px;padding:5px;border-radius:9px;border:1px solid var(--gufa-border-strong);
   background:var(--gufa-solid-overlay-bg);box-shadow:0 12px 30px color-mix(in srgb, #000 28%, transparent)}
 .gufa-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 9px;border:0;border-radius:6px;
@@ -17264,58 +17259,34 @@ G.installWorkspaceMenuEntry = function installWorkspaceMenuEntry(ctx) {
   }
 }
 
-/** 经典模式右上角悬浮「古法编程」入口：点击进入 IDE，并打开当前聊天所在的工作区。 */
-G.installClassicFloatingEntry = function installClassicFloatingEntry() {
-  if (typeof document === 'undefined' || document.body === null) return () => {}
-  try {
-    for (const old of Array.from(document.querySelectorAll('[data-gufa-floating-entry]'))) old.remove()
-  } catch {
-    /* ignore */
-  }
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.setAttribute('data-gufa-floating-entry', '')
-  button.className = 'gufa-floating-entry'
-  button.title = '进入古法编程（当前聊天的工作区）'
-  try {
-    button.innerHTML = '<span class="gufa-floating-entry-seal">古</span><span class="gufa-floating-entry-label"></span>'
-    const label = button.querySelector('.gufa-floating-entry-label')
-    if (label !== null) label.textContent = G.t('panel.label')
-  } catch {
-    button.textContent = '古法编程'
-  }
-  const sync = () => {
-    let visible = false
-    try {
-      visible = G.mode.get() !== true && (typeof G.isFloatMode !== 'function' || G.isFloatMode() !== true)
-    } catch {
-      visible = true
-    }
-    button.style.display = visible ? 'inline-flex' : 'none'
-  }
-  button.addEventListener('click', (event) => {
-    try {
-      event.preventDefault()
-      event.stopPropagation()
-    } catch {
-      /* ignore */
-    }
-    try {
-      if (G.mode.get() !== true) {
-        G.pendingSessionEntry = true
-        G.enterGufa()
-      }
-    } catch (error) {
-      console.error('[gufa-code] 悬浮入口进入失败', error)
-    }
-  }, true)
-  document.body.appendChild(button)
-  sync()
-  const off = G.mode.subscribe(sync)
-  return () => {
-    try { off?.() } catch { /* ignore */ }
-    try { button.remove() } catch { /* ignore */ }
-  }
+/** 经典模式聊天右上角工具区的小入口按钮（和原生工具按钮同款 28px 图标按钮）。 */
+G.GufaHeaderEntry = function GufaHeaderEntry() {
+  const ideVisible = G.useMode()
+  if (ideVisible === true) return null
+  return h(
+    'button',
+    {
+      type: 'button',
+      className: 'gufa-header-entry',
+      title: '古法编程（当前聊天的工作区）',
+      'aria-label': '古法编程',
+      onClick: (event) => {
+        try {
+          event.preventDefault()
+          event.stopPropagation()
+        } catch {
+          /* ignore */
+        }
+        try {
+          G.pendingSessionEntry = true
+          G.enterGufa()
+        } catch (error) {
+          console.error('[gufa-code] 进入古法编程失败', error)
+        }
+      },
+    },
+    h('span', { className: 'gufa-header-entry-seal' }, '古'),
+  )
 }
 
 /** 「更多」菜单里的入口行：点击进入古法编程（从当前工作区进入）。 */
@@ -17908,20 +17879,25 @@ const GUFA_PLUGIN = {
       }
     }, 2500)
 
-    // 入口：经典模式右上角悬浮按钮（明显、随时可进当前聊天的工作区）。
-    try {
-      const disposeFloatingEntry = G.installClassicFloatingEntry()
-      if (typeof disposeFloatingEntry === 'function') ctx.effect(() => disposeFloatingEntry, 'gufa-code: classic floating entry')
-    } catch (error) {
-      console.error('[gufa-code] 经典模式悬浮入口安装失败', error)
-    }
-
     // 入口：工作区行的「...」菜单里注入「古法编程」一行。
     try {
       const disposeMenuEntry = G.installWorkspaceMenuEntry(ctx)
       if (typeof disposeMenuEntry === 'function') ctx.effect(() => disposeMenuEntry, 'gufa-code: workspace menu entry')
     } catch (error) {
       console.error('[gufa-code] 安装工作区菜单入口失败', error)
+    }
+
+    // 经典模式聊天右上角工具区：在原生工具按钮旁加一个小「古法编程」入口。
+    try {
+      ctx.inject(['slots'], (scope) => {
+        scope.slots.inject('conversation.session.header.utilities', () => scope.slots.register({
+          name: 'conversation.session.header.utilities',
+          id: 'gufa-code-entry',
+          order: 40,
+        }, G.GufaHeaderEntry))
+      })
+    } catch (error) {
+      console.error('[gufa-code] 聊天头部入口注册失败', error)
     }
 
     // 面板注册：入口注入到工作区行的「...」菜单里（DSH 未提供该菜单的 slot）。
