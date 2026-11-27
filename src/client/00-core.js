@@ -12,6 +12,8 @@ G.BUILD = 'dev'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
+/** 经典模式悬浮入口：优先打开当前聊天所在工作区（而不是上次保存的项目）。 */
+G.pendingSessionEntry = false
 G.ctx = null
 G.h = h
 G.React = React
@@ -2012,6 +2014,16 @@ html[data-gufa-ide] .liang-skin-backdrop{display:none!important}
   background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;text-align:left}
 .gufa-more-entry:hover{background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
 .gufa-more-entry-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 经典模式右上角悬浮入口：不占布局、始终可见，点击进入当前聊天工作区的古法 IDE */
+.gufa-floating-entry{position:fixed;top:10px;right:16px;z-index:2147482800;display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 15px 0 9px;border:1px solid rgba(255,255,255,.22);border-radius:999px;
+  background:linear-gradient(145deg,#b13a2b 0%,#7c1f16 100%);color:#fff;font:600 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-app-region:no-drag;
+  box-shadow:0 6px 20px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.18);transition:transform .15s ease,box-shadow .15s ease,filter .15s ease}
+.gufa-floating-entry:hover{transform:translateY(-1px);filter:brightness(1.06);box-shadow:0 9px 26px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.22)}
+.gufa-floating-entry:active{transform:translateY(0);filter:brightness(.96)}
+.gufa-floating-entry-seal{display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;border-radius:6px;background:#f4f1e8;color:#a02c1e;font-weight:800;font-size:13px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.gufa-floating-entry-label{white-space:nowrap;letter-spacing:.02em}
+@media (max-width: 720px){.gufa-floating-entry{top:8px;right:10px;height:34px;padding:0 12px 0 8px;font-size:12px}.gufa-floating-entry-seal{width:20px;height:20px;font-size:12px}}
 .gufa-menu{position:absolute;z-index:2147483000;min-width:150px;padding:5px;border-radius:9px;border:1px solid var(--gufa-border-strong);
   background:var(--gufa-solid-overlay-bg);box-shadow:0 12px 30px color-mix(in srgb, #000 28%, transparent)}
 .gufa-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 9px;border:0;border-radius:6px;

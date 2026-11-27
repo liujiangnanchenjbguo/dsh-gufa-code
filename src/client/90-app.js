@@ -456,6 +456,8 @@ G.GufaApp = function GufaApp(props) {
     let cancelled = false
     void (async () => {
       /* 从工作区菜单点进来的：跳过「恢复上次项目」，直接按入口工作区打开 */
+      const preferSessionWorkspace = G.pendingSessionEntry === true
+      if (preferSessionWorkspace) G.pendingSessionEntry = false
       const pendingEntry = G.pendingEntryWorkspace
       if (pendingEntry !== null && pendingEntry !== undefined && typeof pendingEntry.key === 'string') {
         try {
@@ -470,6 +472,15 @@ G.GufaApp = function GufaApp(props) {
         } catch {
           /* 回落到恢复上次项目 */
         }
+      }
+      if (preferSessionWorkspace && typeof sessionCwd === 'string' && sessionCwd !== '') {
+        try {
+          const value = await G.api('project.open', { path: sessionCwd })
+          if (!cancelled) applyProject(value)
+        } catch (error) {
+          if (!cancelled) setBootError(G.errorText(error))
+        }
+        return
       }
       const saved = floatState !== null && floatState !== undefined && typeof floatState.projectRoot === 'string' && floatState.projectRoot !== ''
         ? floatState.projectRoot
