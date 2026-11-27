@@ -825,7 +825,7 @@ const GUFA_PLUGIN = {
         scope.slots.inject('conversation.session.header.utilities', () => scope.slots.register({
           name: 'conversation.session.header.utilities',
           id: 'gufa-code-entry',
-          order: 40,
+          order: -100,
         }, G.GufaHeaderEntry))
       })
     } catch (error) {
