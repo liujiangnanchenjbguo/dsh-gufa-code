@@ -191,7 +191,7 @@ G.installWorkspaceMenuEntry = function installWorkspaceMenuEntry(ctx) {
   }
 }
 
-/** 经典模式聊天右上角工具区的小入口按钮（和原生工具按钮同款 28px 图标按钮）。 */
+/** 经典模式聊天标题行的文本入口：和「智能体团队」同款 link 样式，但文案直接叫「古法编程」。 */
 G.GufaHeaderEntry = function GufaHeaderEntry() {
   const ideVisible = G.useMode()
   if (ideVisible === true) return null
@@ -200,7 +200,7 @@ G.GufaHeaderEntry = function GufaHeaderEntry() {
     {
       type: 'button',
       className: 'gufa-header-entry',
-      title: '古法编程（当前聊天的工作区）',
+      title: '进入古法编程（当前聊天的工作区）',
       'aria-label': '古法编程',
       onClick: (event) => {
         try {
@@ -217,7 +217,7 @@ G.GufaHeaderEntry = function GufaHeaderEntry() {
         }
       },
     },
-    h('span', { className: 'gufa-header-entry-seal' }, '古'),
+    h('span', { className: 'gufa-header-entry-label' }, '古法编程'),
   )
 }
 
@@ -819,13 +819,13 @@ const GUFA_PLUGIN = {
       console.error('[gufa-code] 安装工作区菜单入口失败', error)
     }
 
-    // 经典模式聊天右上角工具区：在原生工具按钮旁加一个小「古法编程」入口。
+    // 经典模式聊天标题行：在「智能体团队」左侧加一个「古法编程」文本入口。
     try {
       ctx.inject(['slots'], (scope) => {
-        scope.slots.inject('conversation.session.header.utilities', () => scope.slots.register({
-          name: 'conversation.session.header.utilities',
+        scope.slots.inject('conversation.session.header.actions', () => scope.slots.register({
+          name: 'conversation.session.header.actions',
           id: 'gufa-code-entry',
-          order: -100,
+          order: -40,
         }, G.GufaHeaderEntry))
       })
     } catch (error) {

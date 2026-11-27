@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.221'
+G.BUILD = '1.3.222'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -2022,11 +2022,11 @@ html[data-gufa-ide] .liang-skin-backdrop{display:none!important}
   background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;text-align:left}
 .gufa-more-entry:hover{background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
 .gufa-more-entry-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 经典模式聊天右上角工具区的小入口：28px 图标按钮，和原生工具按钮同款 hover */
-.gufa-header-entry{width:28px;height:28px;flex:none;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-tertiary, var(--gufa-text-dim));cursor:pointer;transition:background .15s ease,color .15s ease}
-.gufa-header-entry:hover{color:var(--dsw-alias-label-secondary, var(--gufa-text));background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
+/* 经典模式聊天标题行的「古法编程」文本入口：和「智能体团队」同款 link 按钮 */
+.gufa-header-entry{min-height:28px;flex:none;display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary, var(--gufa-text-dim));font:500 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;cursor:pointer;white-space:nowrap;transition:background .15s ease,color .15s ease}
+.gufa-header-entry:hover{color:var(--dsw-alias-label-primary, var(--gufa-text));background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
 .gufa-header-entry:focus-visible{outline:2px solid var(--dsw-focus-ring-color, var(--gufa-accent));outline-offset:-2px}
-.gufa-header-entry-seal{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;border-radius:5px;background:linear-gradient(145deg,#b13a2b,#7c1f16);color:#f4f1e8;font-weight:800;font-size:12px;line-height:1;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+.gufa-header-entry-label{white-space:nowrap}
 .gufa-menu{position:absolute;z-index:2147483000;min-width:150px;padding:5px;border-radius:9px;border:1px solid var(--gufa-border-strong);
   background:var(--gufa-solid-overlay-bg);box-shadow:0 12px 30px color-mix(in srgb, #000 28%, transparent)}
 .gufa-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 9px;border:0;border-radius:6px;
@@ -17259,7 +17259,7 @@ G.installWorkspaceMenuEntry = function installWorkspaceMenuEntry(ctx) {
   }
 }
 
-/** 经典模式聊天右上角工具区的小入口按钮（和原生工具按钮同款 28px 图标按钮）。 */
+/** 经典模式聊天标题行的文本入口：和「智能体团队」同款 link 样式，但文案直接叫「古法编程」。 */
 G.GufaHeaderEntry = function GufaHeaderEntry() {
   const ideVisible = G.useMode()
   if (ideVisible === true) return null
@@ -17268,7 +17268,7 @@ G.GufaHeaderEntry = function GufaHeaderEntry() {
     {
       type: 'button',
       className: 'gufa-header-entry',
-      title: '古法编程（当前聊天的工作区）',
+      title: '进入古法编程（当前聊天的工作区）',
       'aria-label': '古法编程',
       onClick: (event) => {
         try {
@@ -17285,7 +17285,7 @@ G.GufaHeaderEntry = function GufaHeaderEntry() {
         }
       },
     },
-    h('span', { className: 'gufa-header-entry-seal' }, '古'),
+    h('span', { className: 'gufa-header-entry-label' }, '古法编程'),
   )
 }
 
@@ -17887,13 +17887,13 @@ const GUFA_PLUGIN = {
       console.error('[gufa-code] 安装工作区菜单入口失败', error)
     }
 
-    // 经典模式聊天右上角工具区：在原生工具按钮旁加一个小「古法编程」入口。
+    // 经典模式聊天标题行：在「智能体团队」左侧加一个「古法编程」文本入口。
     try {
       ctx.inject(['slots'], (scope) => {
-        scope.slots.inject('conversation.session.header.utilities', () => scope.slots.register({
-          name: 'conversation.session.header.utilities',
+        scope.slots.inject('conversation.session.header.actions', () => scope.slots.register({
+          name: 'conversation.session.header.actions',
           id: 'gufa-code-entry',
-          order: -100,
+          order: -40,
         }, G.GufaHeaderEntry))
       })
     } catch (error) {

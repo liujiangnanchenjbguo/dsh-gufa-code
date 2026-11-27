@@ -2014,11 +2014,11 @@ html[data-gufa-ide] .liang-skin-backdrop{display:none!important}
   background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;text-align:left}
 .gufa-more-entry:hover{background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
 .gufa-more-entry-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 经典模式聊天右上角工具区的小入口：28px 图标按钮，和原生工具按钮同款 hover */
-.gufa-header-entry{width:28px;height:28px;flex:none;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-tertiary, var(--gufa-text-dim));cursor:pointer;transition:background .15s ease,color .15s ease}
-.gufa-header-entry:hover{color:var(--dsw-alias-label-secondary, var(--gufa-text));background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
+/* 经典模式聊天标题行的「古法编程」文本入口：和「智能体团队」同款 link 按钮 */
+.gufa-header-entry{min-height:28px;flex:none;display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary, var(--gufa-text-dim));font:500 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;cursor:pointer;white-space:nowrap;transition:background .15s ease,color .15s ease}
+.gufa-header-entry:hover{color:var(--dsw-alias-label-primary, var(--gufa-text));background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
 .gufa-header-entry:focus-visible{outline:2px solid var(--dsw-focus-ring-color, var(--gufa-accent));outline-offset:-2px}
-.gufa-header-entry-seal{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;border-radius:5px;background:linear-gradient(145deg,#b13a2b,#7c1f16);color:#f4f1e8;font-weight:800;font-size:12px;line-height:1;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+.gufa-header-entry-label{white-space:nowrap}
 .gufa-menu{position:absolute;z-index:2147483000;min-width:150px;padding:5px;border-radius:9px;border:1px solid var(--gufa-border-strong);
   background:var(--gufa-solid-overlay-bg);box-shadow:0 12px 30px color-mix(in srgb, #000 28%, transparent)}
 .gufa-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 9px;border:0;border-radius:6px;
