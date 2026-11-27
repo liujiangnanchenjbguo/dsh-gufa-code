@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.216'
+G.BUILD = '1.3.217'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3497,6 +3497,23 @@ const GUFA_LINT_ENABLED = true
     const activePathRef = useRef(activePath)
     const statusRef = useRef('loading')
     const pendingRevealRef = useRef(null)
+    /* 打开未加载的文件时，editor 可能还没挂载/模型还没切换；先记住目标位置，
+       等编辑器就绪或切到目标文件后再落光标，避免只跳文件、位置不准。 */
+    const applyPendingReveal = useCallback((editor) => {
+      const pending = pendingRevealRef.current
+      if (pending === null || pending === undefined) return false
+      if (editor === null || editor === undefined) return false
+      if (modelPathRef.current !== pending.path) return false
+      pendingRevealRef.current = null
+      try {
+        editor.setPosition({ lineNumber: pending.line, column: pending.column })
+        editor.revealLineInCenter(pending.line)
+        editor.focus()
+      } catch {
+        /* ignore */
+      }
+      return true
+    }, [])
 
     /** idle → loading → ready / error */
     const [status, setStatus] = useState('loading')
@@ -4527,17 +4544,7 @@ const GUFA_LINT_ENABLED = true
             }
           }
           reportCursor()
-          const pending = pendingRevealRef.current
-          if (pending !== null && pending !== undefined && pending.path === targetTab.path) {
-            pendingRevealRef.current = null
-            try {
-              editor.setPosition({ lineNumber: pending.line, column: pending.column })
-              editor.revealLineInCenter(pending.line)
-              editor.focus()
-            } catch {
-              /* ignore */
-            }
-          }
+          applyPendingReveal(editor)
           /* 打开 Python 文件时预热 pyright，避免第一次 Cmd+点击等语言服务启动 */
           if (targetTab.language === 'python' && !GUFA_LSP_WARMED.has(root)) {
             GUFA_LSP_WARMED.add(root)
@@ -4560,19 +4567,28 @@ const GUFA_LINT_ENABLED = true
       } else if (targetTab !== null) {
         modelPathRef.current = targetTab.path
       }
-    }, [status, tabs, activePath, root, reportCursor, disposeAllModels, disposeModelAt])
+    }, [status, tabs, activePath, root, reportCursor, applyPendingReveal, disposeAllModels, disposeModelAt])
+
+    /* 编辑器挂载完成/模型已就绪时，把还没落地的定义跳转位置补上 */
+    useEffect(() => {
+      applyPendingReveal(editorRef.current)
+    }, [status, tabs, activePath, applyPendingReveal])
 
     /* 搜索面板点击结果 → 打开文件并跳到对应行列（由 App 通过 bus 发来） */
     useEffect(() => {
       if (G.bus === null || G.bus === undefined || typeof G.bus.on !== 'function') return undefined
       return G.bus.on('editor:reveal', (detail) => {
         const editor = editorRef.current
-        if (editor === null || editor === undefined) return
         const rawLine = Number(detail?.line)
         const rawColumn = Number(detail?.column)
         const line = Number.isFinite(rawLine) ? Math.max(1, Math.trunc(rawLine)) : 1
         const column = Number.isFinite(rawColumn) ? Math.max(1, Math.trunc(rawColumn)) : 1
         const path = typeof detail?.path === 'string' && detail.path !== '' ? detail.path : null
+        if (editor === null || editor === undefined) {
+          /* 编辑器还没挂载（首次打开文件）：先记下位置，挂载/切模型后的 effect 会补上 */
+          if (path !== null) pendingRevealRef.current = { path, line, column }
+          return
+        }
         if (path !== null && modelPathRef.current !== path) {
           pendingRevealRef.current = { path, line, column }
           return
@@ -13443,6 +13459,9 @@ G.GufaApp = function GufaApp(props) {
   const [banner, setBanner] = useState('')
   const [tabs, setTabs] = useState([])
   const [activePath, setActivePath] = useState(null)
+  const activePathRef = useRef(activePath)
+  activePathRef.current = activePath
+  const pendingOpenAtRef = useRef(null)
   /* 选区（给右侧 AI 用）单独更新；光标位置/行数走 G.cursorStore，避免每次按键重渲染整个 IDE。 */
   const [selection, setSelection] = useState(null)
   /* 编辑器内容缓冲：Monaco 每次按键只写这里，300ms 停顿后才同步进 tabs（保存/自动保存直接读缓冲）。 */
@@ -13785,14 +13804,30 @@ G.GufaApp = function GufaApp(props) {
     await openFile(path)
     const targetLine = Number.isFinite(Number(line)) ? Math.max(1, Math.trunc(Number(line))) : 1
     const targetColumn = Number.isFinite(Number(column)) ? Math.max(1, Math.trunc(Number(column))) : 1
-    window.setTimeout(() => {
-      try {
-        G.bus.emit('editor:reveal', { path, line: targetLine, column: targetColumn })
-      } catch {
-        /* ignore */
-      }
-    }, 120)
+    const target = { path, line: targetLine, column: targetColumn }
+    const currentActive = activePathRef.current === null ? null : gufaNormalizeProjectPath(activePathRef.current)
+    if (currentActive === path) {
+      /* 文件本来就打开着：编辑器/model 已就绪，延迟一帧即可 */
+      window.setTimeout(() => {
+        try { G.bus.emit('editor:reveal', target) } catch { /* ignore */ }
+      }, 80)
+      return
+    }
+    /* 文件未打开：交给 activePath effect，在 tab 真正切过去之后再 reveal（避免固定 120ms 的竞态） */
+    pendingOpenAtRef.current = target
   }, [openFile])
+
+  /* 未打开文件跳转：activePath 切到目标文件后（子组件编辑器 effect 已先行）再发 reveal */
+  useEffect(() => {
+    const pending = pendingOpenAtRef.current
+    if (pending === null || pending === undefined) return undefined
+    if (activePath === null || gufaNormalizeProjectPath(activePath) !== gufaNormalizeProjectPath(pending.path)) return undefined
+    pendingOpenAtRef.current = null
+    const timer = window.setTimeout(() => {
+      try { G.bus.emit('editor:reveal', pending) } catch { /* ignore */ }
+    }, 40)
+    return () => window.clearTimeout(timer)
+  }, [activePath])
 
   /* Cmd/Ctrl+点击定义：编辑器 → App 跳转 / 多结果选择（兜底搜索在 host/code.js） */
   useEffect(() => {

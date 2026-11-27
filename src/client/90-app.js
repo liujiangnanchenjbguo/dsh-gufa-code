@@ -351,6 +351,9 @@ G.GufaApp = function GufaApp(props) {
   const [banner, setBanner] = useState('')
   const [tabs, setTabs] = useState([])
   const [activePath, setActivePath] = useState(null)
+  const activePathRef = useRef(activePath)
+  activePathRef.current = activePath
+  const pendingOpenAtRef = useRef(null)
   /* 选区（给右侧 AI 用）单独更新；光标位置/行数走 G.cursorStore，避免每次按键重渲染整个 IDE。 */
   const [selection, setSelection] = useState(null)
   /* 编辑器内容缓冲：Monaco 每次按键只写这里，300ms 停顿后才同步进 tabs（保存/自动保存直接读缓冲）。 */
@@ -693,14 +696,30 @@ G.GufaApp = function GufaApp(props) {
     await openFile(path)
     const targetLine = Number.isFinite(Number(line)) ? Math.max(1, Math.trunc(Number(line))) : 1
     const targetColumn = Number.isFinite(Number(column)) ? Math.max(1, Math.trunc(Number(column))) : 1
-    window.setTimeout(() => {
-      try {
-        G.bus.emit('editor:reveal', { path, line: targetLine, column: targetColumn })
-      } catch {
-        /* ignore */
-      }
-    }, 120)
+    const target = { path, line: targetLine, column: targetColumn }
+    const currentActive = activePathRef.current === null ? null : gufaNormalizeProjectPath(activePathRef.current)
+    if (currentActive === path) {
+      /* 文件本来就打开着：编辑器/model 已就绪，延迟一帧即可 */
+      window.setTimeout(() => {
+        try { G.bus.emit('editor:reveal', target) } catch { /* ignore */ }
+      }, 80)
+      return
+    }
+    /* 文件未打开：交给 activePath effect，在 tab 真正切过去之后再 reveal（避免固定 120ms 的竞态） */
+    pendingOpenAtRef.current = target
   }, [openFile])
+
+  /* 未打开文件跳转：activePath 切到目标文件后（子组件编辑器 effect 已先行）再发 reveal */
+  useEffect(() => {
+    const pending = pendingOpenAtRef.current
+    if (pending === null || pending === undefined) return undefined
+    if (activePath === null || gufaNormalizeProjectPath(activePath) !== gufaNormalizeProjectPath(pending.path)) return undefined
+    pendingOpenAtRef.current = null
+    const timer = window.setTimeout(() => {
+      try { G.bus.emit('editor:reveal', pending) } catch { /* ignore */ }
+    }, 40)
+    return () => window.clearTimeout(timer)
+  }, [activePath])
 
   /* Cmd/Ctrl+点击定义：编辑器 → App 跳转 / 多结果选择（兜底搜索在 host/code.js） */
   useEffect(() => {
