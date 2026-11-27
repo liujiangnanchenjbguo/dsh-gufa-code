@@ -2014,10 +2014,10 @@ html[data-gufa-ide] .liang-skin-backdrop{display:none!important}
   background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;text-align:left}
 .gufa-more-entry:hover{background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
 .gufa-more-entry-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 经典模式聊天标题行的「古法编程」文本入口：和「智能体团队」同款 link 按钮 */
-.gufa-header-entry{min-height:28px;flex:none;display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary, var(--gufa-text-dim));font:500 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;cursor:pointer;white-space:nowrap;transition:background .15s ease,color .15s ease}
-.gufa-header-entry:hover{color:var(--dsw-alias-label-primary, var(--gufa-text));background:var(--dsw-alias-interactive-bg-hover, var(--gufa-hover))}
-.gufa-header-entry:focus-visible{outline:2px solid var(--dsw-focus-ring-color, var(--gufa-accent));outline-offset:-2px}
+/* 经典模式聊天右上角工具区的「古法编程」入口：用明显边框和品牌色强调 */
+.gufa-header-entry{min-height:28px;flex:none;display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border:1.5px solid var(--gufa-accent, #b13a2b);border-radius:8px;background:color-mix(in srgb, var(--gufa-accent, #b13a2b) 10%, transparent);color:var(--gufa-accent, #b13a2b);font:600 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;cursor:pointer;white-space:nowrap;box-shadow:0 0 0 1px color-mix(in srgb, var(--gufa-accent, #b13a2b) 18%, transparent), 0 2px 8px rgba(0,0,0,.08);transition:background .15s ease,color .15s ease,border-color .15s ease,box-shadow .15s ease}
+.gufa-header-entry:hover{color:#fff;border-color:var(--gufa-accent, #b13a2b);background:var(--gufa-accent, #b13a2b);box-shadow:0 0 0 1px color-mix(in srgb, var(--gufa-accent, #b13a2b) 35%, transparent), 0 3px 12px rgba(0,0,0,.18)}
+.gufa-header-entry:focus-visible{outline:2px solid var(--dsw-focus-ring-color, var(--gufa-accent));outline-offset:2px}
 .gufa-header-entry-label{white-space:nowrap}
 .gufa-menu{position:absolute;z-index:2147483000;min-width:150px;padding:5px;border-radius:9px;border:1px solid var(--gufa-border-strong);
   background:var(--gufa-solid-overlay-bg);box-shadow:0 12px 30px color-mix(in srgb, #000 28%, transparent)}
