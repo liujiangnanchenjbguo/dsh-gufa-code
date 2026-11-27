@@ -16,7 +16,7 @@ const GUFA_NS = 'gufa-code'
 const G = {}
 G.NS = GUFA_NS
 /** 客户端构建标记（排查页面是否加载了新代码时看标题栏） */
-G.BUILD = '1.3.215'
+G.BUILD = '1.3.216'
 G.PANEL_ID = 'gufa-code'
 /** 从哪个工作区点进来的（工作区菜单/节点按钮写入，App 启动时消费）。 */
 G.pendingEntryWorkspace = null
@@ -3130,7 +3130,7 @@ const GUFA_DEFINITION_STRONG_KINDS = new Set(['function', 'class', 'method', 'de
  */
 /* JS/TS 的 F12 交回 Monaco 原生 TS DefinitionProvider（之前被我们关掉过）；
    Cmd+点击在 click handler 里直接走 Host LanguageService 以拿到最准结果。 */
-const GUFA_DEFINITION_LANGUAGES = ['python']
+const GUFA_DEFINITION_LANGUAGES = ['python', 'php']
 function gufaRegisterDefinitionInfrastructure(monaco) {
   try {
     if (monaco === null || monaco === undefined) return
@@ -3190,7 +3190,7 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
                   language: 'python',
                   content: model.getValue(),
                 })
-              } else {
+              } else if (language === 'javascript' || language === 'typescript') {
                 /* LanguageService 解析定义（TS 编译器），比正则项目搜索准确；
                    JS/TS 不再回退到 code.definition，避免“宁可跳错也不空着”。 */
                 result = await G.api('code.tsDefinition', {
@@ -3198,6 +3198,16 @@ function gufaRegisterDefinitionInfrastructure(monaco) {
                   path: info.path,
                   line: position.lineNumber,
                   column: position.column,
+                  content: model.getValue(),
+                })
+              } else {
+                /* PHP 等无内置语言服务的语言：项目级定义搜索（Host code.definition） */
+                result = await G.api('code.definition', {
+                  root: info.root,
+                  path: info.path,
+                  line: position.lineNumber,
+                  column: position.column,
+                  word,
                   content: model.getValue(),
                 })
               }
@@ -4048,6 +4058,33 @@ const GUFA_LINT_ENABLED = true
                       }
                       clearHoverDecoration()
                       return
+                    }
+                    /* 其它语言（PHP / Go / Java …）：走项目级定义搜索。
+                       queryDefinitions + decideDefinition 已实现，此前没接到点击入口。 */
+                    try {
+                      const resolved = await queryDefinitions(position, word, model, path, root)
+                      const decision = decideDefinition(resolved)
+                      if (decision.kind === 'open') {
+                        G.bus.emit('editor:open-at', {
+                          path: decision.match.path,
+                          line: decision.match.line,
+                          column: decision.match.column,
+                        })
+                        clearHoverDecoration()
+                        return
+                      }
+                      if (decision.kind === 'pick') {
+                        G.bus.emit('definition:pick', {
+                          word,
+                          matches: decision.matches,
+                          x: Number.isFinite(Number(event.clientX)) ? Number(event.clientX) : 240,
+                          y: Number.isFinite(Number(event.clientY)) ? Number(event.clientY) : 240,
+                        })
+                        clearHoverDecoration()
+                        return
+                      }
+                    } catch {
+                      /* 解析失败继续走原生兜底，不跳错 */
                     }
                     /* 其它语言：保留 Monaco 原生 action 兜底 */
                     try {

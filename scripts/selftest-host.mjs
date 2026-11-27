@@ -436,6 +436,53 @@ try {
   check('definition ignores too-short word', emptyResult.word === 'x' && emptyResult.matches.length === 0)
   await call(router, 'fs.delete', { root, path: 'nav' }).catch(() => {})
 
+  console.log('code.definition PHP')
+  const phpComposer = JSON.stringify({ autoload: { 'psr-4': { 'App\\': 'app/' } } }, null, 2)
+  await call(router, 'fs.create', { root, path: 'composer.json', kind: 'file' })
+  await call(router, 'fs.write', { root, path: 'composer.json', content: phpComposer })
+  await call(router, 'fs.create', { root, path: 'app', kind: 'dir' })
+  await call(router, 'fs.create', { root, path: 'app/Exception', kind: 'dir' })
+  await call(router, 'fs.create', { root, path: 'app/Exception/AppException.php', kind: 'file' })
+  await call(router, 'fs.write', { root, path: 'app/Exception/AppException.php', content: '<?php\nnamespace App\\Exception;\n\nclass AppException extends \\RuntimeException\n{\n}\n' })
+  await call(router, 'fs.create', { root, path: 'app/Helper', kind: 'dir' })
+  await call(router, 'fs.create', { root, path: 'app/Helper/Functions.php', kind: 'file' })
+  await call(router, 'fs.write', { root, path: 'app/Helper/Functions.php', content: '<?php\n\nfunction get_return()\n{\n    return 1;\n}\n' })
+  await call(router, 'fs.create', { root, path: 'app/Logic', kind: 'dir' })
+  await call(router, 'fs.create', { root, path: 'app/Logic/ItemLogic.php', kind: 'file' })
+  await call(router, 'fs.write', { root, path: 'app/Logic/ItemLogic.php', content: '<?php\nnamespace App\\Logic;\n\nclass ItemLogic\n{\n    public function getItemData()\n    {\n        return [];\n    }\n}\n' })
+  await call(router, 'fs.create', { root, path: 'app/Controller', kind: 'dir' })
+  const phpUse = [
+    '<?php',
+    'namespace App\\Controller;',
+    '',
+    'use App\\Logic\\ItemLogic;',
+    'use App\\Exception\\AppException;',
+    '',
+    'class Test',
+    '{',
+    '    public function run()',
+    '    {',
+    '        throw new AppException($msg, $code);',
+    '        $x = get_return();',
+    '        $y = ItemLogic::getItemData();',
+    '    }',
+    '}',
+    '',
+  ].join('\n')
+  await call(router, 'fs.create', { root, path: 'app/Controller/Test.php', kind: 'file' })
+  await call(router, 'fs.write', { root, path: 'app/Controller/Test.php', content: phpUse })
+  const phpClassDef = await call(router, 'code.definition', { root, path: 'app/Controller/Test.php', line: 11, column: 22, word: 'AppException', content: phpUse })
+  check('PHP finds use-imported class via PSR-4', phpClassDef.matches[0]?.path === 'app/Exception/AppException.php', JSON.stringify(phpClassDef.matches.slice(0, 3)))
+  check('PHP throw call is not treated as definition', !phpClassDef.matches.some((item) => item.path === 'app/Controller/Test.php'), JSON.stringify(phpClassDef.matches.slice(0, 3)))
+  const phpFnDef = await call(router, 'code.definition', { root, path: 'app/Controller/Test.php', line: 12, column: 14, word: 'get_return', content: phpUse })
+  check('PHP finds global function', phpFnDef.matches[0]?.path === 'app/Helper/Functions.php', JSON.stringify(phpFnDef.matches.slice(0, 3)))
+  const phpStaticClassDef = await call(router, 'code.definition', { root, path: 'app/Controller/Test.php', line: 13, column: 22, word: 'ItemLogic', content: phpUse })
+  check('PHP static call class resolves via use', phpStaticClassDef.matches[0]?.path === 'app/Logic/ItemLogic.php', JSON.stringify(phpStaticClassDef.matches.slice(0, 3)))
+  const phpStaticMethodDef = await call(router, 'code.definition', { root, path: 'app/Controller/Test.php', line: 13, column: 36, word: 'getItemData', content: phpUse })
+  check('PHP static method resolves via qualified use', phpStaticMethodDef.matches[0]?.path === 'app/Logic/ItemLogic.php', JSON.stringify(phpStaticMethodDef.matches.slice(0, 3)))
+  await call(router, 'fs.delete', { root, path: 'app' }).catch(() => {})
+  await call(router, 'fs.delete', { root, path: 'composer.json' }).catch(() => {})
+
   console.log('workspaces')
   const fakeSessions = new Map([
     ['s1', { id: 's1', updatedAt: 20 }],

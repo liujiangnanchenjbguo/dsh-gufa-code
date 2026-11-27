@@ -190,7 +190,67 @@ function importTargetPaths(currentPath, spec) {
   ]
 }
 
-async function listCandidates(root, textBudgets) {
+/** 解析 PHP 的 use 语句：短类名 → 完全限定类名（支持 as 别名 / use function / use const）。 */
+function parsePhpImports(text) {
+  const map = new Map()
+  const useRe = /^[ \t]*use[ \t]+(?:function[ \t]+|const[ \t]+)?([A-Za-z_][\w\\]*)(?:[ \t]+as[ \t]+([A-Za-z_]\w*))?[ \t]*;/gm
+  let match
+  while ((match = useRe.exec(String(text))) !== null) {
+    const fqcn = match[1]
+    const segments = fqcn.split('\\').filter((part) => part !== '')
+    if (segments.length === 0) continue
+    const alias = match[2] !== undefined ? match[2] : segments[segments.length - 1]
+    if (/^[A-Za-z_]\w*$/.test(alias)) map.set(alias, fqcn)
+  }
+  return map
+}
+
+/** 读 composer.json 的 PSR-4 映射，按 mtime 缓存。 */
+const PSR4_CACHE = new Map()
+async function psr4Map(root) {
+  let stamp = 'none'
+  try {
+    stamp = String((await stat(join(root, 'composer.json'))).mtimeMs)
+  } catch {
+    stamp = 'none'
+  }
+  const cached = PSR4_CACHE.get(root)
+  if (cached !== undefined && cached.stamp === stamp) return cached.map
+  let map = {}
+  try {
+    const parsed = JSON.parse(await readFile(join(root, 'composer.json'), 'utf8'))
+    const autoload = parsed !== null && typeof parsed === 'object' ? parsed.autoload : null
+    const psr4 = autoload !== null && typeof autoload === 'object' ? autoload['psr-4'] : null
+    if (psr4 !== null && typeof psr4 === 'object') {
+      for (const [prefix, target] of Object.entries(psr4)) {
+        const value = Array.isArray(target) ? target[0] : target
+        if (typeof value !== 'string') continue
+        map[String(prefix).replace(/\\+$/, '')] = value.replace(/\/+$/, '').replace(/^\.\//, '')
+      }
+    }
+  } catch {
+    map = {}
+  }
+  PSR4_CACHE.set(root, { stamp, map })
+  return map
+}
+
+/** 完全限定 PHP 类名 → 项目内相对路径候选（PSR-4）。 */
+async function phpClassPaths(root, fqcn) {
+  const name = String(fqcn).replace(/^\\/, '')
+  const psr4 = await psr4Map(root)
+  const paths = []
+  for (const [prefix, dir] of Object.entries(psr4)) {
+    if (name !== prefix && !name.startsWith(`${prefix}\\`)) continue
+    const rest = name.slice(prefix.length).replace(/^\\/, '').replace(/\\/g, '/')
+    if (rest === '') continue
+    const base = dir === '' ? rest : `${dir}/${rest}`
+    paths.push(`${base}.php`, `${base}/index.php`)
+  }
+  return paths
+}
+
+/** 解析当前文件的 import/require，得到 标识符 → 模块 spec 的映射。 */async function listCandidates(root, textBudgets) {
   /* Git 项目用 git ls-files（尊重 .gitignore、含未跟踪文件），否则 BFS 遍历。 */
   let isGit = false
   try {
@@ -269,6 +329,13 @@ function findDefinitionsInText(text, relPath, word, patterns, results, current) 
     for (const pattern of patterns) {
       const match = pattern.regex.exec(line)
       if (match === null) continue
+      /* method 模式的修饰符段会把调用语句当成定义（`throw new X(...)` 的 `throw new ` 也符合），
+         导致跳到调用行自身；按前缀关键字排除。 */
+      if (pattern.kind === 'method') {
+        const wordIndex = match[0].indexOf(match[1])
+        const prefix = wordIndex >= 0 ? match[0].slice(0, wordIndex) : ''
+        if (/(?:^|\s)(?:new|throw|return|echo|print|yield|await|instanceof|elseif|else|while|for|foreach|switch|case|catch|if|require|include)\s*$/.test(prefix)) continue
+      }
       const column = (match.index ?? 0) + match[0].indexOf(match[1]) + 1
       results.push({
         path: relPath,
@@ -321,6 +388,22 @@ export async function definition(body, env) {
     const importMap = parseImportMap(text)
     const importedSpec = importMap.get(word)
     const importTargets = new Set(importedSpec === undefined ? [] : importTargetPaths(relPath, importedSpec))
+    /* PHP：use 导入 + composer.json PSR-4；静态调用 ItemLogic::getItemData 点到方法名时按限定符反查 */
+    try {
+      const phpImports = parsePhpImports(text)
+      if (phpImports.size > 0) {
+        const owners = []
+        if (phpImports.has(word)) owners.push(word)
+        const prefix = lineText.slice(0, Math.max(column, 1))
+        const qualified = /([A-Za-z_]\w*)::\s*[\A-Za-z_0-9]*$/.exec(prefix)
+        if (qualified !== null && phpImports.has(qualified[1]) && !owners.includes(qualified[1])) owners.push(qualified[1])
+        for (const owner of owners) {
+          for (const target of await phpClassPaths(root, phpImports.get(owner))) importTargets.add(target)
+        }
+      }
+    } catch {
+      /* PHP 解析失败不影响其它语言 */
+    }
     const results = []
     /* 1) 当前文件（用编辑器传来的内容，能命中未保存的改动） */
     findDefinitionsInText(text, relPath, word, patterns, results, current)
@@ -420,7 +503,5 @@ export async function resolvePath(body, env) {
   return { path: pool[0], matches: pool.slice(0, 10) }
 }
 
-export function register(router, env) {
-  router.method('code.definition', (body) => definition(body, env))
-  router.method('code.resolvePath', (body) => resolvePath(body, env))
-}
+/** 故意不注册路由：code.definition/code.resolvePath 由 host/fs.js 统一注册（热重载入口）。 */
+export function register() {}
