@@ -261,6 +261,9 @@ function install(ctx) {
 			};
 			const onDrop = (event) => {
 				if (!isOurs(event.dataTransfer)) return;
+				/* 资源管理器内部拖拽移动文件：交给 Explorer 自己的 drop 处理，不当作 @ 引用插入 */
+				if (event.dataTransfer !== null && Array.prototype.indexOf.call(event.dataTransfer.types, "application/x-gufa-explorer-move") !== -1
+					&& event.target instanceof Element && event.target.closest(".gufa-sidepanel") !== null) return;
 				if (dropZoneOf(event.target) === null) {
 					toast("松手位置不在输入框内，未插入", "err");
 					return;

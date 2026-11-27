@@ -1786,6 +1786,8 @@ html[data-platform=darwin][data-fullscreen] .gufa-titlebar{height:44px;padding-l
   color:var(--gufa-text);cursor:pointer;text-align:left;font-size:12.5px;white-space:nowrap;min-width:0;width:100%}
 .gufa-tree-row:hover{background:var(--gufa-hover)}
 .gufa-tree-row[data-selected]{background:var(--gufa-active)}
+.gufa-tree-row[data-drop]{background:color-mix(in srgb, var(--gufa-accent) 18%, transparent);outline:1px dashed var(--gufa-accent);outline-offset:-1px;border-radius:6px}
+.gufa-panel-body[data-drop-root]{box-shadow:inset 0 0 0 2px color-mix(in srgb, var(--gufa-accent) 55%, transparent)}
 .gufa-tree-row[data-kind="dir"]{color:var(--gufa-text)}
 .gufa-tree-name{overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0}
 .gufa-explorer-notice{margin:4px 10px 0;padding:3px 8px;border-radius:6px;font-size:11px;line-height:1.5;color:var(--gufa-text);

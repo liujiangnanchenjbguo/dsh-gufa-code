@@ -3,6 +3,8 @@
  * 纯展示 + 直接调用 Host API，状态自持；容器在 90-app.js。
  */
 
+const GUFA_EXPLORER_MOVE_TYPE = 'application/x-gufa-explorer-move'
+
 /* ── 资源管理器 ────────────────────────────────────────────────────────── */
 G.Explorer = function Explorer(props) {
   const t = G.useT()
@@ -12,6 +14,8 @@ G.Explorer = function Explorer(props) {
   const [selected, setSelected] = useState(() => (props.activePath ? { path: props.activePath, kind: 'file' } : null))
   const [multi, setMulti] = useState([])
   const [clipboard, setClipboard] = useState(null)
+  const [dragTarget, setDragTarget] = useState(null)
+  const internalDragRef = useRef(null)
   const [menu, setMenu] = useState(null)
   const [menuError, setMenuError] = useState('')
   const [notice, setNotice] = useState('')
@@ -135,8 +139,12 @@ G.Explorer = function Explorer(props) {
 
   const copySelection = (paths) => {
     if (!Array.isArray(paths) || paths.length === 0) return
-    setClipboard({ entries: paths.slice() })
+    const entries = paths.filter((path) => typeof path === 'string' && path !== '')
+    if (entries.length === 0) return
+    setClipboard({ entries })
     setMenuError('')
+    /* 同时写入系统剪贴板（file URL / alias 列表）：另一个古法编程实例或 Finder 可以直接粘贴 */
+    void G.api('fs.copyToSystemClipboard', { root, from: entries }).catch(() => {})
   }
 
   /* 内置剪贴板（IDE 内复制/剪切）优先；没有时读系统剪贴板里的文件/文件夹路径（Finder/资源管理器复制）。 */
@@ -179,6 +187,59 @@ G.Explorer = function Explorer(props) {
     window.addEventListener('blur', clear)
     return () => window.removeEventListener('blur', clear)
   }, [])
+
+  const selectRoot = () => {
+    containerRef.current?.focus?.()
+    setMulti([])
+    setSelected({ path: '', kind: 'dir' })
+  }
+
+  /** 内部拖拽目标目录：拖到文件行 = 其父目录；拖到文件夹/空白 = 文件夹/根目录。 */
+  const internalDropTargetDir = (target) => {
+    const row = target instanceof Element ? target.closest('[data-edrv-path]') : null
+    if (row === null) return ''
+    const path = row.getAttribute('data-edrv-path') ?? ''
+    const kind = row.getAttribute('data-kind')
+    return kind === 'dir' ? path : projectDirOf(path)
+  }
+
+  /** 把资源管理器里拖拽的条目移动到目标目录（根目录传 ''）。 */
+  const moveEntries = async (paths, targetDir) => {
+    const list = (Array.isArray(paths) ? paths : []).filter((path) => typeof path === 'string' && path !== '')
+    const movable = list.filter((path) => {
+      if (path === targetDir) return false
+      if (targetDir !== '' && targetDir.startsWith(`${path}/`)) return false
+      return true
+    })
+    if (movable.length === 0) return
+    showNotice(`正在移动 ${movable.length} 项…`)
+    const failed = []
+    let moved = 0
+    let last = null
+    for (const path of movable) {
+      const base = path.split('/').filter(Boolean).pop() ?? path
+      const nextPath = targetDir === '' ? base : `${targetDir}/${base}`
+      if (nextPath === path) continue
+      try {
+        await G.api('fs.rename', { root, path, nextPath })
+        moved += 1
+        last = { path: nextPath, kind: kindByPathRef.current.get(path) ?? 'file' }
+      } catch (error) {
+        failed.push(`${path}：${G.errorText(error)}`)
+      }
+    }
+    const dirsToRefresh = new Set(['', targetDir])
+    for (const path of movable) dirsToRefresh.add(projectDirOf(path))
+    for (const dir of dirsToRefresh) void loadDir(dir)
+    props.onChanged?.()
+    if (last !== null) {
+      setMulti([])
+      setSelected(last)
+      if (last.kind === 'dir') setExpanded((current) => ({ ...current, [last.path]: true }))
+    }
+    if (moved > 0) showNotice(`已移动 ${moved} 项${failed.length > 0 ? `，${failed.length} 项失败` : ''}`)
+    else if (failed.length > 0) showNotice(`移动失败：${failed[0]}`)
+  }
 
   const noticeRef = useRef(0)
   const showNotice = (text) => {
@@ -332,6 +393,8 @@ G.Explorer = function Explorer(props) {
             'data-git-status': status !== undefined ? status : undefined,
             /* 给 dsh-drag-ref 用：把资源管理器行变成可拖拽的 @ 引用来源 */
             'data-edrv-path': entry.path,
+            'data-drop': isDir && dragTarget === entry.path ? '' : undefined,
+            draggable: true,
             style: { paddingLeft: 8 + depth * 14 },
             title: entry.path,
             onClick: (event) => {
@@ -354,6 +417,22 @@ G.Explorer = function Explorer(props) {
             },
             onDoubleClick: () => {
               if (!isDir) props.onOpenFile?.(entry.path, { preview: false })
+            },
+            onDragStart: (event) => {
+              const dragPaths = multi.length > 0 && multi.includes(entry.path) ? multi.slice() : [entry.path]
+              internalDragRef.current = dragPaths
+              try {
+                if (event.dataTransfer !== null && event.dataTransfer !== undefined) {
+                  event.dataTransfer.effectAllowed = 'copyMove'
+                  event.dataTransfer.setData(GUFA_EXPLORER_MOVE_TYPE, JSON.stringify({ paths: dragPaths }))
+                }
+              } catch {
+                /* ignore */
+              }
+            },
+            onDragEnd: () => {
+              internalDragRef.current = null
+              setDragTarget(null)
             },
             onContextMenu: (event) => openContextMenu(event, entry),
           },
@@ -406,28 +485,59 @@ G.Explorer = function Explorer(props) {
       },
       onDragOver: (event) => {
         const types = event.dataTransfer?.types
-        if (types === undefined || types === null || !Array.from(types).includes('Files')) return
+        if (types === undefined || types === null) return
+        const list = Array.from(types)
+        if (list.includes(GUFA_EXPLORER_MOVE_TYPE)) {
+          event.preventDefault()
+          event.stopPropagation()
+          if (event.dataTransfer !== null && event.dataTransfer !== undefined) event.dataTransfer.dropEffect = 'move'
+          setDragTarget(internalDropTargetDir(event.target))
+          return
+        }
+        if (!list.includes('Files')) return
         event.preventDefault()
         event.stopPropagation()
         event.dataTransfer.dropEffect = 'copy'
       },
+      onDragLeave: (event) => {
+        if (event.currentTarget instanceof Node && event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+        setDragTarget(null)
+      },
       onDrop: (event) => {
+        const types = event.dataTransfer?.types
+        if (types !== undefined && types !== null && Array.from(types).includes(GUFA_EXPLORER_MOVE_TYPE)) {
+          event.preventDefault()
+          event.stopPropagation()
+          const paths = internalDragRef.current
+          internalDragRef.current = null
+          const targetDir = internalDropTargetDir(event.target)
+          setDragTarget(null)
+          void moveEntries(paths, targetDir)
+          return
+        }
         const files = event.dataTransfer?.files
         if (files === undefined || files === null || files.length === 0) return
         event.preventDefault()
         event.stopPropagation()
         void uploadFiles(files, dropTargetDir(event.target))
       },
+      onClick: (event) => {
+        /* 点击资源管理器空白处：选中根目录，而不是保留上一次选中的文件/文件夹 */
+        if (!(event.target instanceof Element)) return
+        if (event.target.closest('[data-edrv-path]') !== null) return
+        if (event.target.closest('.gufa-panel-head, button, input, textarea, [role="menu"]') !== null) return
+        selectRoot()
+      },
       onKeyDown: (event) => {
         if (event.key === 'Enter') {
-          if (selected === null) return
+          if (selected === null || selected.path === '') return
           event.preventDefault()
           props.onRename?.(selected.path)
           return
         }
         const mod = event.metaKey || event.ctrlKey
         if (!mod || event.altKey) {
-          if (event.key === 'Delete' && selected !== null) {
+          if (event.key === 'Delete' && selected !== null && selected.path !== '') {
             event.preventDefault()
             props.onDelete?.(selected.path)
           }
@@ -442,7 +552,7 @@ G.Explorer = function Explorer(props) {
           void pasteInto(selectedDir())
         } else if (key === 'backspace' || event.key === 'Delete') {
           event.preventDefault()
-          if (selected !== null) props.onDelete?.(selected.path)
+          if (selected !== null && selected.path !== '') props.onDelete?.(selected.path)
         }
       },
     },
@@ -462,6 +572,7 @@ G.Explorer = function Explorer(props) {
       'div',
       {
         className: 'gufa-panel-body gufa-scroll',
+        'data-drop-root': dragTarget === '' ? '' : undefined,
         onContextMenu: (event) => {
           try {
             if (event.target !== null && event.target !== undefined && typeof event.target.closest === 'function' && event.target.closest('.gufa-tree-row') !== null) return

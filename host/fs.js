@@ -6,12 +6,12 @@ import { createHash, randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import { createReadStream } from 'node:fs'
 import { access, cp, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { constants } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ApiError, badRequest } from './context.js'
 import { registerLsp } from './lsp.js'
 
@@ -99,7 +99,31 @@ async function readClipboardFilePaths() {
         'JSON.stringify(out);',
       ].join('\n')
       const { stdout } = await runCommand('osascript', ['-l', 'JavaScript', '-e', script], { timeout: 5000, maxBuffer: 2 * 1024 * 1024 })
-      return parseClipboardPaths(stdout)
+      const direct = parseClipboardPaths(stdout)
+      if (direct.length > 0) return direct
+      /* 古法编程自己拷的文件是 AppleScript alias 列表（不是 Finder 的 file-url 项），
+         用 the clipboard as list 再取一次 POSIX 路径。 */
+      const listScript = [
+        'on run',
+        'try',
+        'set theList to the clipboard as list',
+        'on error',
+        'return ""',
+        'end try',
+        'set out to ""',
+        'repeat with f in theList',
+        'try',
+        'set out to out & POSIX path of f & linefeed',
+        'end try',
+        'end repeat',
+        'return out',
+        'end run',
+      ].join('\n')
+      const fallback = await runCommand('osascript', ['-e', listScript], { timeout: 5000, maxBuffer: 2 * 1024 * 1024 }).catch(() => ({ stdout: '' }))
+      return String(fallback.stdout ?? '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line !== '')
     }
     if (process.platform === 'win32') {
       const script = [
@@ -143,6 +167,57 @@ function parseClipboardPaths(stdout) {
     return []
   }
 }
+
+/** 把项目内文件/文件夹路径写进系统剪贴板（file URL），供另一个古法编程实例/系统粘贴。 */
+async function writeClipboardFilePaths(paths) {
+  const list = paths.filter((item) => typeof item === 'string' && item !== '')
+  if (list.length === 0) return false
+  try {
+    if (process.platform === 'darwin') {
+      /* 用 AppleScript 写 alias 列表：JXA 的 writeObjects 在 osascript 退出后剪贴板会丢，
+         AppleScript 的 set the clipboard to {POSIX file ...} 能跨进程保留。 */
+      const script = [
+        'on run argv',
+        'set out to {}',
+        'repeat with p in argv',
+        'set end of out to POSIX file p',
+        'end repeat',
+        'set the clipboard to out',
+        'end run',
+      ].join('\n')
+      await runCommand('osascript', ['-e', script, ...list], { timeout: 8000, maxBuffer: 1024 * 1024 })
+      return true
+    }
+    if (process.platform === 'win32') {
+      const script = [
+        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;',
+        'Add-Type -AssemblyName System.Windows.Forms;',
+        '$paths = ConvertFrom-Json $env:GUFA_CLIP_PATHS;',
+        '$col = New-Object System.Collections.Specialized.StringCollection;',
+        'foreach ($item in @($paths)) { [void]$col.Add([string]$item) }',
+        '[System.Windows.Forms.Clipboard]::SetFileDropList($col);',
+      ].join('\n')
+      await runCommand('powershell', ['-NoProfile', '-NonInteractive', '-Sta', '-Command', script], {
+        timeout: 8000,
+        maxBuffer: 1024 * 1024,
+        env: { ...process.env, GUFA_CLIP_PATHS: JSON.stringify(list) },
+      })
+      return true
+    }
+    /* Linux：xclip 写 text/uri-list；没有 xclip 时返回 false 交给前端提示 */
+    const uriList = list.map((path) => pathToFileURL(path).href).join('\n') + '\n'
+    await new Promise((resolvePromise, reject) => {
+      const child = spawn('xclip', ['-selection', 'clipboard', '-t', 'text/uri-list', '-i'], { stdio: ['pipe', 'ignore', 'ignore'] })
+      child.once('error', reject)
+      child.once('exit', (code) => (code === 0 ? resolvePromise() : reject(new Error(`xclip exit ${code}`))))
+      child.stdin.end(uriList)
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 
 export async function resolveProjectPath(root, raw, { create = false } = {}) {
   if (typeof raw !== 'string') throw badRequest('path must be a string')
@@ -629,6 +704,26 @@ export function register(router, env) {
       throw new ApiError('clipboard-empty', '系统剪贴板里没有文件或文件夹', 400)
     }
     return { copied, failed }
+  })
+
+  /** 把资源管理器选中的文件/文件夹写入系统剪贴板（跨古法编程实例复制粘贴）。 */
+  router.method('fs.copyToSystemClipboard', async (body) => {
+    const root = await projectOf(env, body)
+    const list = Array.isArray(body.from) ? body.from.filter((item) => typeof item === 'string' && item !== '') : []
+    if (list.length === 0) throw badRequest('from is required')
+    const absolute = []
+    for (const raw of list) {
+      const source = await resolveProjectPath(root, raw)
+      if (source === root) throw new ApiError('refuse', '不能复制项目根目录', 400)
+      const info = await stat(source)
+      if (info === undefined) continue
+      absolute.push(source)
+    }
+    if (absolute.length === 0) throw new ApiError('not-found', '选中的文件不存在', 404)
+    if (!(await writeClipboardFilePaths(absolute))) {
+      throw new ApiError('clipboard-failed', '写入系统剪贴板失败（Linux 需要安装 xclip）', 500)
+    }
+    return { ok: true, count: absolute.length }
   })
 
   /** 把系统剪贴板里的文件匹配回项目内已有文件（供聊天框「粘贴文件→@引用」使用）。 */
